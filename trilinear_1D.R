@@ -588,18 +588,6 @@ DF<-d %>% dplyr::mutate(Dataset="null") %>% base::split.data.frame(.$uniqueID,.$
 d_<-d %>% dplyr::filter(CC == 0) %>% dplyr::mutate(Dataset="vehicle")%>%  base::split.data.frame(.$uniqueID,.$dataset) 
 d_1<-d %>% dplyr::filter(CC > 0) %>% dplyr::mutate(Dataset="treated") %>% base::split.data.frame(.$uniqueID,.$dataset) 
 
-DF<-rbindlist(DF) 
-d_<-rbindlist(d_)
-d_1<-rbindlist(d_1)
-
-DF<-DF %>% subset(uniqueID %in% d_$uniqueID & uniqueID %in% d_1$uniqueID)
-d_<-d_%>% subset(uniqueID %in% DF$uniqueID & uniqueID %in% d_1$uniqueID)
-d_1<-d_1%>% subset(uniqueID %in% DF$uniqueID & uniqueID %in% d_$uniqueID)
-
-DF<-DF %>% base::split.data.frame(.$uniqueID,.$dataset) 
-d_<-d_ %>%base::split.data.frame(.$uniqueID,.$dataset) 
-d_1<-d_1 %>%base::split.data.frame(.$uniqueID,.$dataset) 
-
 
 ###selection of sample compound
 d<-d %>%
@@ -770,11 +758,11 @@ CP<-function(df_0){
     Split<-ctest %>%subset(n<(max(n))) %>% data.frame()
     Split<-Split %>% subset(Split$C[duplicated(Split$C)] %in% Split$C)
     Split$LineRegion<-as.numeric(Split$LineRegion)
-    
-    mode<-function(x){
-      ux<-unique(x)
-      ux[which.max(tabulate(match(x,ux)))]
-    }
+    # 
+    # mode<-function(x){
+    #   ux<-unique(x)
+    #   ux[which.max(tabulate(match(x,ux)))]
+    # }
     #find duplicates and subtract 1 from LineRegion
     #find duplicates and get the first one
     dap<-list()
@@ -783,7 +771,7 @@ CP<-function(df_0){
     ##dap[[i]]<-dap[[i]] %>% dplyr::dplyr::group_by(C) %>% dplyr::mutate(LineRegion=ifelse(LineRegion<mode(LineRegion),mode(LineRegion),LineRegion))
     
     
-    dap[[i]]<-dap[[i]] %>%dplyr::group_by(C) %>%  dplyr::mutate(LineRegion=ifelse(as.numeric(LineRegion)>mode(as.numeric(LineRegion)),ifelse(LineRegion==2 & I<0.5 & max(as.numeric(LineRegion==3)),mode(as.numeric(LineRegion))+1,mode(as.numeric(LineRegion))),as.numeric(LineRegion)))
+    dap[[i]]<-dap[[i]] %>%dplyr::group_by(C) %>%  dplyr::mutate(LineRegion=ifelse(LineRegion>min(LineRegion) & I>0.5,min(LineRegion),max(LineRegion)))
     df_0[[i]]$LineRegion[df_0[[i]]$C %in% dap[[i]]$C]<-dap[[i]]$LineRegion
     df_0[[i]]$LineRegion<-as.factor(df_0[[i]]$LineRegion)
     
@@ -914,19 +902,24 @@ tlresults<-tlstat(DF,df_,df_1)
 tlresults1<-tlresults#save unfiltered data
 #apply filters prior to hypothesis testing
 #tlresults<-tlresults %>% keep(function(x) min(as.numeric(x$Rsq),na.rm=TRUE) > 0.8)#the linear region have the largest slope < 0.03
+tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "vehicle"),'rss'],na.rm=TRUE) > sum(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "treated"),'rss'],na.rm=TRUE))
+tlresults<-tlresults %>% keep(function(x)min(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "vehicle"),'Tm'],na.rm=TRUE) < min(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "treated"),'Tm'],na.rm=TRUE))
 
-tlresults<-tlresults %>% keep(function(x) isTRUE(head(data.frame(x[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "vehicle"),]),1)$Tm < head(data.frame(x[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "treated"),]),1)$Tm))
+#tlresults<-tlresults %>% keep(function(x)  sum(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "null"),'rss'],na.rm=TRUE) <7)#move data with extremely large RSS values 
+#tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[!stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "null"),'rss'],na.rm=TRUE) <2.3)
+#tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[data.frame(x)$Dataset== "null",'rss'],na.rm=TRUE) > sum(data.frame(x)[!data.frame(x)$Dataset== "null",'rss'],na.rm=TRUE))#remove data with extremely large RSS values 
 
+#tlresults<-tlresults %>% keep(function(x) max(data.frame(x)$slope[x$LineRegion==2],na.rm=TRUE) < -0.02)#the linear region have the largest slope < 0.03
+tlresults<-lapply(tlresults,na.exclude)
+# tlresults<-tlresults %>% keep(function(x) isTRUE(head(data.frame(x[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "vehicle"),]),1)$Tm < head(data.frame(x[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "treated"),]),1)$Tm))
+# 
+# #tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "null"),'rss'],na.rm=TRUE) <7)#move data with extremely large RSS values 
+# #tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[!stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "null"),'rss'],na.rm=TRUE) <2.3)
+# tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "null"),'rss'],na.rm=TRUE) > sum(data.frame(x)[!stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "null"),'rss'],na.rm=TRUE))#remove data with extremely large RSS values 
+# 
+# tlresults<-tlresults %>% keep(function(x) max(data.frame(x$slope)[data.frame(x$LineRegion)==2],na.rm=TRUE) < -0.06)#the linear region have the largest slope < 0.03
+# tlresults<-tlresults %>% keep(function(x) max(data.frame(x$slope)[!data.frame(x$LineRegion)==2],na.rm=TRUE) > -0.03)#the linear region have the largest slope < 0.03
 
-
-tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "null"),'rss'],na.rm=TRUE) <7)#move data with extremely large RSS values 
-tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[!stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "null"),'rss'],na.rm=TRUE) <2.3)
-tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "null"),'rss'],na.rm=TRUE) > sum(data.frame(x)[!stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "null"),'rss'],na.rm=TRUE))#remove data with extremely large RSS values 
-
-tlresults<-tlresults %>% keep(function(x) max(data.frame(x$slope)[data.frame(x$LineRegion)==2],na.rm=TRUE) < -0.02)#the linear region have the largest slope < 0.03
-tlresults<-lapply(tlresults,na.exclude)#the linear region have the largest slope < 0.03
-
-tlresults<-tlresults %>% keep(function(x) any(data.frame(x$LineRegion)==2) & nrow(x)==9& min(data.frame(x$Rsq)>0.45))
 #tlresults<-tlresults %>% keep(function(x) length(x$slope)>5)#remove list values with less than 5 rows
 #tlresults<-tlresults %>% keep(function(x) abs(max(x$slope[!x$LineRegion==2] ,na.rm=TRUE)) < 0.1)#eeps plateau values where the min abs(slope) < 0.06
 #steepest slope in vehicle and treatment has to be less than 0.06C
@@ -1042,10 +1035,18 @@ tlCI<-function(f,Df1,df1,df_v,df_t,DFN,overlay=TRUE){
   pred2<-data.frame()
   pred3<-data.frame()
   
-  pred1<-predict(null$M1[[1]],interval="confidence")
-  pred2<-predict(null$M1[[2]],interval="confidence")
-  pred3<-predict(null$M1[[3]],interval="confidence")
-  
+  if(length(null$M1)==3){
+    pred1<-predict(null$M1[[1]],interval="confidence")
+    pred2<-predict(null$M1[[2]],interval="confidence")
+    pred3<-predict(null$M1[[3]],interval="confidence")
+  }else if(length(null$M1==2)){
+    pred1<-predict(null$M1[[1]],interval="confidence")
+    pred2<-predict(null$M1[[2]],interval="confidence")
+  }else{
+    pred1<-data.frame()
+    pred2<-data.frame()
+    pred3<-data.frame()
+  }
   
   
   pred1<-na.omit(pred1)
@@ -1084,11 +1085,18 @@ tlCI<-function(f,Df1,df1,df_v,df_t,DFN,overlay=TRUE){
   vehicle<-na.omit(Df1[[i]])
   vehicle<-vehicle %>% subset(stringr::str_detect(tolower(Dataset), pattern = "vehicle"))
   
-  
-  pred1<-predict(vehicle$M1[[1]], interval="confidence")
-  pred2<-predict(vehicle$M1[[2]], interval="confidence")
-  pred3<-predict(vehicle$M1[[3]], interval="confidence")
-  
+  if(length(vehicle$M1)==3){
+    pred1<-predict(vehicle$M1[[1]], interval="confidence")
+    pred2<-predict(vehicle$M1[[2]], interval="confidence")
+    pred3<-predict(vehicle$M1[[3]], interval="confidence")
+  }else if (length(vehicle$M1)==2){
+    pred1<-predict(vehicle$M1[[1]], interval="confidence")
+    pred2<-predict(vehicle$M1[[2]], interval="confidence")
+  }else{
+    pred1<-data.frame()
+    pred2<-data.frame()
+    pred3<-data.frame()
+  }
   
   Pred1<-NA
   pred1<-na.omit(pred1)
@@ -1126,11 +1134,18 @@ tlCI<-function(f,Df1,df1,df_v,df_t,DFN,overlay=TRUE){
   treated<-na.omit(Df1[[i]])
   treated<-treated %>% dplyr::filter(stringr::str_detect(tolower(Dataset), pattern = "treated"))
   
-  
-  pred1<-predict(treated$M1[[1]], interval="confidence")
-  pred2<-predict(treated$M1[[2]], interval="confidence")
-  pred3<-predict(treated$M1[[3]], interval="confidence")
-  
+  if(length(treated$M1)==3){
+    pred1<-predict(treated$M1[[1]], interval="confidence")
+    pred2<-predict(treated$M1[[2]], interval="confidence")
+    pred3<-predict(treated$M1[[3]], interval="confidence")
+  }else if(length(treated$M1)==2){
+    pred1<-predict(treated$M1[[1]], interval="confidence")
+    pred2<-predict(treated$M1[[2]], interval="confidence")
+  }else{
+    pred1<-data.frame()
+    pred2<-data.frame()
+    pred3<-data.frame()
+  }
   
   pred1<-na.omit(pred1)
   pred2<-na.omit(pred2)
@@ -1165,7 +1180,7 @@ tlCI<-function(f,Df1,df1,df_v,df_t,DFN,overlay=TRUE){
   PLR_P2<-PLR_P1+ggplot2::geom_point(Pred2, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +ggplot2::geom_ribbon(data=Pred2,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+
     ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Soluble Fraction")
   if(overlay=="TRUE"){
-    AUCd<-round(P2_AUC-P1_AUC,2)
+    AUCd<-round(P2_AUC-P1_AUC,2)[1]
     Tm1<-data.frame()
     Tm2<-data.frame()
     
@@ -1174,14 +1189,17 @@ tlCI<-function(f,Df1,df1,df_v,df_t,DFN,overlay=TRUE){
     Tm2<-round(treated$Tm,1)[1]
     Tm_d<-Tm2 -Tm1
     p<-expression(paste(Delta, "AUCdiff"))
-    if(AUCd>0){
+    if(AUCd>0&!is.na(AUCd)){
       P1_AUC <- pracma::trapz(Pred1$C,Pred1$lower)
       P2_AUC <- pracma::trapz(Pred2$C,Pred2$upper)
       AUCd<-round(P2_AUC-P1_AUC,2)
-    }else{
+    }else if(AUCd<0&!is.na(AUCd)){
       P1_AUC <- pracma::trapz(Pred1$C,Pred1$upper)
       P2_AUC <- pracma::trapz(Pred2$C,Pred2$lower)
       AUCd<-round(P2_AUC-P1_AUC,2)
+    }else{
+      P1_AUC<-NA
+      P2_AUC<-NA
     }
     AUCd<-as.numeric(AUCd)
     PLR_P2<-ggplot2::ggplot()
@@ -1197,7 +1215,6 @@ tlCI<-function(f,Df1,df1,df_v,df_t,DFN,overlay=TRUE){
     print(PLR)
   }
 }
-i<-7
-
+i<-2
 
 plotTL<-tlCI(i,Df1,df1,df_v,df_t,DFN,overlay=TRUE)
