@@ -1195,7 +1195,7 @@ tlCI<-function(f,df1,df_v,df_t,DFN,overlay=TRUE){
     print(PLR)
   }
 }
-i<-4
+i<-1
 
 
 plotTL<-tlCI(i,df1,df_v,df_t,DFN,overlay=TRUE)
