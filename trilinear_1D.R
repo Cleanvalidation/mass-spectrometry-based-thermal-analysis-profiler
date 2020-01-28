@@ -584,8 +584,8 @@ find_pat = function(pat, x)
 # d$CC<-ifelse(d$dataset=="F4" | d$dataset=="F5",0,1)#concentration
 d<-readRDS("tppData1.Rds")
 names(d)<-c("dataset","uniqueID","I","C","CC","replicate","UPM")
-d<-d %>% subset(dataset==unique(dataset)[4])
-DF<-d %>% dplyr::mutate(Dataset="null") %>% base::split.data.frame(.$uniqueID,.$dataset)
+d<-d %>% subset(dataset == unique(d$dataset)[3])
+DF<-d %>% dplyr::mutate(Dataset="null") %>% base::split.data.frame(.$uniqueID,.$dataset) 
 d_<-d %>% dplyr::filter(CC == 0) %>% dplyr::mutate(Dataset="vehicle")%>%  base::split.data.frame(.$uniqueID,.$dataset) 
 d_1<-d %>% dplyr::filter(CC > 0) %>% dplyr::mutate(Dataset="treated") %>% base::split.data.frame(.$uniqueID,.$dataset) 
 
@@ -772,19 +772,9 @@ CP<-function(df_0){
     ##dap[[i]]<-dap[[i]] %>% dplyr::dplyr::group_by(C) %>% dplyr::mutate(LineRegion=ifelse(LineRegion<mode(LineRegion),mode(LineRegion),LineRegion))
     
     
-    dap[[i]]<-dap[[i]] %>%dplyr::group_by(C) %>%  dplyr::mutate(LineRegion=ifelse(LineRegion>min(LineRegion) & I>0.5,ifelse(LineRegion<max(LineRegion) & I>0.5,max(LineRegion),min(LineRegion)),LineRegion))
+    dap[[i]]<-dap[[i]] %>%dplyr::group_by(C) %>%  dplyr::mutate(LineRegion=ifelse(LineRegion>min(LineRegion) & I>0.5,min(LineRegion),max(LineRegion)))
     df_0[[i]]$LineRegion[df_0[[i]]$C %in% dap[[i]]$C]<-dap[[i]]$LineRegion
     df_0[[i]]$LineRegion<-as.factor(df_0[[i]]$LineRegion)
-    
-    dap[[i]]<-df_0[[i]] %>% subset(df_0[[i]]$C %in% Split$C) 
-    dap[[i]]$LineRegion<-as.numeric(dap[[i]]$LineRegion)
-    ##dap[[i]]<-dap[[i]] %>% dplyr::dplyr::group_by(C) %>% dplyr::mutate(LineRegion=ifelse(LineRegion<mode(LineRegion),mode(LineRegion),LineRegion))
-    
-    
-    dap[[i]]<-dap[[i]] %>%dplyr::group_by(C) %>%  dplyr::mutate(LineRegion=ifelse(LineRegion>min(LineRegion) & I>0.5,min(LineRegion),ifelse(LineRegion<max(LineRegion) & I<0.5,max(LineRegion),LineRegion)))
-    df_0[[i]]$LineRegion[df_0[[i]]$C %in% dap[[i]]$C]<-dap[[i]]$LineRegion
-    df_0[[i]]$LineRegion<-as.factor(df_0[[i]]$LineRegion)
-    
     
   }
   
@@ -825,12 +815,12 @@ tlstat<-function(DF,df,df1){
   
   
   mean1<-list()
-  mean1[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),Dataset="vehicle",uniqueID=df[[i]]$uniqueID[1],Tm=rep(0,1))
+  mean1[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),dataset="vehicle",uniqueID=df[[i]]$uniqueID[1],Tm=rep(0,1))
   
   for(i in 1:length(df)){
     df[[i]]<-unique(df[[i]])
     mean1[[i]]<-df[[i]] %>% data.frame(.) %>% 
-      dplyr::group_nest(uniqueID,LineRegion,dataset) %>%
+      dplyr::group_nest(LineRegion,uniqueID,Dataset) %>%
       dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
                     CI=map(M1,function(x){predict(x,interval="confidence")[,1]} %>% data.frame(.)),
                     Tm=with(df[[i]], approx(df[[i]]$I,df[[i]]$C, xout=max(df[[i]]$I, na.rm=TRUE)-0.5))$y,
@@ -838,20 +828,22 @@ tlstat<-function(DF,df,df1){
                     intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
                     rss=map(M1,function(x){deviance(x)}),
                     Rsq=map(M1,function(x){summary(x)$r.squared}), 
-                    Dataset="vehicle",
+                    dataset=df[[i]]$dataset[1],
+     
                     uniqueID=df[[i]]$uniqueID[1])
+    
 
   }
   #define linear models with outputs
   
   mean1_1<-list()
-  mean1_1[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),Dataset="treated",uniqueID=df1[[i]]$uniqueID[1],Tm=rep(0,1))
+  mean1_1[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),dataset="treated",uniqueID=df1[[i]]$uniqueID[1],Tm=rep(0,1))
   
   
   for(i in 1:length(df1)){
     df1[[i]]<-unique(df1[[i]])
     mean1_1[[i]]<-df1[[i]] %>% 
-      dplyr::group_nest(uniqueID,LineRegion,dataset) %>% 
+      dplyr::group_nest(LineRegion,uniqueID,Dataset) %>% 
       dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
                     CI=map(M1,function(x){predict(x,interval="confidence")[,1]} %>% data.frame(.)),
                     Tm=with(df1[[i]], approx(df1[[i]]$I,df1[[i]]$C, xout=max(df1[[i]]$I, na.rm=TRUE)-0.5))$y,
@@ -859,6 +851,7 @@ tlstat<-function(DF,df,df1){
                     intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
                     rss=map(M1,function(x){deviance(x)}),
                     Rsq=map(M1,function(x){summary(x)$r.squared}), 
+                   
                     Dataset="treated",
                     uniqueID=df1[[i]]$uniqueID[1])
     
@@ -869,12 +862,12 @@ tlstat<-function(DF,df,df1){
   # null hypothesis
   #null
   mean3<-list()
-  mean3[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),Dataset="null",uniqueID=DF[[i]]$uniqueID[1],Tm=rep(0,1))
+  mean3[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),dataset="null",uniqueID=DF[[i]]$uniqueID[1],Tm=rep(0,1))
   
   for(i in 1:length(DF)){
     DF[[i]]<-unique(DF[[i]])
     mean3[[i]]<-DF[[i]] %>% 
-      dplyr::group_nest(uniqueID,LineRegion,dataset) %>%
+      dplyr::group_nest(LineRegion,uniqueID,Dataset) %>% 
       dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
                     CI=map(M1,function(x){predict(x,interval="confidence")[,1]} %>% data.frame(.)),
                     Tm=with(DF[[i]], approx( DF[[i]]$I,DF[[i]]$C, xout=max(DF[[i]]$I, na.rm=TRUE)-0.5))$y,
@@ -882,6 +875,7 @@ tlstat<-function(DF,df,df1){
                     intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
                     rss=map(M1,function(x){deviance(x)}),
                     Rsq=map(M1,function(x){summary(x)$r.squared}), 
+                    
                     Dataset="null",
                     uniqueID=DF[[i]]$uniqueID[1])
     
@@ -907,21 +901,32 @@ tlstat<-function(DF,df,df1){
 tlresults<-list()
 tlresults<-tlstat(DF,df_,df_1)
 tlresults1<-tlresults#save unfiltered data
+#apply filters prior to hypothesis testing
+#tlresults<-tlresults %>% keep(function(x) min(as.numeric(x$Rsq),na.rm=TRUE) > 0.8)#the linear region have the largest slope < 0.03
+tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "vehicle"),'rss'],na.rm=TRUE) > sum(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "treated"),'rss'],na.rm=TRUE))
+tlresults<-tlresults %>% keep(function(x)min(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "vehicle"),'Tm'],na.rm=TRUE) < min(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "treated"),'Tm'],na.rm=TRUE))
 
-#tlresults<-tlresults %>% keep(function(x) isTRUE(head(data.frame(x[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "vehicle"),]),1)$Tm < head(data.frame(x[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "treated"),]),1)$Tm))
- tlresults<-tlresults %>% keep(function(x) min(data.frame(x)$slope[x$LineRegion==2],na.rm=TRUE) < -0.03)
-tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[data.frame(x)$Dataset =="null",'rss'])>sum(data.frame(x)[!data.frame(x)$Dataset =="null",'rss']))
-tlresults<-tlresults %>% keep(function(x) min(data.frame(x)[data.frame(x)$Dataset =="treated",'Tm'],na.rm=TRUE)>min(data.frame(x)[!data.frame(x)$Dataset =="vehicle",'Tm'],na.rm=TRUE))
+#tlresults<-tlresults %>% keep(function(x)  sum(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "null"),'rss'],na.rm=TRUE) <7)#move data with extremely large RSS values 
+#tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[!stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "null"),'rss'],na.rm=TRUE) <2.3)
+#tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[data.frame(x)$Dataset== "null",'rss'],na.rm=TRUE) > sum(data.frame(x)[!data.frame(x)$Dataset== "null",'rss'],na.rm=TRUE))#remove data with extremely large RSS values 
 
+#tlresults<-tlresults %>% keep(function(x) min(data.frame(x)$slope[x$LineRegion==2],na.rm=TRUE) < -0.045)#the linear region have the largest slope < 0.03
+tlresults<-tlresults %>% keep(function(x) min(data.frame(x)$slope[!x$LineRegion==2],na.rm=TRUE) > -0.03)#the linear region have the largest slope < 0.03
+
+tlresults<-lapply(tlresults,na.exclude)
+# tlresults<-tlresults %>% keep(function(x) isTRUE(head(data.frame(x[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "vehicle"),]),1)$Tm < head(data.frame(x[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "treated"),]),1)$Tm))
 # 
-# tlresults<-tlresults %>% keep(function(x)  sum(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "null"),'rss'],na.rm=TRUE) <7)#move data with extremely large RSS values 
-# tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[!stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "null"),'rss'],na.rm=TRUE) <2.3)
-# tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "null"),'rss'],na.rm=TRUE) > sum(data.frame(x)[!stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "null"),'rss'],na.rm=TRUE))#remove data with extremely large RSS values 
+# #tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "null"),'rss'],na.rm=TRUE) <7)#move data with extremely large RSS values 
+# #tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[!stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "null"),'rss'],na.rm=TRUE) <2.3)
+# tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "null"),'rss'],na.rm=TRUE) > sum(data.frame(x)[!stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "null"),'rss'],na.rm=TRUE))#remove data with extremely large RSS values 
 # 
-# tlresults<-tlresults %>% keep(function(x) max(data.frame(x)$slope[x$LineRegion==2],na.rm=TRUE) < -0.02)#the linear region have the largest slope < 0.03
-tlresults<-lapply(tlresults,na.exclude)#the linear region have the largest slope < 0.03
+# tlresults<-tlresults %>% keep(function(x) max(data.frame(x$slope)[data.frame(x$LineRegion)==2],na.rm=TRUE) < -0.06)#the linear region have the largest slope < 0.03
+# tlresults<-tlresults %>% keep(function(x) max(data.frame(x$slope)[!data.frame(x$LineRegion)==2],na.rm=TRUE) > -0.03)#the linear region have the largest slope < 0.03
 
-#tlresults<-tlresults %>% keep(function(x) any(data.frame(x)$LineRegion==2) & nrow(x)==9& min(data.frame(x)$Rsq)>0.45)
+#tlresults<-tlresults %>% keep(function(x) length(x$slope)>5)#remove list values with less than 5 rows
+#tlresults<-tlresults %>% keep(function(x) abs(max(x$slope[!x$LineRegion==2] ,na.rm=TRUE)) < 0.1)#eeps plateau values where the min abs(slope) < 0.06
+#steepest slope in vehicle and treatment has to be less than 0.06C
+
 Nsum<-list()
 Nsum[[1]]<-data.frame(RSS=0,Tm=0)
 
@@ -948,8 +953,8 @@ names(Nsum)<-c("RSSn","Tmn","dataset","uniqueID","idn")
 Dsum<-Dsum %>% dplyr::right_join(Nsum,by = c("uniqueID"="uniqueID","dataset"="dataset"))
 
 test<-data.frame()
-test<-Dsum[which(Dsum$rank>=7),] %>% data.frame()#get the stable proteins (+ = Rsstreated-Rssvehicle)
-test<-test %>% dplyr::filter(Tma < 6.5)
+test<-Dsum[which(Dsum$rank==7 & Dsum$RSSn>Dsum$RSSd),] %>% data.frame()#get the stable proteins (+ = Rsstreated-Rssvehicle)
+
 # rssdec<-data.frame()
 # rssdec<-data.frame(data.table::fsort(test$RSSd,decreasing=TRUE))#decreasing Rss differences
 # names(rssdec)<-"Rssd"
@@ -978,20 +983,33 @@ df1<-data.table::rbindlist(df1) %>% as.data.frame() %>% unique(.)
 #unlist to data.frame
 #order the original data by RSS differences
 #vehicle
-df_v<-data.frame()
-df_v<-df1 %>% dplyr::inner_join(rbindlist(df_),by=c("uniqueID"="uniqueID","dataset"="dataset"))
+df2<-df_ %>% keep(function(x) head(x$uniqueID,1) %in% df1$uniqueID)
+df2<-data.table::rbindlist(df2) %>% data.frame() %>% unique(.)
 
 #treated
-df_t<-data.frame()
-df_t<-df1 %>% dplyr::inner_join(rbindlist(df_1),by=c("uniqueID"="uniqueID","dataset"="dataset"))
-
+df2_t<-data.frame()
+df2_t<-df_1 %>% keep(function(x) (head(x$uniqueID,1) %in% df1$uniqueID)) 
+df2_t<-data.table::rbindlist(df2_t) %>% as.data.frame() %>% unique(.)
 
 #null
-DFN<-data.frame()
-DFN<-df1%>% dplyr::inner_join(rbindlist(DF),by=c("uniqueID"="uniqueID","dataset"="dataset"))
+df2_n<-data.frame()
+df2_n<-DF %>% keep(function(x) (head(x$uniqueID,1) %in% df1$uniqueID)) 
+df2_n<-data.table::rbindlist(df2_n) %>% as.data.frame() %>% unique(.)
 
+#inner join to get all replicates in order of stability
+df_v <- df1 %>% 
+  dplyr::select(dataset,uniqueID) %>%
+  dplyr::right_join(df2, by = c('uniqueID' = 'uniqueID','dataset'='dataset'))
 
-
+df_t<-data.frame()
+df_t<-df1 %>%
+  dplyr::select(dataset,uniqueID) %>%
+  dplyr::right_join(df2_t, by = c('uniqueID' = 'uniqueID','dataset'='dataset'))
+names(df_t)[1]<-"dataset"
+DFN<-df1 %>%
+  dplyr::select(dataset,uniqueID) %>%
+  dplyr::right_join(df2_n, by = c('uniqueID' = 'uniqueID','dataset'='dataset'))
+names(DFN)[1]<-"dataset"
 
 #plot confidence intervals
 
@@ -1009,24 +1027,51 @@ tlCI<-function(f,Df1,df1,df_v,df_t,DFN,overlay=TRUE){
   Df1<-Df1
   DFN<-DFN
   #get original data 
-  DF1<-DFN %>% subset(uniqueID ==df1$uniqueID[1])
+  DF1<-DFN %>% subset(uniqueID ==df1$uniqueID[1]&dataset == df1$dataset[1])
   #get model data
   null<-data.frame()
   null<-na.omit(Df1[[i]])
   
   null<-null %>% subset(stringr::str_detect(tolower(Dataset), pattern = "null"))
   #first subset list is the element chosen from the list of proteins 
-
+  pred1<-data.frame()
+  pred2<-data.frame()
+  pred3<-data.frame()
   
- 
-  pred<-lapply(null$M1,function(x) predict(x,interval="confidence") %>% data.frame())
-  Pred<-data.table::rbindlist(pred) %>% data.frame(.)
+  if(length(null$M1)==3){
+    pred1<-predict(null$M1[[1]],interval="confidence")
+    pred2<-predict(null$M1[[2]],interval="confidence")
+    pred3<-predict(null$M1[[3]],interval="confidence")
+  }else if(length(null$M1==2)){
+    pred1<-predict(null$M1[[1]],interval="confidence")
+    pred2<-predict(null$M1[[2]],interval="confidence")
+  }else{
+    pred1<-data.frame()
+    pred2<-data.frame()
+    pred3<-data.frame()
+  }
   
-
+  
+  pred1<-na.omit(pred1)
+  pred2<-na.omit(pred2)
+  pred3<-na.omit(pred3)
+  
+  
+  Pred<-NA
   FIT<- NA
   LOW<-NA
   HI<-NA
-
+  if (nrow(pred1)>0 & nrow(pred2)>0 & nrow(pred3)>0){
+    Pred<-rbind(pred1,pred2,pred3)
+  } else if (nrow(pred2)>0 & nrow(pred3)>0){
+    Pred<-rbind(pred2,pred3)
+  } else if (nrow(pred1)>0 & nrow(pred2)>0){
+    Pred<-rbind(pred1,pred2)  
+  }else if (nrow(pred1)>0 & nrow(pred3)>0){
+    Pred<-rbind(pred1,pred3)
+  }
+  rownames(Pred)<-1:nrow(Pred)
+  
   #Pred<-Pred[1:length(DF1$C),]##############
   Pred<-data.frame(Pred,DF1$C[1:nrow(Pred)],DF1$I[1:nrow(Pred)])################
   names(Pred)<-c("fit","lower","upper","C","I")
@@ -1034,54 +1079,93 @@ tlCI<-function(f,Df1,df1,df_v,df_t,DFN,overlay=TRUE){
   Pred$Treatment<-null$Dataset[1]##################
   Pred<-na.omit(Pred)
   rownames(Pred)<-1:nrow(Pred)
-  PLN<-ggplot2::ggplot()
   PLN<-ggplot2::ggplot(Pred, ggplot2::aes(x = C,y = fit,color=Treatment)) +ggplot2::geom_point(ggplot2::aes(x=C,y=I))+ ggplot2::ggtitle(paste(Df1[[i]]$uniqueID[1],"null"))+ggplot2::geom_ribbon(data=Pred,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+ ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Soluble Fraction")+ ggplot2::annotate("text", x=62, y=1, label= paste("RSS= ",round(sum(null$rss),3)))
   
   DF_f<-data.frame()
-  DF_f<-df_v %>%subset(uniqueID == df1$uniqueID[i])
+  DF_f<-df_v %>% unique(.) %>%subset(uniqueID == df1$uniqueID[1]&dataset == df1$dataset[1] )
   
   vehicle<-data.frame()
   vehicle<-na.omit(Df1[[i]])
   vehicle<-vehicle %>% subset(stringr::str_detect(tolower(Dataset), pattern = "vehicle"))
   
+  if(length(vehicle$M1)==3){
+    pred1<-predict(vehicle$M1[[1]], interval="confidence")
+    pred2<-predict(vehicle$M1[[2]], interval="confidence")
+    pred3<-predict(vehicle$M1[[3]], interval="confidence")
+  }else if (length(vehicle$M1)==2){
+    pred1<-predict(vehicle$M1[[1]], interval="confidence")
+    pred2<-predict(vehicle$M1[[2]], interval="confidence")
+  }else{
+    pred1<-data.frame()
+    pred2<-data.frame()
+    pred3<-data.frame()
+  }
   
-  pred<-lapply(vehicle$M1,function(x) predict(x,interval="confidence") %>% data.frame())
-  Pred1<-rbindlist(pred)
-
+  Pred1<-NA
+  pred1<-na.omit(pred1)
+  pred2<-na.omit(pred2)
+  pred3<-na.omit(pred3)
   
   FIT<- NA
   LOW<-NA
   HI<-NA
-
-  rownames(Pred1)<-1:nrow(Pred1)
-
+  if (nrow(pred1)>0 & nrow(pred2)>0 & nrow(pred3)>0){
+    Pred1<-rbind(pred1,pred2,pred3)
+  } else if (nrow(pred2)>0 & nrow(pred3)>0){
+    Pred1<-rbind(pred2,pred3)
+  } else if (nrow(pred1)>0 & nrow(pred2)>0){
+    Pred1<-rbind(pred1,pred2)  
+  }else if (nrow(pred1)>0 & nrow(pred3)>0){
+    Pred1<-rbind(pred1,pred3)
+  }
+  
   #Pred<-Pred[1:length(DF1$C),]##############
-  Pred1<-data.frame(Pred1,
-                    DF_f$C[1:nrow(Pred1)],DF_f$I[1:nrow(Pred1)])################
+  Pred1<-data.frame(Pred1,DF_f$C[1:nrow(Pred1)],DF_f$I[1:nrow(Pred1)])################
   names(Pred1)<-c("fit","lower","upper","C","I")
   
   Pred1$Treatment<-vehicle$Dataset[1]##################
   rownames(Pred1)<-1:nrow(Pred1)
   
-  PLR_P1<-ggplot2::ggplot()
+  
   PLR_P1<-ggplot2::ggplot(Pred1, ggplot2::aes(x = C,y = fit,color=Treatment))+ggplot2::geom_point(Pred1, mapping=ggplot2::aes(x = C,y = I,color=Treatment))+ggplot2::geom_ribbon(data=Pred1,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)
   
   DF_f1<-data.frame()
   
-  DF_f1<-df_t %>% subset(uniqueID == df1$uniqueID[i])
+  DF_f1<-df_t %>% subset(uniqueID == df1$uniqueID[i]&dataset == df1$dataset[i])
   
   treated<-data.frame()
   treated<-na.omit(Df1[[i]])
   treated<-treated %>% dplyr::filter(stringr::str_detect(tolower(Dataset), pattern = "treated"))
   
+  if(length(treated$M1)==3){
+    pred1<-predict(treated$M1[[1]], interval="confidence")
+    pred2<-predict(treated$M1[[2]], interval="confidence")
+    pred3<-predict(treated$M1[[3]], interval="confidence")
+  }else if(length(treated$M1)==2){
+    pred1<-predict(treated$M1[[1]], interval="confidence")
+    pred2<-predict(treated$M1[[2]], interval="confidence")
+  }else{
+    pred1<-data.frame()
+    pred2<-data.frame()
+    pred3<-data.frame()
+  }
   
-  pred<-lapply(treated$M1,function(x) predict(x,interval="confidence") %>% data.frame())
-  Pred2<-rbindlist(pred)
-  
+  pred1<-na.omit(pred1)
+  pred2<-na.omit(pred2)
+  pred3<-na.omit(pred3)
+  Pred2<-NA
   FIT<- NA
   LOW<-NA
   HI<-NA
-  
+  if (nrow(pred1)>0 & nrow(pred2)>0 & nrow(pred3)>0){
+    Pred2<-rbind(pred1,pred2,pred3)
+  } else if (nrow(pred2)>0 & nrow(pred3)>0){
+    Pred2<-rbind(pred2,pred3)
+  } else if (nrow(pred1)>0 & nrow(pred2)>0){
+    Pred2<-rbind(pred1,pred2)  
+  }else if (nrow(pred1)>0 & nrow(pred3)>0){
+    Pred2<-rbind(pred1,pred3)
+  }
   rownames(Pred2)<-1:nrow(Pred2)
   
   #Pred<-Pred[1:length(DF1$C),]##############
@@ -1096,8 +1180,8 @@ tlCI<-function(f,Df1,df1,df_v,df_t,DFN,overlay=TRUE){
   P2_AUC <- pracma::trapz(Pred2$C,Pred2$I)
   
   
- #PLR_P2<-PLR_P1+ggplot2::geom_point(Pred2, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +ggplot2::geom_ribbon(data=Pred2,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+
-#   ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Soluble Fraction")
+  PLR_P2<-PLR_P1+ggplot2::geom_point(Pred2, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +ggplot2::geom_ribbon(data=Pred2,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+
+    ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Soluble Fraction")
   if(overlay=="TRUE"){
     AUCd<-round(P2_AUC-P1_AUC,2)[1]
     Tm1<-data.frame()
@@ -1130,11 +1214,10 @@ tlCI<-function(f,Df1,df1,df_v,df_t,DFN,overlay=TRUE){
     PLR_P2<-grid.arrange(PLN,PLR_P2, ncol=2)
     print(PLR_P2)
   }else if(overlay=="FALSE"){
-    PLR<-ggplot2::ggplot()
     PLR<-PLR_P2+ggplot2::geom_point(data=Pred ,mapping=ggplot2::aes(x=C,y=I))+ggplot2::geom_ribbon(data=Pred ,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+ggplot2::ggtitle(paste(DF1$uniqueID[1],"alternative"))+ggplot2::facet_wrap("Treatment") 
     print(PLR)
   }
 }
-i<-5
+i<-2
 
 plotTL<-tlCI(i,Df1,df1,df_v,df_t,DFN,overlay=TRUE)
