@@ -19,6 +19,7 @@ library(dplyr)
 library(plyr)
 library(tidyr)
 library(ggplot2)
+library(purrr)
 theme_set(theme_bw())
 
 #' Read in data
@@ -584,12 +585,15 @@ find_pat = function(pat, x)
 # d$CC<-ifelse(d$dataset=="F4" | d$dataset=="F5",0,1)#concentration
 d<-readRDS("tppData1.Rds")
 names(d)<-c("dataset","uniqueID","I","C","CC","replicate","UPM")
-d<-d %>% subset(dataset == unique(d$dataset)[3])
+d<-d %>% subset(dataset == unique(d$dataset)[1])
 DF<-d %>% dplyr::mutate(Dataset="null") %>% base::split.data.frame(.$uniqueID,.$dataset) 
 d_<-d %>% dplyr::filter(CC == 0) %>% dplyr::mutate(Dataset="vehicle")%>%  base::split.data.frame(.$uniqueID,.$dataset) 
 d_1<-d %>% dplyr::filter(CC > 0) %>% dplyr::mutate(Dataset="treated") %>% base::split.data.frame(.$uniqueID,.$dataset) 
 
-
+#find and keep equal uniqueIDs
+d_<-d_ %>% purrr::keep(function(x) x$uniqueID[1]%in% dplyr::intersect(x$uniqueID,data.table::rbindlist(d_1)$uniqueID))
+DF<-DF %>% purrr::keep(function(x) x$uniqueID[1]%in% dplyr::intersect(x$uniqueID,data.table::rbindlist(d_)$uniqueID))
+d_1<-d_1 %>% purrr::keep(function(x) x$uniqueID[1]%in% dplyr::intersect(x$uniqueID,data.table::rbindlist(d_)$uniqueID))
 ###selection of sample compound
 d<-d %>%
   dplyr::filter(dataset=="Staurosporine" )
@@ -851,8 +855,7 @@ tlstat<-function(DF,df,df1){
                     intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
                     rss=map(M1,function(x){deviance(x)}),
                     Rsq=map(M1,function(x){summary(x)$r.squared}), 
-                   
-                    Dataset="treated",
+                    dataset=df1[[i]]$dataset[1],
                     uniqueID=df1[[i]]$uniqueID[1])
     
 
@@ -875,8 +878,7 @@ tlstat<-function(DF,df,df1){
                     intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
                     rss=map(M1,function(x){deviance(x)}),
                     Rsq=map(M1,function(x){summary(x)$r.squared}), 
-                    
-                    Dataset="null",
+                    dataset=DF[[i]]$dataset[1],
                     uniqueID=DF[[i]]$uniqueID[1])
     
   
@@ -901,19 +903,25 @@ tlstat<-function(DF,df,df1){
 tlresults<-list()
 tlresults<-tlstat(DF,df_,df_1)
 tlresults1<-tlresults#save unfiltered data
-#apply filters prior to hypothesis testing
-#tlresults<-tlresults %>% keep(function(x) min(as.numeric(x$Rsq),na.rm=TRUE) > 0.8)#the linear region have the largest slope < 0.03
-tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "vehicle"),'rss'],na.rm=TRUE) > sum(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "treated"),'rss'],na.rm=TRUE))
-tlresults<-tlresults %>% keep(function(x)min(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "vehicle"),'Tm'],na.rm=TRUE) < min(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "treated"),'Tm'],na.rm=TRUE))
 
-#tlresults<-tlresults %>% keep(function(x)  sum(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "null"),'rss'],na.rm=TRUE) <7)#move data with extremely large RSS values 
+
+tlresults<-lapply(tlresults,na.exclude)
+tlresults<-lapply(tlresults,function(x) x %>% dplyr::group_by(Dataset) %>%  dplyr::mutate(RSS=sum(rss)) %>% dplyr::ungroup()) 
+#label stabilized proteins
+#tlresults<-lapply(tlresults,function(x) x %>% dplyr::mutate(Sig = ifelse(x$RSS[x$Dataset=="null"][1]>x$RSS[!x$Dataset=="null"][1],1,0)))
+#tlresults<-tlresults %>% keep(function(x) isTRUE(any(x$Sig)==1))#keep stabilized proteins
+#apply filters prior to hypothesis testing
+tlresultss<-tlresults %>% keep(function(x) min(x$Rsq,na.rm=TRUE) > 0.3)#the linear region have the largest slope < 0.03
+
+#sum(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "null"),'RSS']) > sum(data.frame(x)[!stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "null"),'RSS']))
+tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[data.frame(x)$Dataset=="vehicle",'Tm'],na.rm=TRUE) < sum(data.frame(x)[data.frame(x)$Dataset== "treated",'Tm'],na.rm=TRUE))#tlresults<-tlresults %>% keep(function(x)  sum(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "null"),'rss'],na.rm=TRUE) <7)#move data with extremely large RSS values 
 #tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[!stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "null"),'rss'],na.rm=TRUE) <2.3)
 #tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[data.frame(x)$Dataset== "null",'rss'],na.rm=TRUE) > sum(data.frame(x)[!data.frame(x)$Dataset== "null",'rss'],na.rm=TRUE))#remove data with extremely large RSS values 
 
 #tlresults<-tlresults %>% keep(function(x) min(data.frame(x)$slope[x$LineRegion==2],na.rm=TRUE) < -0.045)#the linear region have the largest slope < 0.03
-tlresults<-tlresults %>% keep(function(x) min(data.frame(x)$slope[!x$LineRegion==2],na.rm=TRUE) > -0.03)#the linear region have the largest slope < 0.03
+#tlresults<-tlresults %>% keep(function(x) min(data.frame(x)$slope,na.rm=TRUE) < -0.02)#the linear region have the largest slope < 0.03
 
-tlresults<-lapply(tlresults,na.exclude)
+
 # tlresults<-tlresults %>% keep(function(x) isTRUE(head(data.frame(x[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "vehicle"),]),1)$Tm < head(data.frame(x[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "treated"),]),1)$Tm))
 # 
 # #tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$Dataset), pattern = "null"),'rss'],na.rm=TRUE) <7)#move data with extremely large RSS values 
@@ -940,7 +948,10 @@ Rssv<-lapply(tlresults, function(x) x %>% dplyr::filter(stringr::str_detect(tolo
 Rsst<-lapply(tlresults, function(x) x %>% dplyr::filter(stringr::str_detect(tolower(Dataset), pattern = "treated")) %>% 
                dplyr::rowwise(.) %>%  dplyr::mutate(RSS=sum(.$rss))%>% dplyr::select(RSS,Tm,dataset,uniqueID)%>% data.table::first(.$RSS,.$Tm,.$dataset,.$uniqueID))
 #find the rss difference between treated and vehicle 
-Dsum<-data.frame(RSSd=rbindlist(Rsst)$RSS-rbindlist(Rssv)$RSS,Tma = rbindlist(Rsst)$Tm-rbindlist(Rssv)$Tm,dataset=rbindlist(Rssv)$dataset,uniqueID=rbindlist(Rssv)$uniqueID)
+Rssv<-lapply(Rssv,function(x)na.omit(x))
+Rsst<-lapply(Rssv,function(x)na.omit(x))
+
+Dsum<-data.frame(RSSd=(rbindlist(Rsst)$RSS-rbindlist(Rssv)$RSS),Tma = (rbindlist(Rsst)$Tm-rbindlist(Rssv)$Tm),dataset=rbindlist(Rssv)$dataset,uniqueID=rbindlist(Rssv)$uniqueID)
 Dsum<-Dsum %>% dplyr::mutate(rank = ntile(Dsum$Tma,7))
 #keep data where the difference in RSS is less than the null
 #nsum converted to data frame
@@ -1027,7 +1038,7 @@ tlCI<-function(f,Df1,df1,df_v,df_t,DFN,overlay=TRUE){
   Df1<-Df1
   DFN<-DFN
   #get original data 
-  DF1<-DFN %>% subset(uniqueID ==df1$uniqueID[1]&dataset == df1$dataset[1])
+  DF1<-DFN %>% subset(uniqueID ==df1$uniqueID[i]&dataset == df1$dataset[i])
   #get model data
   null<-data.frame()
   null<-na.omit(Df1[[i]])
@@ -1082,7 +1093,7 @@ tlCI<-function(f,Df1,df1,df_v,df_t,DFN,overlay=TRUE){
   PLN<-ggplot2::ggplot(Pred, ggplot2::aes(x = C,y = fit,color=Treatment)) +ggplot2::geom_point(ggplot2::aes(x=C,y=I))+ ggplot2::ggtitle(paste(Df1[[i]]$uniqueID[1],"null"))+ggplot2::geom_ribbon(data=Pred,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+ ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Soluble Fraction")+ ggplot2::annotate("text", x=62, y=1, label= paste("RSS= ",round(sum(null$rss),3)))
   
   DF_f<-data.frame()
-  DF_f<-df_v %>% unique(.) %>%subset(uniqueID == df1$uniqueID[1]&dataset == df1$dataset[1] )
+  DF_f<-df_v %>% unique(.) %>%subset(uniqueID == df1$uniqueID[i]&dataset == df1$dataset[i] )
   
   vehicle<-data.frame()
   vehicle<-na.omit(Df1[[i]])
@@ -1218,6 +1229,7 @@ tlCI<-function(f,Df1,df1,df_v,df_t,DFN,overlay=TRUE){
     print(PLR)
   }
 }
-i<-2
+i<-3
+
 
 plotTL<-tlCI(i,Df1,df1,df_v,df_t,DFN,overlay=TRUE)
