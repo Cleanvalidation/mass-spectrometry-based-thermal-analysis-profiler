@@ -806,15 +806,16 @@ BStrap<-function(Data0,n,N){
 }
 
 
-BSvarN<- suppressWarnings(BStrap(RSN,1000,10000))
+BSvarN<- suppressWarnings(BStrap(RSN,1000,1000))
 BSvar<-suppressWarnings(BStrap(RS,1000,1000))
 BSvar1<-suppressWarnings(BStrap(RST,1000,1000))
 
 #append names to list 
-
+DFN<-list()
+DFN[[1]]<-data.frame()
 df_<-RS
 df_1<-RST
-DF<-RSN
+DFN<-RSN
 
 
 
@@ -1022,310 +1023,241 @@ tlresults<-tlresults %>% keep(function(x) min(as.numeric(x$Rsq),na.rm=TRUE) > 0.
  tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[!stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "null"),'rss'],na.rm=TRUE) <1.3)
  tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "null"),'rss'],na.rm=TRUE) > sum(data.frame(x)[!stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "null"),'rss'],na.rm=TRUE))#remove data with extremely large RSS values 
  tlresults<-tlresults %>% keep(function(x) mean(data.frame(x)$Tm[stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "vehicle")],na.rm=TRUE) < mean(data.frame(x)$Tm[stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "treated")],na.rm=TRUE))
- tlresults<-tlresults %>% keep(function(x) max(data.frame(x)$slope[x$LineRegion==2],na.rm=TRUE) < -0.03)#the linear region have the largest slope < 0.03
-#tlresults<-tlresults %>% keep(function(x) length(x$slope)>5)#remove list values with less than 5 rows
+ #tlresults<-tlresults %>% keep(function(x) max(data.frame(x)$slope[x$LineRegion==2],na.rm=TRUE) < -0.03)#the linear region have the largest slope < 0.03
+tlresults<-tlresults %>% keep(function(x) length(x$slope)>8)#remove list values with less than 5 rows
 #tlresults<-tlresults %>% keep(function(x) abs(max(x$slope[!x$LineRegion==2] ,na.rm=TRUE)) < 0.1)#eeps plateau values where the min abs(slope) < 0.06
 #steepest slope in vehicle and treatment has to be less than 0.06C
 
-Nsum<-lapply(tlresults, function(x) x %>% dplyr::filter(stringr::str_detect(tolower(dataset), pattern = "null")) %>% 
-               dplyr::rowwise(.) %>%  dplyr::mutate(RSS=sum(.$rss))%>% dplyr::select(RSS,Tm) %>% data.table::first(.$RSS,.$Tm )) 
-
-#get the summed rss values for vehicle
-Rssv<-lapply(tlresults, function(x) x %>% dplyr::filter(stringr::str_detect(tolower(dataset), pattern = "vehicle")) %>% 
-               dplyr::rowwise(.) %>%  dplyr::mutate(RSS=sum(.$rss))%>% dplyr::select(RSS,Tm) %>% data.table::first(.$RSS,.$Tm)) 
-#get the summed rss values for treated
-Rsst<-lapply(tlresults, function(x) x %>% dplyr::filter(stringr::str_detect(tolower(dataset), pattern = "treated")) %>% 
-              dplyr::rowwise(.) %>%  dplyr::mutate(RSS=sum(.$rss))%>% dplyr::select(RSS,Tm) %>% data.table::first(.$RSS,.$Tm)) 
-#find the rss difference between treated and vehicle 
-
-Dsum<- map2(Rssv,Rsst,~ .y-.x)%>% data.table::rbindlist(.) %>% data.frame() %>% dplyr::mutate(rank=dplyr::ntile(.$Tm,7)) 
-Dsum<-Dsum %>% dplyr::mutate(id=rownames(Dsum))
-names(Dsum)[1]<-"RSSd"
-
-#keep data where the difference in RSS is less than the null
-#nsum converted to data frame
-
-Nsum<-data.table::rbindlist(Nsum) 
-Nsum<-Nsum%>% data.frame(.) %>% dplyr::mutate(id=rownames(Nsum))
-names(Nsum)[1]<-"RSSn"
-
-#mutate data frame
-Dsum<-Dsum %>% dplyr::inner_join(Nsum,by = c("id" = "id"))
-names(Dsum)<-c("RSSd","Tma","rank","id","RSSn","Tmn")
-
-test<-data.frame()
-test<-Dsum
-test<-Dsum[which(Dsum$rank==7& Dsum$RSSn>Dsum$RSSd),] %>% data.frame()#get the stable proteins (+ = Rsstreated-Rssvehicle)
-
-rssdec<-data.frame()
-rssdec<-data.frame(data.table::fsort(test$RSSd,decreasing=TRUE))#decreasing Rss differences
-names(rssdec)<-"Rssd"
-
-tmdec<-data.frame()
-tmdec<-data.frame(data.table::fsort(test$Tma,decreasing=TRUE))
-names(tmdec)<-"Tm"
-
-#test<-test %>% inner_join(tmdec,by=c("Tma"="Tm"))
-#test<-rssdec %>% inner_join(tm_t,by=c("Rssd"="RSSd")) 
-
-
-orows<-data.frame()
-orows <- test
-
-orows$id<-sapply(orows$id, function(x) as.numeric(as.character(x)))
-  #order by RSS differences while keeping original rownames for index
-#create an external data frame for stabilized proteins
-
-#get the rows that follow the conditional
-
-#find values for stabilized proteins and rank them
-
-Df1<-list()
-  Df1<-tlresults[orows$id]
-df1<-list()
-#get uniqueID and dataset for stable proteins with decreasing RSS differences
-df1<-lapply(Df1,function(x) x %>% dplyr::select(uniqueID,dataset) %>% head(.,1))
-df1<-data.table::rbindlist(df1) %>% as.data.frame()
-
-#unlist to data.frame
-#order the original data by RSS differences
-#vehicle
-df2<-df_ %>% keep(function(x) head(x$uniqueID,1) %in% df1$uniqueID)
-df2<-data.table::rbindlist(df2) %>% data.frame()
+ Nsum<-list()
+ Nsum[[1]]<-data.frame(RSS=0,Tm=0)
  
-#treated
-df2_t<-data.frame()
-df2_t<-df_1 %>% keep(function(x) (head(x$uniqueID,1) %in% df1$uniqueID)) 
-df2_t<-data.table::rbindlist(df2_t) %>% as.data.frame()
+ Nsum<-lapply(tlresults, function(x) x %>% subset(stringr::str_detect(tolower(dataset), pattern = "null")) %>% 
+                dplyr::rowwise(.) %>%  dplyr::mutate(RSS=sum(.$rss))%>% dplyr::select(RSS,Tm,dataset,uniqueID)%>% data.table::first(.$RSS,.$Tm,.$dataset,.$uniqueID))
  
-#null
-df2_n<-data.frame()
-df2_n<-DF %>% keep(function(x) (head(x$uniqueID,1) %in% df1$uniqueID)) 
-df2_n<-data.table::rbindlist(df2_n) %>% as.data.frame()
+ #get the summed rss values for vehicle
+ Rssv<-lapply(tlresults, function(x) x %>% subset(stringr::str_detect(tolower(dataset), pattern = "vehicle")) %>% 
+                dplyr::rowwise(.) %>%  dplyr::mutate(RSS=sum(.$rss))%>% dplyr::select(RSS,Tm,dataset,uniqueID)%>% data.table::first(.$RSS,.$Tm,.$dataset,.$uniqueID))
+ #get the summed rss values for treated
+ Rsst<-lapply(tlresults, function(x) x %>% subset(stringr::str_detect(tolower(dataset), pattern = "treated")) %>% 
+                dplyr::rowwise(.) %>%  dplyr::mutate(RSS=sum(.$rss))%>% dplyr::select(RSS,Tm,dataset,uniqueID)%>% data.table::first(.$RSS,.$Tm,.$dataset,.$uniqueID))
+ #find the rss difference between treated and vehicle 
+ Rssv<-lapply(Rssv,function(x)na.omit(x))
+ Rsst<-lapply(Rsst,function(x)na.omit(x))
  
-#inner join to get all replicates in order of stability
-df_v <- df1 %>%
-  dplyr::select(dataset,uniqueID) %>%
-  dplyr::inner_join(df2, by = c('uniqueID' = 'uniqueID'))
-names(df_v)[1]<-"dataset"
-df_t<-data.frame()
-df_t<-df1 %>%
-  dplyr::select(dataset,uniqueID) %>%
-  dplyr::inner_join(df2_t, by = c('uniqueID' = 'uniqueID'))
-names(df_t)[1]<-"dataset"
-DFN<-df1 %>%
-  dplyr::select(dataset,uniqueID) %>%
-  dplyr::inner_join(df2_n, by = c('uniqueID' = 'uniqueID'))
-names(DFN)[1]<-"dataset"
+ Dsum<-data.frame(RSSd=(rbindlist(Rsst)$RSS-rbindlist(Rssv)$RSS),Tma = (rbindlist(Rsst)$Tm-rbindlist(Rssv)$Tm),dataset=rbindlist(Rssv)$dataset,uniqueID=rbindlist(Rssv)$uniqueID)
+ Dsum<-Dsum %>% dplyr::mutate(rank = ntile(Dsum$Tma,7))
+ #keep data where the difference in RSS is less than the null
+ #nsum converted to data frame
+ 
+ Nsum<-data.frame(RSSn=data.table::rbindlist(Nsum))
+ Nsum<-Nsum %>% dplyr::mutate(id=rownames(Nsum))
+ names(Nsum)<-c("RSSn","Tmn","dataset","uniqueID","idn")
+ Nsum$dataset<-as.factor(Nsum$dataset)
+ #mutate data frame
 
-#plot confidence intervals
+ Dsum1<-Dsum %>% dplyr::left_join(Nsum,by = c("uniqueID"="uniqueID","dataset"="dataset"))
+ Dsum2<-Dsum %>% dplyr::right_join(Nsum,by = c("uniqueID"="uniqueID","dataset"="dataset"))
+ 
+ Dsum<-Dsum2
+ Dsum$RSSd<-Dsum1$RSSd
+ Dsum$Tma<-Dsum1$Tma
+ Dsum<-Dsum %>% dplyr::mutate(rank = ntile(Dsum$Tma,7))
+ Dsum<-arrange(Dsum, desc(Tma), desc(RSSd))  %>% dplyr::filter(RSSd>0) %>% mutate(rank = 1:n())
+ 
+ test<-data.frame()
+ test<-Dsum[which(Dsum$RSSn>Dsum$RSSd),] %>% data.frame()#get the stable proteins (+ = Rsstreated-Rssvehicle)
+ 
+ # rssdec<-data.frame()
+ # rssdec<-data.frame(data.table::fsort(test$RSSd,decreasing=TRUE))#decreasing Rss differences
+ # names(rssdec)<-"Rssd"
+ # 
+ tmdec<-data.frame()
+ tmdec<-data.table::fsort(test$Tma,decreasing=TRUE) %>% data.frame()
+ names(tmdec)<-"Tm"
+ 
+ test<-tmdec %>% inner_join(test,by=c("Tm"="Tma"))#orders data by decreasing Tm
+ 
+ 
+ orows<-data.frame()
+ orows <- test
+ 
+ orows$id<-sapply(orows$id, function(x) as.numeric(as.character(x)))
+ #order by RSS differences while keeping original rownames for index
+ #create an external data frame for stabilized proteins
+ 
+ Df1<-tlresults[orows$id] #divide 1=highly destabilized,4=noeffect,7=highly stabilized
+ df1<-list()
+ #get uniqueID and dataset for stable proteins with decreasing RSS differences
+ df1<-lapply(Df1,function(x) x %>% dplyr::select(uniqueID,dataset) %>% head(.,1))
+ df1<-data.frame(rbindlist(df1))
 
+ #unlist to data.frame
+ #order the original data by RSS differences
+ #
+ df2<-rbindlist(DFN) %>% as.data.frame(.) %>% right_join(df1, by = c('uniqueID' = 'uniqueID') ) %>% select(-dataset.y)
+ names(df2)[2]<-"dataset"
+ 
 
-tlCI<-function(f,Df1,df1,df_v,df_t,DFN,overlay=TRUE){
-  #null data: third list subset ==3
-  
-  null<-data.frame()
-  
-  i=f
-  df1<-df1
-  DF<-DF
-  df_v<-df_v
-  df_t<-df_t
-  Df1<-Df1
-  DFN<-DFN
-  #get original data 
-  DF1<-DFN %>% subset(uniqueID ==df1$uniqueID[i]&dataset == df1$dataset[i])
-  #get model data
-  null<-data.frame()
-  null<-na.omit(Df1[[i]])
-  
-  null<-null %>% subset(stringr::str_detect(tolower(dataset), pattern = "null"))
-  #first subset list is the element chosen from the list of proteins 
-  pred1<-data.frame()
-  pred2<-data.frame()
-  pred3<-data.frame()
-  
-  if(length(null$M1)==3){
-    pred1<-predict(null$M1[[1]],interval="confidence")
-    pred2<-predict(null$M1[[2]],interval="confidence")
-    pred3<-predict(null$M1[[3]],interval="confidence")
-  }else if(length(null$M1==2)){
-    pred1<-predict(null$M1[[1]],interval="confidence")
-    pred2<-predict(null$M1[[2]],interval="confidence")
-  }else{
-    pred1<-data.frame()
-    pred2<-data.frame()
-    pred3<-data.frame()
-  }
-  
-  
-  pred1<-na.omit(pred1)
-  pred2<-na.omit(pred2)
-  pred3<-na.omit(pred3)
-  
-  
-  Pred<-NA
-  FIT<- NA
-  LOW<-NA
-  HI<-NA
-  if (nrow(pred1)>0 & nrow(pred2)>0 & nrow(pred3)>0){
-    Pred<-rbind(pred1,pred2,pred3)
-  } else if (nrow(pred2)>0 & nrow(pred3)>0){
-    Pred<-rbind(pred2,pred3)
-  } else if (nrow(pred1)>0 & nrow(pred2)>0){
-    Pred<-rbind(pred1,pred2)  
-  }else if (nrow(pred1)>0 & nrow(pred3)>0){
-    Pred<-rbind(pred1,pred3)
-  }
-  rownames(Pred)<-1:nrow(Pred)
-  
-  #Pred<-Pred[1:length(DF1$C),]##############
-  Pred<-data.frame(Pred,DF1$C[1:nrow(Pred)],DF1$I[1:nrow(Pred)])################
-  names(Pred)<-c("fit","lower","upper","C","I")
-  
-  Pred$Treatment<-null$dataset[1]##################
-  Pred<-na.omit(Pred)
-  rownames(Pred)<-1:nrow(Pred)
-  PLN<-ggplot2::ggplot(Pred, ggplot2::aes(x = C,y = fit,color=Treatment)) +ggplot2::geom_point(ggplot2::aes(x=C,y=I))+ ggplot2::ggtitle(paste(Df1[[i]]$uniqueID[1],"null"))+ggplot2::geom_ribbon(data=Pred,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+ ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Soluble Fraction")+ ggplot2::annotate("text", x=62, y=1, label= paste("RSS= ",round(sum(null$rss),3)))
-  
-  DF_f<-data.frame()
-  DF_f<-df_v %>% unique(.) %>%subset(uniqueID == df1$uniqueID[i]&dataset == df1$dataset[i] )
-  
-  vehicle<-data.frame()
-  vehicle<-na.omit(Df1[[i]])
-  vehicle<-vehicle %>% subset(stringr::str_detect(tolower(dataset), pattern = "vehicle"))
-  
-  if(length(vehicle$M1)==3){
-    pred1<-predict(vehicle$M1[[1]], interval="confidence")
-    pred2<-predict(vehicle$M1[[2]], interval="confidence")
-    pred3<-predict(vehicle$M1[[3]], interval="confidence")
-  }else if (length(vehicle$M1)==2){
-    pred1<-predict(vehicle$M1[[1]], interval="confidence")
-    pred2<-predict(vehicle$M1[[2]], interval="confidence")
-  }else{
-    pred1<-data.frame()
-    pred2<-data.frame()
-    pred3<-data.frame()
-  }
-  
-  Pred1<-NA
-  pred1<-na.omit(pred1)
-  pred2<-na.omit(pred2)
-  pred3<-na.omit(pred3)
-  
-  FIT<- NA
-  LOW<-NA
-  HI<-NA
-  if (nrow(pred1)>0 & nrow(pred2)>0 & nrow(pred3)>0){
-    Pred1<-rbind(pred1,pred2,pred3)
-  } else if (nrow(pred2)>0 & nrow(pred3)>0){
-    Pred1<-rbind(pred2,pred3)
-  } else if (nrow(pred1)>0 & nrow(pred2)>0){
-    Pred1<-rbind(pred1,pred2)  
-  }else if (nrow(pred1)>0 & nrow(pred3)>0){
-    Pred1<-rbind(pred1,pred3)
-  }
-  
-  #Pred<-Pred[1:length(DF1$C),]##############
-  Pred1<-data.frame(Pred1,DF_f$C[1:nrow(Pred1)],DF_f$I[1:nrow(Pred1)])################
-  names(Pred1)<-c("fit","lower","upper","C","I")
-  
-  Pred1$Treatment<-vehicle$dataset[1]##################
-  rownames(Pred1)<-1:nrow(Pred1)
-  
-  
-  PLR_P1<-ggplot2::ggplot(Pred1, ggplot2::aes(x = C,y = fit,color=Treatment))+ggplot2::geom_point(Pred1, mapping=ggplot2::aes(x = C,y = I,color=Treatment))+ggplot2::geom_ribbon(data=Pred1,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)
-  
-  DF_f1<-data.frame()
-  
-  DF_f1<-df_t %>% subset(uniqueID == df1$uniqueID[i]&dataset == df1$dataset[i])
-  
-  treated<-data.frame()
-  treated<-na.omit(Df1[[i]])
-  treated<-treated %>% dplyr::filter(stringr::str_detect(tolower(dataset), pattern = "treated"))
-  
-  if(length(treated$M1)==3){
-    pred1<-predict(treated$M1[[1]], interval="confidence")
-    pred2<-predict(treated$M1[[2]], interval="confidence")
-    pred3<-predict(treated$M1[[3]], interval="confidence")
-  }else if(length(treated$M1)==2){
-    pred1<-predict(treated$M1[[1]], interval="confidence")
-    pred2<-predict(treated$M1[[2]], interval="confidence")
-  }else{
-    pred1<-data.frame()
-    pred2<-data.frame()
-    pred3<-data.frame()
-  }
-  
-  pred1<-na.omit(pred1)
-  pred2<-na.omit(pred2)
-  pred3<-na.omit(pred3)
-  Pred2<-NA
-  FIT<- NA
-  LOW<-NA
-  HI<-NA
-  if (nrow(pred1)>0 & nrow(pred2)>0 & nrow(pred3)>0){
-    Pred2<-rbind(pred1,pred2,pred3)
-  } else if (nrow(pred2)>0 & nrow(pred3)>0){
-    Pred2<-rbind(pred2,pred3)
-  } else if (nrow(pred1)>0 & nrow(pred2)>0){
-    Pred2<-rbind(pred1,pred2)  
-  }else if (nrow(pred1)>0 & nrow(pred3)>0){
-    Pred2<-rbind(pred1,pred3)
-  }
-  rownames(Pred2)<-1:nrow(Pred2)
-  
-  #Pred<-Pred[1:length(DF1$C),]##############
-  Pred2<-data.frame(Pred2,DF_f1$C[1:nrow(Pred2)],DF_f1$I[1:nrow(Pred2)])################
-  names(Pred2)<-c("fit","lower","upper","C","I")
-  
-  Pred2$Treatment<-treated$dataset[1]##################
-  Pred2<-na.omit(Pred2)
-  rownames(Pred2)<-1:nrow(Pred2)
-  #Area under the curve using trapezoid rule
-  P1_AUC <- pracma::trapz(Pred1$C,Pred1$I)
-  P2_AUC <- pracma::trapz(Pred2$C,Pred2$I)
-  
-  
-  PLR_P2<-PLR_P1+ggplot2::geom_point(Pred2, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +ggplot2::geom_ribbon(data=Pred2,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+
-    ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Soluble Fraction")
-  if(overlay=="TRUE"){
-    AUCd<-round(P2_AUC-P1_AUC,2)[1]
-    Tm1<-data.frame()
-    Tm2<-data.frame()
-    
-    
-    Tm1<-round(vehicle$Tm,1)[1]
-    Tm2<-round(treated$Tm,1)[1]
-    Tm_d<-Tm2 -Tm1
-    p<-expression(paste(Delta, "AUCdiff"))
-    if(AUCd>0&!is.na(AUCd)){
-      P1_AUC <- pracma::trapz(Pred1$C,Pred1$lower)
-      P2_AUC <- pracma::trapz(Pred2$C,Pred2$upper)
-      AUCd<-round(P2_AUC-P1_AUC,2)
-    }else if(AUCd<0&!is.na(AUCd)){
-      P1_AUC <- pracma::trapz(Pred1$C,Pred1$upper)
-      P2_AUC <- pracma::trapz(Pred2$C,Pred2$lower)
-      AUCd<-round(P2_AUC-P1_AUC,2)
-    }else{
-      P1_AUC<-NA
-      P2_AUC<-NA
-    }
-    AUCd<-as.numeric(AUCd)
-    PLR_P2<-ggplot2::ggplot()
-    PLR_P2<-PLR_P1+ggplot2::geom_point(Pred2, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +ggplot2::geom_ribbon(data=Pred2,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+
-      ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Soluble Fraction")+ ggplot2::ggtitle(paste(Df1[[i]]$uniqueID[1],"alternative"))+
-      ggplot2::annotate("text", x=62, y=1, label= paste("\u03A3","RSS= ",round(sum(treated$rss)+sum(vehicle$rss),3)))+
-      ggplot2::annotate("text", x=62, y=0.9, label=  paste("\u0394", "AUC = ",AUCd))+ ggplot2::annotate("text", x=62, y=0.8, label= paste("\u0394","Tm = ",Tm_d,"\u00B0C"))
-    #bquote(Value~is~sigma~R^{2}==.(r2.value)))
-    PLR_P2<-grid.arrange(PLN,PLR_P2, ncol=2)
-    print(PLR_P2)
-  }else if(overlay=="FALSE"){
-    PLR<-PLR_P2+ggplot2::geom_point(data=Pred ,mapping=ggplot2::aes(x=C,y=I))+ggplot2::geom_ribbon(data=Pred ,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+ggplot2::ggtitle(paste(DF1$uniqueID[1],"alternative"))+ggplot2::facet_wrap("Treatment") 
-    print(PLR)
-  }
-}
-i<-2
+ 
+ tlCI<-function(i,Df1,DF,df_,df_1,overlay=TRUE){
+   #null data: third list subset ==3
 
+   null<-data.frame()
+   
+   i<-i
+   df_<-df_
+   df_1<-df_1
+ 
+   DF1<-df2 %>% subset(uniqueID == df1$uniqueID[i])
+   
+   null<-Df1[[i]] %>% subset(dataset == "null")
+   #first subset list is the element chosen from the list of proteins 
+   pred1<-predict(null$M1[[1]], interval="confidence")
+   pred2<-predict(null$M1[[2]], interval="confidence")
+   pred3<-predict(null$M1[[3]], interval="confidence")
+   
+   
+   
+   pred1<-na.omit(pred1)
+   pred2<-na.omit(pred2)
+   pred3<-na.omit(pred3)
+   
+   
+   Pred<-NA
+   FIT<- NA
+   LOW<-NA
+   HI<-NA
+   if (nrow(pred1)>0 & nrow(pred2)>0 & nrow(pred3)>0){
+     Pred<-rbind(pred1,pred2,pred3)
+   } else if (nrow(pred2)>0 & nrow(pred3)>0){
+     Pred<-rbind(pred2,pred3)
+   } else if (nrow(pred1)>0 & nrow(pred2)>0){
+     Pred<-rbind(pred1,pred2)  
+   }else if (nrow(pred1)>0 & nrow(pred3)>0){
+     Pred<-rbind(pred1,pred3)
+   }
+   rownames(Pred)<-1:nrow(Pred)
+   
+   #Pred<-Pred[1:length(DF1$C),]##############
+   Pred<-data.frame(Pred,DF1$C[1:nrow(Pred)],DF1$I[1:nrow(Pred)])################
+   names(Pred)<-c("fit","lower","upper","C","I")
+   
+   Pred$Treatment<-null$dataset[1]##################
+   Pred<-na.omit(Pred)
 
-plotTL<-tlCI(i,Df1,df1,df_v,df_t,DFN,overlay=TRUE)
+   PLN<-ggplot2::ggplot(Pred, ggplot2::aes(x = C,y = fit,color=Treatment)) +ggplot2::geom_point(ggplot2::aes(x=C,y=I))+ ggplot2::ggtitle(paste(Df1[[i]]$uniqueID[1],"null"))+ggplot2::geom_ribbon(data=Pred,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+ ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::annotate("text", x=62, y=1, label= paste("RSS= ",round(sum(null$rss),3)))
+   
+   
+   DF_f<-df2 %>% subset(uniqueID == df1$uniqueID[i] & dataset == "vehicle")
+   
+   vehicle<-Df1[[i]] %>% subset(dataset == "vehicle")
+   
+   pred1<-predict(vehicle$M1[[1]], interval="confidence")
+   pred2<-predict(vehicle$M1[[2]], interval="confidence")
+   pred3<-predict(vehicle$M1[[3]], interval="confidence")
+   Pred1<-NA
+   pred1<-na.omit(pred1)
+   pred2<-na.omit(pred2)
+   pred3<-na.omit(pred3)
+   
+   FIT<- NA
+   LOW<-NA
+   HI<-NA
+   if (nrow(pred1)>0 & nrow(pred2)>0 & nrow(pred3)>0){
+     Pred1<-rbind(pred1,pred2,pred3)
+   } else if (nrow(pred2)>0 & nrow(pred3)>0){
+     Pred1<-rbind(pred2,pred3)
+   } else if (nrow(pred1)>0 & nrow(pred2)>0){
+     Pred1<-rbind(pred1,pred2)  
+   }else if (nrow(pred1)>0 & nrow(pred3)>0){
+     Pred1<-rbind(pred1,pred3)
+   }
+   
+   #Pred<-Pred[1:length(DF1$C),]##############
+   Pred1<-data.frame(Pred1,DF_f$C[1:nrow(Pred1)],DF_f$I[1:nrow(Pred1)])################
+   names(Pred1)<-c("fit","lower","upper","C","I")
+   
+   Pred1$Treatment<-vehicle$dataset[1]##################
+   Pred1<-na.omit(Pred1)
+   rownames(Pred1)<-1:nrow(Pred1)
+   
+   
+   PLR_P1<-ggplot2::ggplot(Pred1, ggplot2::aes(x = C,y = fit,color=Treatment))+ggplot2::geom_point(Pred1, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +ggplot2::geom_ribbon(data=Pred1,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)
+   
+   DF_f1<-data.frame()
+   DF_f1<-df2 %>% subset(uniqueID == df1$uniqueID[i] & dataset == "treated")
+   
+   treated<-data.frame()
+   treated<-Df1[[i]] %>% subset(dataset == "treated")
+   
+   pred1<-predict(treated$M1[[1]], interval="confidence")
+   pred2<-predict(treated$M1[[2]], interval="confidence")
+   pred3<-predict(treated$M1[[3]], interval="confidence")
+   
+   pred1<-na.omit(pred1)
+   pred2<-na.omit(pred2)
+   pred3<-na.omit(pred3)
+   Pred2<-NA
+   FIT<- NA
+   LOW<-NA
+   HI<-NA
+   if (nrow(pred1)>0 & nrow(pred2)>0 & nrow(pred3)>0){
+     Pred2<-rbind(pred1,pred2,pred3)
+   } else if (nrow(pred2)>0 & nrow(pred3)>0){
+     Pred2<-rbind(pred2,pred3)
+   } else if (nrow(pred1)>0 & nrow(pred2)>0){
+     Pred2<-rbind(pred1,pred2)  
+   }else if (nrow(pred1)>0 & nrow(pred3)>0){
+     Pred2<-rbind(pred1,pred3)
+   }
+   rownames(Pred2)<-1:nrow(Pred2)
+   
+   #Pred<-Pred[1:length(DF1$C),]##############
+   Pred2<-data.frame(Pred2,DF_f1$C[1:nrow(Pred2)],DF_f1$I[1:nrow(Pred2)])################
+   names(Pred2)<-c("fit","lower","upper","C","I")
+   
+   Pred2$Treatment<-treated$dataset[1]##################
+   Pred2<-na.omit(Pred2)
+   rownames(Pred2)<-1:nrow(Pred2)
+   #Area under the curve using trapezoid rule
+   P1_AUC <- pracma::trapz(Pred1$C,Pred1$I)
+   P2_AUC <- pracma::trapz(Pred2$C,Pred2$I)
+   
+   
+   PLR_P2<-PLR_P1+ggplot2::geom_point(Pred2, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +ggplot2::geom_ribbon(data=Pred2,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+
+     ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")
+   if(overlay=="TRUE"){
+     AUCd<-round(P2_AUC-P1_AUC,2)
+     Tm1<-data.frame()
+     Tm2<-data.frame()
+     
+     
+     Tm1<-Pred1[which.min(abs(Pred1$fit - 0.5)),'C']#pred1 is vehicle
+     Tm2<-Pred2[which.min(abs(Pred2$fit - 0.5)),'C']#pred2 is treated
+     Tm_d<-Tm2 -Tm1
+     p<-expression(paste(Delta, "AUCdiff"))
+     if(AUCd>0){
+       P1_AUC <- pracma::trapz(Pred1$C,Pred1$lower)
+       P2_AUC <- pracma::trapz(Pred2$C,Pred2$upper)
+       AUCd<-round(P2_AUC-P1_AUC,2)
+     }else{
+       P1_AUC <- pracma::trapz(Pred1$C,Pred1$upper)
+       P2_AUC <- pracma::trapz(Pred2$C,Pred2$lower)
+       AUCd<-round(P2_AUC-P1_AUC,2)
+     }
+     AUCd<-as.numeric(AUCd)
+     PLR_P2<-PLR_P1+ggplot2::geom_point(Pred2, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +ggplot2::geom_ribbon(data=Pred2,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+
+       ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::ggtitle(paste(Df1[[i]]$uniqueID[1],"alternative"))+
+       ggplot2::annotate("text", x=62, y=1, label= paste("\u03A3","RSS= ",round(sum(Df1[[i]] %>% dplyr::filter(stringr::str_detect(tolower(dataset), pattern = "vehicle")) %>% dplyr::select(rss) %>% sum(.),Df1[[i]] %>% dplyr::filter(stringr::str_detect(tolower(dataset), pattern = "treated")) %>% dplyr::select(rss) %>% sum(.)),3)))+
+       ggplot2::annotate("text", x=62, y=0.9, label=  paste("\u0394", "AUC = ",AUCd))+ ggplot2::annotate("text", x=62, y=0.8, label= paste("\u0394","Tm = ",Tm_d,"\u00B0C"))
+     #bquote(Value~is~sigma~R^{2}==.(r2.value)))
+     PLR_P2<-grid.arrange(PLN,PLR_P2, ncol=2)
+     print(PLR_P2)
+   }else if(overlay=="FALSE"){
+     PLR<-PLR_P2+ggplot2::geom_point(data=Pred,mapping=ggplot2::aes(x=C,y=I))+ggplot2::geom_ribbon(data=Pred,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+ggplot2::ggtitle(paste(Df1[[i]]$uniqueID[1],"alternative"))+facet_wrap("Treatment") 
+     print(PLR)
+   }
+ }
+ i=3
+ plotTL<-tlCI(i,Df1,DFN,df_,df_1,overlay=TRUE)
+ 
