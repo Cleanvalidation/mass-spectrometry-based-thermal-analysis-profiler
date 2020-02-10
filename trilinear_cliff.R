@@ -590,6 +590,11 @@ d$dataset<-ifelse(d$dataset=="F4" | d$dataset=="F5","vehicle","treated")#dataset
 DF<-d %>% unique(.) %>% dplyr::group_split(uniqueID) 
 d_<-d %>% dplyr::filter(CC == 0) %>%  unique(.) %>% dplyr::group_split(uniqueID,dataset) 
 d_1<-d %>% dplyr::filter(CC > 0) %>% unique(.) %>%   dplyr::group_split(uniqueID,dataset) 
+
+#keep data with less than 2 missing values
+DF<-DF %>% purrr::keep(function(x) length(x$C)>=(9*length(unique(x$dataset))))
+d_<-d_ %>% purrr::keep(function(x) length(x$C)>=(9*length(unique(x$dataset)))) 
+d_1<-d_1 %>% purrr::keep(function(x) length(x$C)>=(9*length(unique(x$dataset)))) 
 #convert to data frame for uniqueID presence
 DF<-rbindlist(DF)
 d_<-rbindlist(d_)
@@ -751,8 +756,10 @@ CP<-function(df_0){
     dap[[i]]$LineRegion<-as.numeric(dap[[i]]$LineRegion)
     
     
-    dap[[i]]<-dap[[i]] %>%dplyr::group_by(C) %>%  dplyr::mutate(LineRegion=ifelse(LineRegion>min(LineRegion) & I>0.5,min(LineRegion),max(LineRegion)))
-    df_0[[i]]$LineRegion[df_0[[i]]$C %in% dap[[i]]$C]<-dap[[i]]$LineRegion
+    Dap<-dap[[i]] %>%dplyr::group_split(C)
+    dap<-lapply(Dap,function(x) x %>% dplyr::mutate(LineRegion=min(LineRegion)))
+    dap<-rbindlist(dap) %>% as.data.frame(.)
+    df_0[[i]]$LineRegion[df_0[[i]]$C %in% dap$C]<-dap$LineRegion
     df_0[[i]]$LineRegion<-as.factor(df_0[[i]]$LineRegion)
     
    
@@ -826,95 +833,95 @@ tlstat<-function(DF,df,df1,PI=FALSE){
   DF<-DF
   df<-df
   df1<-df1
+  model<-model
   mean1<-list()
   mean1[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),dataset="vehicle",uniqueID=df[[i]]$uniqueID[1],Tm=rep(0,1))
-  
   if(!isTRUE(PI)){
-  for(i in 1:length(df)){
-    df[[i]]<-unique(df[[i]])
-    mean1[[i]]<-df[[i]] %>% data.frame(.) %>% 
-      dplyr::group_nest(LineRegion,uniqueID) %>%
-      dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
-                    CI=map(M1,function(x){predict(x,interval="confidence")[,1]} %>% data.frame(.)),
-                    Tm=with(df[[i]], approx(df[[i]]$I,df[[i]]$C, xout=max(df[[i]]$I, na.rm=TRUE)-0.5))$y,
-                    slope=map(M1,function(x){as.numeric(coef(x)[2])}),
-                    intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
-                    rss=map(M1,function(x){deviance(x)}),
-                    Rsq=map(M1,function(x){summary(x)$r.squared}), 
-                    dataset="vehicle",
-                    uniqueID=df[[i]]$uniqueID[1])
+    for(i in 1:length(df)){
+      df[[i]]<-unique(df[[i]])
+      mean1[[i]]<-df[[i]] %>% data.frame(.) %>% 
+        dplyr::group_nest(LineRegion,uniqueID) %>%
+        dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
+                      CI=map(M1,function(x){predict(x,interval="confidence")[,1]} %>% data.frame(.)),
+                      Tm=with(df[[i]], approx(df[[i]]$I,df[[i]]$C, xout=max(df[[i]]$I, na.rm=TRUE)-0.5))$y,
+                      slope=map(M1,function(x){as.numeric(coef(x)[2])}),
+                      intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
+                      rss=map(M1,function(x){deviance(x)}),
+                      Rsq=map(M1,function(x){summary(x)$r.squared}), 
+                      dataset="vehicle",
+                      uniqueID=df[[i]]$uniqueID[1])
+      
+      
+    }
+    #define linear models with outputs
+    
+    mean1_1<-list()
+    mean1_1[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),dataset="treated",uniqueID=df1[[i]]$uniqueID[1],Tm=rep(0,1))
     
     
-  }
-  #define linear models with outputs
-  
-  mean1_1<-list()
-  mean1_1[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),dataset="treated",uniqueID=df1[[i]]$uniqueID[1],Tm=rep(0,1))
-  
-  
-  for(i in 1:length(df1)){
-    df1[[i]]<-unique(df1[[i]])
-    mean1_1[[i]]<-df1[[i]] %>% data.frame(.) %>% 
-      dplyr::group_nest(LineRegion,uniqueID) %>% 
-      dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
-                    CI=map(M1,function(x){predict(x,interval="confidence")[,1]} %>% data.frame(.)),
-                    Tm=with(df1[[i]], approx(df1[[i]]$I,df1[[i]]$C, xout=max(df1[[i]]$I, na.rm=TRUE)-0.5))$y,
-                    slope=map(M1,function(x){as.numeric(coef(x)[2])}),
-                    intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
-                    rss=map(M1,function(x){deviance(x)}),
-                    Rsq=map(M1,function(x){summary(x)$r.squared}), 
-                    dataset="treated",
-                    uniqueID=df1[[i]]$uniqueID[1])
+    for(i in 1:length(df1)){
+      df1[[i]]<-unique(df1[[i]])
+      mean1_1[[i]]<-df1[[i]] %>% data.frame(.) %>% 
+        dplyr::group_nest(LineRegion,uniqueID) %>% 
+        dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
+                      CI=map(M1,function(x){predict(x,interval="confidence")[,1]} %>% data.frame(.)),
+                      Tm=with(df1[[i]], approx(df1[[i]]$I,df1[[i]]$C, xout=max(df1[[i]]$I, na.rm=TRUE)-0.5))$y,
+                      slope=map(M1,function(x){as.numeric(coef(x)[2])}),
+                      intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
+                      rss=map(M1,function(x){deviance(x)}),
+                      Rsq=map(M1,function(x){summary(x)$r.squared}), 
+                      dataset="treated",
+                      uniqueID=df1[[i]]$uniqueID[1])
+      
+      
+      
+    }
     
+    # null hypothesis
+    #null
+    mean3<-list()
+    mean3[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),dataset="null",uniqueID=DF[[i]]$uniqueID[1],Tm=rep(0,1))
+    DF<-lapply(DF,function(x) x %>% na.omit())
+    for(i in 1:length(DF)){
+      DF[[i]]<-unique(DF[[i]])
+      mean3[[i]]<-DF[[i]] %>% data.frame(.) %>% 
+        dplyr::group_nest(LineRegion,uniqueID) %>% 
+        dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
+                      CI=map(M1,function(x){predict(x,interval="confidence")[,1]} %>% data.frame(.)),
+                      Tm=with(DF[[i]], approx( DF[[i]]$I,DF[[i]]$C, xout=max(DF[[i]]$I, na.rm=TRUE)-0.5))$y,
+                      slope=map(M1,function(x){as.numeric(coef(x)[2])}),
+                      intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
+                      rss=map(M1,function(x){deviance(x)}),
+                      Rsq=map(M1,function(x){summary(x)$r.squared}),
+                      dataset="null",
+                      uniqueID=DF[[i]]$uniqueID[1])
+      
+      
+      
+      
+    }
+    mean1<-lapply(mean1,function(x) x %>% dplyr::select(-data,-CI) %>% tidyr::unnest_legacy(Tm=Tm,slope=slope,intercept=intercept,rss=rss,Rsq=Rsq))
+    mean1_1<-lapply(mean1_1,function(x) x %>% dplyr::select(-data,-CI) %>% tidyr::unnest_legacy(Tm=Tm,slope=slope,intercept=intercept,rss=rss,Rsq=Rsq))
+    mean3<-lapply(mean3,function(x) x %>% dplyr::select(-data,-CI) %>% tidyr::unnest_legacy(Tm=Tm,slope=slope,intercept=intercept,rss=rss,Rsq=Rsq))
     
+    #convert to df and split by uniqueID 
+    mean1<-dplyr::bind_rows(mean1)
+    mean1_1<-dplyr::bind_rows(mean1_1)
+    mean3<-dplyr::bind_rows(mean3)
+    #obtain common uniqueIDs
+    CID<-intersect(mean1$uniqueID,mean1_1$uniqueID)
+    CID<-intersect(CID,mean3$uniqueID)
+    #subset common uniqueIDs
+    mean1<-mean1 %>% as.data.frame(.) %>% subset(uniqueID %in% CID)
+    mean1_1<-mean1_1 %>% as.data.frame(.) %>% subset(uniqueID %in% CID)
+    mean3<-mean3 %>% as.data.frame(.) %>% subset(uniqueID %in% CID)
     
-  }
-  
-  # null hypothesis
-  #null
-  mean3<-list()
-  mean3[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),dataset="null",uniqueID=DF[[i]]$uniqueID[1],Tm=rep(0,1))
-  DF<-lapply(DF,function(x) x %>% na.omit())
-  for(i in 1:length(DF)){
-    DF[[i]]<-unique(DF[[i]])
-    mean3[[i]]<-DF[[i]] %>% data.frame(.) %>% 
-      dplyr::group_nest(LineRegion,uniqueID) %>% 
-      dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
-                    CI=map(M1,function(x){predict(x,interval="confidence")[,1]} %>% data.frame(.)),
-                    Tm=with(DF[[i]], approx( DF[[i]]$I,DF[[i]]$C, xout=max(DF[[i]]$I, na.rm=TRUE)-0.5))$y,
-                    slope=map(M1,function(x){as.numeric(coef(x)[2])}),
-                    intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
-                    rss=map(M1,function(x){deviance(x)}),
-                    Rsq=map(M1,function(x){summary(x)$r.squared}),
-                    dataset="null",
-                    uniqueID=DF[[i]]$uniqueID[1])
+    #split by uniqueIDs
+    mean1<-mean1 %>% dplyr::group_split(uniqueID)
+    mean1_1<-mean1_1 %>% dplyr::group_split(uniqueID)
+    mean3<-mean3 %>% dplyr::group_split(uniqueID)
     
-    
-    
-    
-  }
-  mean1<-lapply(mean1,function(x) x %>% dplyr::select(-data,-CI) %>% tidyr::unnest_legacy(Tm=Tm,slope=slope,intercept=intercept,rss=rss,Rsq=Rsq))
-  mean1_1<-lapply(mean1_1,function(x) x %>% dplyr::select(-data,-CI) %>% tidyr::unnest_legacy(Tm=Tm,slope=slope,intercept=intercept,rss=rss,Rsq=Rsq))
-  mean3<-lapply(mean3,function(x) x %>% dplyr::select(-data,-CI) %>% tidyr::unnest_legacy(Tm=Tm,slope=slope,intercept=intercept,rss=rss,Rsq=Rsq))
-  
-  #convert to df and split by uniqueID 
-  mean1<-dplyr::bind_rows(mean1)
-  mean1_1<-dplyr::bind_rows(mean1_1)
-  mean3<-dplyr::bind_rows(mean3)
-  #obtain common uniqueIDs
-  CID<-intersect(mean1$uniqueID,mean1_1$uniqueID)
-  CID<-intersect(CID,mean3$uniqueID)
-  #subset common uniqueIDs
-  mean1<-mean1 %>% as.data.frame(.) %>% subset(uniqueID %in% CID)
-  mean1_1<-mean1_1 %>% as.data.frame(.) %>% subset(uniqueID %in% CID)
-  mean3<-mean3 %>% as.data.frame(.) %>% subset(uniqueID %in% CID)
-  
-  #split by uniqueIDs
-  mean1<-mean1 %>% dplyr::group_split(uniqueID)
-  mean1_1<-mean1_1 %>% dplyr::group_split(uniqueID)
-  mean3<-mean3 %>% dplyr::group_split(uniqueID)
-  
-  results<-rlist::list.rbind(c(mean1,mean1_1,mean3)) %>% dplyr::group_split(uniqueID)
+    results<-rlist::list.rbind(c(mean1,mean1_1,mean3)) %>% dplyr::group_split(uniqueID)
   } else if (isTRUE(PI)){
     for(i in 1:length(df)){
       df[[i]]<-unique(df[[i]])
@@ -1005,29 +1012,195 @@ tlstat<-function(DF,df,df1,PI=FALSE){
   results
 }
 
-
   
-
+spstat<-function(DF,df,df1,PI=FALSE){
+  #plot spline results
+  if(!isTRUE(PI)){
+        i<-1
+        mean1<-list()
+        mean1[[1]]<-data.frame(spar=rep(0,1),Tm=rep(0,1),lambda=rep(0,1),df=rep(0,1),rss=rep(0,1),knots=rep(0,1),dataset="vehicle",uniqueID=df[[i]]$uniqueID[1])
+        
+        mean1<- lapply(df,function(x) x %>% dplyr::summarise(M1 = list(stats::smooth.spline(x=x$C,y=x$I)),
+                                                               spar=as.numeric(M1[[1]]$spar),
+                                                               Tm=with(df[[i]], approx(df[[i]]$I,df[[i]]$C, xout=max(df[[i]]$I, na.rm=TRUE)-0.5))$y,
+                                                               lambda=as.numeric(M1[[1]]$lambda),
+                                                               df =round(as.numeric(M1[[1]]$df),3),
+                                                               rss = as.numeric(M1[[1]]$pen.crit),
+                                                               knots = M1[[1]]$fit$nk,
+                                                               dataset="vehicle",
+                                                               uniqueID=x$uniqueID[1]))
+         
+          
+        #define linear models with outputs
+        
+        mean1_1<-list()
+        mean1_1[[1]]<-data.frame(spar=rep(0,1),Tm=rep(0,1),lambda=rep(0,1),df=rep(0,1),rss=rep(0,1),knots=rep(0,1),dataset="treated",uniqueID=df1[[i]]$uniqueID[1])
+        
+        
+        mean1_1<- lapply(df1,function(x) x %>% dplyr::summarise(M1 = list(stats::smooth.spline(x=x$C,y=x$I)),
+                                                             spar=as.numeric(M1[[1]]$spar),
+                                                             Tm=with(df1[[i]], approx(df1[[i]]$I,df1[[i]]$C, xout=max(df1[[i]]$I, na.rm=TRUE)-0.5))$y,
+                                                             lambda=as.numeric(M1[[1]]$lambda),
+                                                             df =round(as.numeric(M1[[1]]$df),3),
+                                                             rss = as.numeric(M1[[1]]$pen.crit),
+                                                             knots = M1[[1]]$fit$nk,
+                                                             dataset="treated",
+                                                             uniqueID=x$uniqueID[1]))
+        
+        # null hypothesis
+        #null
+        mean3<-list()
+        mean3[[1]]<-data.frame(spar=rep(0,1),Tm=rep(0,1),lambda=rep(0,1),df=rep(0,1),rss=rep(0,1),knots=rep(0,1),dataset="null",uniqueID=DF[[i]]$uniqueID[1])
+        
+        
+        mean3<- lapply(DF,function(x) x %>% dplyr::summarise(M1 = list(stats::smooth.spline(x=x$C,y=x$I)),
+                                                                spar=as.numeric(M1[[1]]$spar),
+                                                                Tm=with(DF[[i]], approx(DF[[i]]$I,DF[[i]]$C, xout=max(DF[[i]]$I, na.rm=TRUE)-0.5))$y,
+                                                                lambda=as.numeric(M1[[1]]$lambda),
+                                                                df =round(as.numeric(M1[[1]]$df),3),
+                                                                rss = as.numeric(M1[[1]]$pen.crit),
+                                                                knots = M1[[1]]$fit$nk,
+                                                                dataset="null",
+                                                                uniqueID=x$uniqueID[1]))
+      
+        
+        #convert to df and split by uniqueID 
+        mean1<-dplyr::bind_rows(mean1)
+        mean1_1<-dplyr::bind_rows(mean1_1)
+        mean3<-dplyr::bind_rows(mean3)
+        #obtain common uniqueIDs
+        CID<-intersect(mean1$uniqueID,mean1_1$uniqueID)
+        CID<-intersect(CID,mean3$uniqueID)
+        #subset common uniqueIDs
+        mean1<-mean1 %>% as.data.frame(.) %>% subset(uniqueID %in% CID)
+        mean1_1<-mean1_1 %>% as.data.frame(.) %>% subset(uniqueID %in% CID)
+        mean3<-mean3 %>% as.data.frame(.) %>% subset(uniqueID %in% CID)
+        
+        #split by uniqueIDs
+        mean1<-mean1 %>% dplyr::group_split(uniqueID)
+        mean1_1<-mean1_1 %>% dplyr::group_split(uniqueID)
+        mean3<-mean3 %>% dplyr::group_split(uniqueID)
+        
+        results<-rlist::list.rbind(c(mean1,mean1_1,mean3)) %>% dplyr::group_split(uniqueID)
+      } else if (isTRUE(PI)){
+        i<-1
+        mean1<-list()
+        mean1[[1]]<-data.frame(spar=rep(0,1),Tm=rep(0,1),lambda=rep(0,1),df=rep(0,1),rss=rep(0,1),knots=rep(0,1),AUC = rep(0,1),dataset="vehicle",uniqueID=df[[i]]$uniqueID[1])
+        
+        mean1<- lapply(df,function(x) x %>% dplyr::summarise(M1 = list(stats::smooth.spline(x=x$C,y=x$I)),
+                                                             spar=as.numeric(M1[[1]]$spar),
+                                                             Tm=with(df[[i]], approx(df[[i]]$I,df[[i]]$C, xout=max(df[[i]]$I, na.rm=TRUE)-0.5))$y,
+                                                             lambda=as.numeric(M1[[1]]$lambda),
+                                                             df =round(as.numeric(M1[[1]]$df),3),
+                                                             rss = as.numeric(M1[[1]]$pen.crit),
+                                                             knots = M1[[1]]$fit$nk,
+                                                             AUC = pracma::trapz(predict(M1[[1]]$fit)$x,predict(M1[[1]]$fit)$y),
+                                                             dataset="vehicle",
+                                                             uniqueID=x$uniqueID[1]))
+        
+        
+        #define linear models with outputs
+        
+        mean1_1<-list()
+        mean1_1[[1]]<-data.frame(spar=rep(0,1),Tm=rep(0,1),lambda=rep(0,1),df=rep(0,1),rss=rep(0,1),knots=rep(0,1),AUC= rep(0,1),dataset="treated",uniqueID=df1[[i]]$uniqueID[1])
+        
+        
+        mean1_1<- lapply(df1,function(x) x %>% dplyr::summarise(M1 = list(stats::smooth.spline(x=x$C,y=x$I)),
+                                                                spar=as.numeric(M1[[1]]$spar),
+                                                                Tm=with(df1[[i]], approx(df1[[i]]$I,df1[[i]]$C, xout=max(df1[[i]]$I, na.rm=TRUE)-0.5))$y,
+                                                                lambda=as.numeric(M1[[1]]$lambda),
+                                                                df =round(as.numeric(M1[[1]]$df),3),
+                                                                rss = as.numeric(M1[[1]]$pen.crit),
+                                                                knots = M1[[1]]$fit$nk,
+                                                                AUC = pracma::trapz(predict(M1[[1]]$fit)$x,predict(M1[[1]]$fit)$y),
+                                                                dataset="treated",
+                                                                uniqueID=x$uniqueID[1]))
+        
+        # null hypothesis
+        #null
+        mean3<-list()
+        mean3[[1]]<-data.frame(spar=rep(0,1),Tm=rep(0,1),lambda=rep(0,1),df=rep(0,1),rss=rep(0,1),knots=rep(0,1),AUC=rep(0,1),dataset="null",uniqueID=DF[[i]]$uniqueID[1])
+        
+        
+        mean3<- lapply(DF,function(x) x %>% dplyr::summarise(M1 = list(stats::smooth.spline(x=x$C,y=x$I)),
+                                                             spar=as.numeric(M1[[1]]$spar),
+                                                             Tm=with(DF[[i]], approx(DF[[i]]$I,DF[[i]]$C, xout=max(DF[[i]]$I, na.rm=TRUE)-0.5))$y,
+                                                             lambda=as.numeric(M1[[1]]$lambda),
+                                                             df =round(as.numeric(M1[[1]]$df),3),
+                                                             rss = as.numeric(M1[[1]]$pen.crit),
+                                                             knots = M1[[1]]$fit$nk,
+                                                             AUC = pracma::trapz(predict(M1[[1]]$fit)$x,predict(M1[[1]]$fit)$y),
+                                                             dataset="null",
+                                                             uniqueID=x$uniqueID[1]))
+        
+        
+        #convert to df and split by uniqueID 
+        mean1<-dplyr::bind_rows(mean1)
+        mean1_1<-dplyr::bind_rows(mean1_1)
+        mean3<-dplyr::bind_rows(mean3)
+        #obtain common uniqueIDs
+        CID<-intersect(mean1$uniqueID,mean1_1$uniqueID)
+        CID<-intersect(CID,mean3$uniqueID)
+        #subset common uniqueIDs
+        mean1<-mean1 %>% as.data.frame(.) %>% subset(uniqueID %in% CID)
+        mean1_1<-mean1_1 %>% as.data.frame(.) %>% subset(uniqueID %in% CID)
+        mean3<-mean3 %>% as.data.frame(.) %>% subset(uniqueID %in% CID)
+        
+        #split by uniqueIDs
+        mean1<-mean1 %>% dplyr::group_split(uniqueID)
+        mean1_1<-mean1_1 %>% dplyr::group_split(uniqueID)
+        mean3<-mean3 %>% dplyr::group_split(uniqueID)
+        
+        results<-rlist::list.rbind(c(mean1,mean1_1,mean3)) %>% dplyr::group_split(uniqueID)
+      }
+  results
+}
+#gettrilinear results
 tlresults<-list()
 tlresults_PI<-list()
 #confidence intervals
-tlresults<-tlstat(DF,df_,df_1,PI=FALSE)#place null, vehicle and treated lists with no prediction intervals
+tlresults<-tlstat(DFN,df_,df_1,PI=FALSE)#place null, vehicle and treated lists with no prediction intervals
 #prediction intervals with bootstrap
 tlresults_PI<-tlstat(BSvarN,BSvar,BSvar1,PI=TRUE)
 
 
+##Apply Filters
+#####################
+
 tlresults1<-tlresults#save unfiltered data
 #apply filters prior to hypothesis testing
-tlresults<-tlresults %>% keep(function(x) min(as.numeric(x$Rsq),na.rm=TRUE) > 0.45)#the linear region have the largest slope < 0.03
+tlresults<-tlresults %>% keep(function(x) min(as.numeric(x$Rsq),na.rm=TRUE) >= 0.44)#the linear region have the largest slope < 0.03
+tlresults<-tlresults %>% keep(function(x) mean(as.numeric(x$slope),na.rm=TRUE) <= -0.02)
 #tlresults<-tlresults %>% keep(function(x)  sum(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "null"),'rss'],na.rm=TRUE) <10)#move data with extremely large RSS values 
- tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[!stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "null"),'rss'],na.rm=TRUE) <1.3)
+# tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[!stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "null"),'rss'],na.rm=TRUE) <1.3)
  tlresults<-tlresults %>% keep(function(x) sum(data.frame(x)[stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "null"),'rss'],na.rm=TRUE) > sum(data.frame(x)[!stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "null"),'rss'],na.rm=TRUE))#remove data with extremely large RSS values 
  tlresults<-tlresults %>% keep(function(x) mean(data.frame(x)$Tm[stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "vehicle")],na.rm=TRUE) < mean(data.frame(x)$Tm[stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "treated")],na.rm=TRUE))
  #tlresults<-tlresults %>% keep(function(x) max(data.frame(x)$slope[x$LineRegion==2],na.rm=TRUE) < -0.03)#the linear region have the largest slope < 0.03
 tlresults<-tlresults %>% keep(function(x) length(x$slope)>8)#remove list values with less than 5 rows
 #tlresults<-tlresults %>% keep(function(x) abs(max(x$slope[!x$LineRegion==2] ,na.rm=TRUE)) < 0.1)#eeps plateau values where the min abs(slope) < 0.06
 #steepest slope in vehicle and treatment has to be less than 0.06C
+###############################
+#get spline results
+spresults<-list()
+spresults_PI<-list()
 
+spresults<-spstat(DFN,df_,df_1,PI=FALSE)
+spresults1<-spresults
+##############################
+#Apply filters 
+#RSS null > RSS treated
+spresults<-spresults %>% keep(function(x) x$rss[x$dataset=="null"]>sum(x$rss[!x$dataset=="null"],na.rm=TRUE))
+#keep the stabilized shifts
+spresults<-spresults %>% keep(function(x) x$Tm[x$dataset=="treated"]<x$Tm[x$dataset=="vehicle"])
+
+
+#get Tm and RSS differences
+sp<-lapply(spresults, function(x) x %>% dplyr::mutate(Tmd= x$Tm[x$dataset == "vehicle"] - x$Tm[x$dataset=="treated"],
+                                                      RSSd = x$rss[x$dataset == "null"] - sum(x$rss[!x$dataset=="null"])))
+sp<-data.table::rbindlist(sp) %>% as.data.frame(.)
+sp<-dplyr::arrange(sp,desc(Tmd),desc(RSSd)) %>% dplyr::group_split(uniqueID) 
+
+###############################
  Nsum<-list()
  Nsum[[1]]<-data.frame(RSS=0,Tm=0)
  
@@ -1099,7 +1272,7 @@ tlresults<-tlresults %>% keep(function(x) length(x$slope)>8)#remove list values 
  
 
  
- tlCI<-function(i,Df1,DF,df_,df_1,overlay=TRUE){
+ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
    #null data: third list subset ==3
 
    null<-data.frame()
@@ -1258,6 +1431,7 @@ tlresults<-tlresults %>% keep(function(x) length(x$slope)>8)#remove list values 
      print(PLR)
    }
  }
- i=3
- plotTL<-tlCI(i,Df1,DFN,df_,df_1,overlay=TRUE)
+ i=6
+ 
+ plotTL<-tlCI(i,df1,df2,Df1,overlay=TRUE)
  
