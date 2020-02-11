@@ -833,9 +833,15 @@ tlstat<-function(DF,df,df1,PI=FALSE){
   DF<-DF
   df<-df
   df1<-df1
+<<<<<<< HEAD
    
   mean1<-list()
   mean1[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),AUC = rep(0,1),dataset="vehicle",uniqueID=df[[i]]$uniqueID[1],Tm=rep(0,1))
+=======
+  model<-model
+  mean1<-list()
+  mean1[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),dataset="vehicle",uniqueID=df[[i]]$uniqueID[1],Tm=rep(0,1))
+>>>>>>> b403d536d29e40b802fc8356230df2cfe55f1577
   if(!isTRUE(PI)){
     for(i in 1:length(df)){
       df[[i]]<-unique(df[[i]])
@@ -848,7 +854,10 @@ tlstat<-function(DF,df,df1,PI=FALSE){
                       intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
                       rss=map(M1,function(x){deviance(x)}),
                       Rsq=map(M1,function(x){summary(x)$r.squared}), 
+<<<<<<< HEAD
                       AUC = pracma::trapz(predict(M1[[1]]$fit)$x,predict(M1[[1]]$fit)$y),
+=======
+>>>>>>> b403d536d29e40b802fc8356230df2cfe55f1577
                       dataset="vehicle",
                       uniqueID=df[[i]]$uniqueID[1])
       
@@ -857,7 +866,11 @@ tlstat<-function(DF,df,df1,PI=FALSE){
     #define linear models with outputs
     
     mean1_1<-list()
+<<<<<<< HEAD
     mean1_1[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),AUC = rep(0,1),dataset="treated",uniqueID=df1[[i]]$uniqueID[1],Tm=rep(0,1))
+=======
+    mean1_1[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),dataset="treated",uniqueID=df1[[i]]$uniqueID[1],Tm=rep(0,1))
+>>>>>>> b403d536d29e40b802fc8356230df2cfe55f1577
     
     
     for(i in 1:length(df1)){
@@ -871,7 +884,10 @@ tlstat<-function(DF,df,df1,PI=FALSE){
                       intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
                       rss=map(M1,function(x){deviance(x)}),
                       Rsq=map(M1,function(x){summary(x)$r.squared}), 
+<<<<<<< HEAD
                       AUC = pracma::trapz(predict(M1[[1]]$fit)$x,predict(M1[[1]]$fit)$y),
+=======
+>>>>>>> b403d536d29e40b802fc8356230df2cfe55f1577
                       dataset="treated",
                       uniqueID=df1[[i]]$uniqueID[1])
       
@@ -882,7 +898,11 @@ tlstat<-function(DF,df,df1,PI=FALSE){
     # null hypothesis
     #null
     mean3<-list()
+<<<<<<< HEAD
     mean3[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),AUC = rep(0,1),dataset="null",uniqueID=DF[[i]]$uniqueID[1],Tm=rep(0,1))
+=======
+    mean3[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),dataset="null",uniqueID=DF[[i]]$uniqueID[1],Tm=rep(0,1))
+>>>>>>> b403d536d29e40b802fc8356230df2cfe55f1577
     DF<-lapply(DF,function(x) x %>% na.omit())
     for(i in 1:length(DF)){
       DF[[i]]<-unique(DF[[i]])
@@ -895,7 +915,10 @@ tlstat<-function(DF,df,df1,PI=FALSE){
                       intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
                       rss=map(M1,function(x){deviance(x)}),
                       Rsq=map(M1,function(x){summary(x)$r.squared}),
+<<<<<<< HEAD
                       AUC = pracma::trapz(predict(M1[[1]]$fit)$x,predict(M1[[1]]$fit)$y),
+=======
+>>>>>>> b403d536d29e40b802fc8356230df2cfe55f1577
                       dataset="null",
                       uniqueID=DF[[i]]$uniqueID[1])
       
@@ -1024,7 +1047,11 @@ spstat<-function(DF,df,df1,PI=FALSE){
   if(!isTRUE(PI)){
         i<-1
         mean1<-list()
+<<<<<<< HEAD
         mean1[[1]]<-data.frame(spar=rep(0,1),Tm=rep(0,1),lambda=rep(0,1),df=rep(0,1),rss=rep(0,1),knots=rep(0,1),AUC = rep(0,1),dataset="vehicle",uniqueID=df[[i]]$uniqueID[1])
+=======
+        mean1[[1]]<-data.frame(spar=rep(0,1),Tm=rep(0,1),lambda=rep(0,1),df=rep(0,1),rss=rep(0,1),knots=rep(0,1),dataset="vehicle",uniqueID=df[[i]]$uniqueID[1])
+>>>>>>> b403d536d29e40b802fc8356230df2cfe55f1577
         
         mean1<- lapply(df,function(x) x %>% dplyr::summarise(M1 = list(stats::smooth.spline(x=x$C,y=x$I)),
                                                                spar=as.numeric(M1[[1]]$spar),
@@ -1033,7 +1060,10 @@ spstat<-function(DF,df,df1,PI=FALSE){
                                                                df =round(as.numeric(M1[[1]]$df),3),
                                                                rss = as.numeric(M1[[1]]$pen.crit),
                                                                knots = M1[[1]]$fit$nk,
+<<<<<<< HEAD
                                                              AUC = pracma::trapz(predict(M1[[1]]$fit)$x,predict(M1[[1]]$fit)$y),
+=======
+>>>>>>> b403d536d29e40b802fc8356230df2cfe55f1577
                                                                dataset="vehicle",
                                                                uniqueID=x$uniqueID[1]))
          
@@ -1041,7 +1071,11 @@ spstat<-function(DF,df,df1,PI=FALSE){
         #define linear models with outputs
         
         mean1_1<-list()
+<<<<<<< HEAD
         mean1_1[[1]]<-data.frame(spar=rep(0,1),Tm=rep(0,1),lambda=rep(0,1),df=rep(0,1),rss=rep(0,1),knots=rep(0,1),AUC = rep(0,1),dataset="treated",uniqueID=df1[[i]]$uniqueID[1])
+=======
+        mean1_1[[1]]<-data.frame(spar=rep(0,1),Tm=rep(0,1),lambda=rep(0,1),df=rep(0,1),rss=rep(0,1),knots=rep(0,1),dataset="treated",uniqueID=df1[[i]]$uniqueID[1])
+>>>>>>> b403d536d29e40b802fc8356230df2cfe55f1577
         
         
         mean1_1<- lapply(df1,function(x) x %>% dplyr::summarise(M1 = list(stats::smooth.spline(x=x$C,y=x$I)),
@@ -1051,15 +1085,22 @@ spstat<-function(DF,df,df1,PI=FALSE){
                                                              df =round(as.numeric(M1[[1]]$df),3),
                                                              rss = as.numeric(M1[[1]]$pen.crit),
                                                              knots = M1[[1]]$fit$nk,
+<<<<<<< HEAD
                                                              AUC = pracma::trapz(predict(M1[[1]]$fit)$x,predict(M1[[1]]$fit)$y),
                                                              
+=======
+>>>>>>> b403d536d29e40b802fc8356230df2cfe55f1577
                                                              dataset="treated",
                                                              uniqueID=x$uniqueID[1]))
         
         # null hypothesis
         #null
         mean3<-list()
+<<<<<<< HEAD
         mean3[[1]]<-data.frame(spar=rep(0,1),Tm=rep(0,1),lambda=rep(0,1),df=rep(0,1),rss=rep(0,1),knots=rep(0,1),AUC = rep(0,1),dataset="null",uniqueID=DF[[i]]$uniqueID[1])
+=======
+        mean3[[1]]<-data.frame(spar=rep(0,1),Tm=rep(0,1),lambda=rep(0,1),df=rep(0,1),rss=rep(0,1),knots=rep(0,1),dataset="null",uniqueID=DF[[i]]$uniqueID[1])
+>>>>>>> b403d536d29e40b802fc8356230df2cfe55f1577
         
         
         mean3<- lapply(DF,function(x) x %>% dplyr::summarise(M1 = list(stats::smooth.spline(x=x$C,y=x$I)),
@@ -1069,7 +1110,10 @@ spstat<-function(DF,df,df1,PI=FALSE){
                                                                 df =round(as.numeric(M1[[1]]$df),3),
                                                                 rss = as.numeric(M1[[1]]$pen.crit),
                                                                 knots = M1[[1]]$fit$nk,
+<<<<<<< HEAD
                                                              AUC = pracma::trapz(predict(M1[[1]]$fit)$x,predict(M1[[1]]$fit)$y),
+=======
+>>>>>>> b403d536d29e40b802fc8356230df2cfe55f1577
                                                                 dataset="null",
                                                                 uniqueID=x$uniqueID[1]))
       
@@ -1189,7 +1233,28 @@ tlresults<-tlresults %>% keep(function(x) mean(as.numeric(x$slope),na.rm=TRUE) <
 tlresults<-tlresults %>% keep(function(x) length(x$slope)>8)#remove list values with less than 5 rows
 #tlresults<-tlresults %>% keep(function(x) abs(max(x$slope[!x$LineRegion==2] ,na.rm=TRUE)) < 0.1)#eeps plateau values where the min abs(slope) < 0.06
 #steepest slope in vehicle and treatment has to be less than 0.06C
+###############################
+#get spline results
+spresults<-list()
+spresults_PI<-list()
 
+spresults<-spstat(DFN,df_,df_1,PI=FALSE)
+spresults1<-spresults
+##############################
+#Apply filters 
+#RSS null > RSS treated
+spresults<-spresults %>% keep(function(x) x$rss[x$dataset=="null"]>sum(x$rss[!x$dataset=="null"],na.rm=TRUE))
+#keep the stabilized shifts
+spresults<-spresults %>% keep(function(x) x$Tm[x$dataset=="treated"]<x$Tm[x$dataset=="vehicle"])
+
+
+#get Tm and RSS differences
+sp<-lapply(spresults, function(x) x %>% dplyr::mutate(Tmd= x$Tm[x$dataset == "vehicle"] - x$Tm[x$dataset=="treated"],
+                                                      RSSd = x$rss[x$dataset == "null"] - sum(x$rss[!x$dataset=="null"])))
+sp<-data.table::rbindlist(sp) %>% as.data.frame(.)
+sp<-dplyr::arrange(sp,desc(Tmd),desc(RSSd)) %>% dplyr::group_split(uniqueID) 
+
+###############################
  Nsum<-list()
  Nsum[[1]]<-data.frame(RSS=0,Tm=0)
  
@@ -1260,7 +1325,14 @@ tlresults<-tlresults %>% keep(function(x) length(x$slope)>8)#remove list values 
  names(df2)[2]<-"dataset"
  
 
+<<<<<<< HEAD
  tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
+=======
+ 
+ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
+   #null data: third list subset ==3
+
+>>>>>>> b403d536d29e40b802fc8356230df2cfe55f1577
    null<-data.frame()
    i<-i
    df1<-df1
@@ -1416,6 +1488,7 @@ tlresults<-tlresults %>% keep(function(x) length(x$slope)>8)#remove list values 
  i=6
  
  plotTL<-tlCI(i,df1,df2,Df1,overlay=TRUE)
+<<<<<<< HEAD
  #df1 <- only IDs in order desc(stability)
  #df2<-original data in order  
  #Df1 <- ordered spline results 
@@ -1587,3 +1660,6 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE){
      print(PLR)
    }
  }
+=======
+ 
+>>>>>>> b403d536d29e40b802fc8356230df2cfe55f1577
