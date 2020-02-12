@@ -1489,7 +1489,7 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE){
   ###########################################
  
   #return fit and confidence intervals
-  ci<-function(BSvar,BSvar1,i,alpha){
+  ci<-function(df2,i,alpha){
     BSVar <-df2 %>% subset(uniqueID == df1$uniqueID[i] & dataset== "vehicle")
     BSVar$dataset<-as.factor(BSVar$dataset)
     BSVar1<-df2 %>% subset(uniqueID == df1$uniqueID[i]& dataset== "treated")
@@ -1551,9 +1551,9 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE){
                       lwrS = fit - (crit * se.fit))
     pred$Treatment<-"vehicle"
     pred$Treatment<-as.factor(pred$Treatment)
-    plot<-ggplot(pred,mapping= ggplot2::aes(x = C,y=fit,color="95% CI"))+
-      geom_point(BSVar, mapping=ggplot2::aes(x=C,y=I,colour=dataset))+
-      geom_ribbon(aes(ymin = lwrP, ymax = uprP,colour=Treatment), alpha = 0.2) +
+    plot<-ggplot(pred,mapping= ggplot2::aes(x = C,y=fit ))+
+      geom_point(BSVar, mapping=ggplot2::aes(x=C,y=I,color = dataset))+
+      geom_ribbon(aes(ymin = lwrP, ymax = uprP ,fill=Treatment), alpha = 0.2) +
       labs(y = "Relative Solubility",
            x = "Temperature")
     pred1<- transform(cbind(data.frame(pred1),newd1),
@@ -1564,8 +1564,8 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE){
     pred1$Treatment<-"treated"
     pred1$Treatment<-as.factor(pred1$Treatment)
     plot<-plot+
-      geom_point(BSVar1,mapping=ggplot2::aes(x=C,y=I,colour=dataset))+
-      geom_ribbon(pred1,mapping=ggplot2::aes(ymin = lwrP, ymax = uprP,colour=Treatment), alpha = 0.2 ) +
+      geom_point(BSVar1,mapping=ggplot2::aes(x=C,y=I,color = dataset))+
+      geom_ribbon(pred1,mapping=ggplot2::aes(ymin = lwrP, ymax = uprP ,fill=Treatment), alpha = 0.2 ) +
       labs(y = "Relative Solubility",
            x = "Temperature")
     print(plot)
@@ -1574,7 +1574,7 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE){
   
   
   #generate 95%CI for vehicle
-  Pred<-ci(BSvar,BSvar1,i,0.95)
+  Pred<-ci(df2,i,0.95)
   
             
 
