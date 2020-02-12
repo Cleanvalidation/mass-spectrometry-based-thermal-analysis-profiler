@@ -14,6 +14,8 @@ library(pkgcond)
 library(rlist)
 library(pracma)
 library(tidyverse)
+library(splines)
+library(mgcv)
 theme_set(theme_bw())
 
 
@@ -809,7 +811,7 @@ BStrap<-function(Data0,n,N){
   BA<-lapply(BS, function(x) x %>%dplyr::group_by(uniqueID,C,LineRegion) %>% dplyr::summarise(n=n(),mean=mean(I,na.rm=TRUE),var=var(I,na.rm=TRUE))) 
   BSvar<-lapply(BA,function(x) x %>%dplyr::rowwise() %>%  dplyr::mutate(uniqueID= uniqueID,LineRegion=LineRegion,I = rnorm(n = length(var), mean = mean, sd = sqrt(var)))) 
   
-  return(BSvar)
+  return(BS)
 }
 
 
@@ -1485,44 +1487,98 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE){
   ###########################################
   #get confidence intervals for all conditions
   ###########################################
-  sp.fit<-function(BSVar, m = 300){
-    fit <-  stats::smooth.spline(x = BSVar$C, y=BSVar$I,cv=TRUE)
-    #set up a grid over m number of points
-    grid<-seq(from = min(BSVar$C), to = max(BSVar$C), length.out = m)
-    
-    pred<-predict(fit, x = grid)
-    #return predicted values from the grid
-    
-    predy<-data.frame(x=pred$x,y=pred$y,lambda=fit$lambda,df=fit$df)
-  }
-  #return fit and confidence intervals
-  ci<-function(BSvar,i,B,alpha,m=300){
-    BSVar <-rbindlist(BSvar) %>% as.data.frame(.) %>% subset(uniqueID == df1$uniqueID[i])
-    main<-suppressWarnings(sp.fit(BSVar,m=m)) #output consists of predicted y values for i index
-    names(main)<-c("C","I","lambda","df")
-    #draw B bootsrap samples and arrange by increasing C
-    bspline<-dplyr::sample_n(data.frame(main),B,replace=TRUE) 
-    bspline<-dplyr::arrange(bspline,C) %>% as.data.frame(.) %>% dplyr::group_by(C) %>% dplyr::summarise(I=mean(I),n=n(),lambda=mean(lambda))
-    bspline<-dplyr::arrange(bspline,C) 
-    #reate quantiles with ggplot
  
-    PLP<-ggplot2::ggplot(bspline,ggplot2::aes(x =C, y =I)) +ggplot2::geom_point(bspline,mapping =ggplot2::aes(x=C,y=I))+geom_quantile(mapping=aes(x=bspline$C,y=bspline$I),data=bspline,method="rqss",lambda=bspline$lambda[1],formula= y ~ qss(x, lambda =bspline$lambda[1]),quantiles=c(0.025,0.975))#  ggplot2::geom_ribbon(data=Pred2,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)
-    PLP<-ggplot2::ggplot_build(PLP)
-    
-    main$C<-as.numeric(main$C)
-    return(data.frame(fit=PLP$data[[1]]$y,lower=PLP$data[[2]]$y[PLP$data[[2]]$quantile==0.025],upper=PLP$data[[2]]$y[PLP$data[[2]]$quantile==0.975],C =PLP$data[[1]]$x,uniqueID=rep(BSVar$uniqueID[1],length(main))))
+  #return fit and confidence intervals
+  ci<-function(BSvar,BSvar1,i,alpha){
+    BSVar <-df2 %>% subset(uniqueID == df1$uniqueID[i] & dataset== "vehicle")
+    BSVar$dataset<-as.factor(BSVar$dataset)
+    BSVar1<-df2 %>% subset(uniqueID == df1$uniqueID[i]& dataset== "treated")
+    BSVar1$dataset<-as.factor(BSVar1$dataset)
+    fit <-  stats::smooth.spline(x = BSVar$C, y=BSVar$I,cv=TRUE)
+    fit1<-  stats::smooth.spline(x = BSVar1$C, y=BSVar1$I,cv=TRUE)
+#####try GAM
+    #fit penalized splines
+    m <- gam(I ~ s(C), data = BSVar , method = "ML")
+    m1<- gam(I ~ s(C), data = BSVar1, method = "ML")
+    #Plot boostrapped  residuals with 95%CI
+    #PLP<-plot(m, shade = TRUE, seWithMean = TRUE, residuals = TRUE, pch = 16, cex = 0.8)
+    #generate random values from a multivariate normal distribution
+    rmvn <- function(n, mu, sig) { ## MVN random deviates
+      L <- mroot(sig)
+      m <- ncol(L)
+      t(mu + L %*% matrix(rnorm(m*n), m, n))
+    }
+    #get some parmeters
+    Vb <- vcov(m)
+    newd <- with(BSVar, data.frame(C = seq(min(C), max(C), length = 200)))
+    pred <- predict(m, newd, se.fit = TRUE)
+    se.fit <- pred$se.fit
+    #get some parmeters
+    Vb1<- vcov(m1)
+    newd1<- with(BSVar1,data.frame(C = seq(min(C), max(C), length = 200)))
+    pred1<- predict(m1,newd1,se.fit = TRUE)
+    se.fit1<- pred1$se.fit
+    #generate std
+    set.seed(42)
+    N <- 10000
+    #sample n from mvn dist
+    BUdiff <- rmvn(N, mu = rep(0, nrow(Vb )), sig = Vb )
+    #sample n from mvn dist
+    BUdiff1<- rmvn(N, mu = rep(0, nrow(Vb1)), sig = Vb1)
+    #calculate deviation
+    Cg <- predict(m, newd, type = "lpmatrix")
+    simDev <- Cg %*% t(BUdiff)
+    #calculate deviation
+    Cg1<- predict(m1,newd1,type = "lpmatrix")
+    simDev1<- Cg1%*% t(BUdiff1)
+    #calculate abs deviation
+    absDev <- abs(sweep(simDev, 1, se.fit, FUN = "/"))
+    #calculate abs deviation
+    absDev1<- abs(sweep(simDev1,1, se.fit, FUN = "/"))
+    #max abs dev
+    masd <- apply(absDev, 2L, max)
+    #max abs dev
+    masd1<- apply(absDev1,2L, max)
+    #95% crit values
+    crit <- quantile(masd, prob = alpha/2)
+    #95% crit values
+    crit1<- quantile(masd1,prob = alpha/2)
+    #plot CI
+    pred <- transform(cbind(data.frame(pred), newd),
+                      uprP = fit + (2 * se.fit),
+                      lwrP = fit - (2 * se.fit),
+                      uprS = fit + (crit * se.fit),
+                      lwrS = fit - (crit * se.fit))
+    pred$Treatment<-"vehicle"
+    pred$Treatment<-as.factor(pred$Treatment)
+    plot<-ggplot(pred,mapping= ggplot2::aes(x = C,y=fit,color="95% CI"))+
+      geom_point(BSVar, mapping=ggplot2::aes(x=C,y=I,colour=dataset))+
+      geom_ribbon(aes(ymin = lwrP, ymax = uprP,colour=Treatment), alpha = 0.2) +
+      labs(y = "Relative Solubility",
+           x = "Temperature")
+    pred1<- transform(cbind(data.frame(pred1),newd1),
+                      uprP = fit + (2 * se.fit),
+                      lwrP = fit - (2 * se.fit),
+                      uprS = fit + (crit * se.fit),
+                      lwrS = fit - (crit * se.fit))
+    pred1$Treatment<-"treated"
+    pred1$Treatment<-as.factor(pred1$Treatment)
+    plot<-plot+
+      geom_point(BSVar1,mapping=ggplot2::aes(x=C,y=I,colour=dataset))+
+      geom_ribbon(pred1,mapping=ggplot2::aes(ymin = lwrP, ymax = uprP,colour=Treatment), alpha = 0.2 ) +
+      labs(y = "Relative Solubility",
+           x = "Temperature")
+    print(plot)
   }
+
   
   
   #generate 95%CI for vehicle
-  Pred<-ci(BSvar,i,1000,0.05,m=300)
-  #generate 95%CI for treated
-  Pred1<-ci(BSvar1,i,1000,0.05,m=300)
-  #generate 95%CI for null
-  Pred2<-ci(BSvarN,i,1000,0.05,m=300)
-  #Plot data with CI 
+  Pred<-ci(BSvar,BSvar1,i,0.95)
   
-}
+            
+
+  
 
 #Pred<-Pred[1:length(DF1$C),]##############
 #Pred<-data.frame(Pred,DF1$C[1:nrow(Pred)],DF1$I[1:nrow(Pred)])################
@@ -1532,9 +1588,13 @@ Pred2<-Pred2 %>% dplyr::mutate(Treatment=null$dataset[1])##################
 Pred2<-na.omit(Pred2)
 
 DF1$Treatment<-null$dataset[1]
+ 
 PLN<-ggplot2::ggplot(Pred2,ggplot2::aes(x =C, y =I)) +ggplot2::geom_point(DF1,mapping =ggplot2::aes(x=C,y=I))+ ggplot2::ggtitle(paste(null$uniqueID[1],"null"))+ ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::annotate("text", x=62, y=1, label= paste("RSS= ",round(null$rss,3)))
 PLP<-PLN+geom_quantile(mapping=aes(x=DF1$C,y=DF1$I),data=DF1,method="rqss",lambda=null$lambda,formula= y ~ qss(x, lambda =null$lambda),quantiles=c(0.025,0.975))#  ggplot2::geom_ribbon(data=Pred2,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)
-
+ 
+  PLN<-ggplot2::ggplot(Pred2,ggplot2::aes(x =C, y =fit,color=Treatment)) +ggplot2::geom_point(DF1,mapping =ggplot2::aes(x=C,y=I))+ ggplot2::ggtitle(paste(null$uniqueID[1],"null"))+geom_quantile(formula = I ~ splines::ns(C,treated$df,knots = treated$knots),quantiles = 0.5)+ ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::annotate("text", x=62, y=1, label= paste("RSS= ",round(null$rss,3)))
+#   ggplot2::geom_ribbon(data=Pred2,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)
+ 
 Pred<-Pred %>% dplyr::mutate(Treatment=vehicle$dataset[1])##################
 Pred<-na.omit(Pred)
 
@@ -1543,7 +1603,9 @@ DF_f<-df2 %>% subset(uniqueID == df1$uniqueID[i] & dataset == "vehicle")
 DF_f$Treatment<-vehicle$dataset[1]
 
 PLR_P1<-ggplot2::ggplot(Pred, ggplot2::aes(x = C,y = fit,color=Treatment))+ggplot2::geom_point(DF_f, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +ggplot2::geom_ribbon(data=Pred,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)
+ 
 PLP1<-PLR_P1 +geom_quantile(formula = DF_f$I ~ splines::ns(DF_f$C,df= vehicle$df,knots =vehicle$knots),quantiles = c(0.025,0.975))
+ 
 #Area under the curve using trapezoid rule
 P1_AUC <- pracma::trapz(Pred$C,Pred$fit)
 P2_AUC <- pracma::trapz(Pred1$C,Pred1$fit)
@@ -1584,4 +1646,4 @@ if(overlay=="TRUE"){
   PLR<-PLR_P2+ggplot2::geom_point(data=Pred,mapping=ggplot2::aes(x=C,y=I))+ggplot2::geom_ribbon(data=Pred,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+ggplot2::ggtitle(paste(Df1[[i]]$uniqueID[1],"alternative"))+facet_wrap("Treatment") 
   print(PLR)
 }
-}
+
