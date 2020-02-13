@@ -1549,11 +1549,11 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE){
                       lwrP = fit - (2 * se.fit),
                       uprS = fit + (crit * se.fit),
                       lwrS = fit - (crit * se.fit))
-    pred$Treatment<-"vehicle"
-    pred$Treatment<-as.factor(pred$Treatment)
+    pred$CI<-"vehicle"
+    pred$CI<-as.factor(pred$CI)
     plot<-ggplot(pred,mapping= ggplot2::aes(x = C,y=fit ))+
       geom_point(BSVar, mapping=ggplot2::aes(x=C,y=I,color = dataset))+
-      geom_ribbon(aes(ymin = lwrP, ymax = uprP ,fill=Treatment), alpha = 0.2) +
+      geom_ribbon(aes(ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2) +
       labs(y = "Relative Solubility",
            x = "Temperature")
     pred1<- transform(cbind(data.frame(pred1),newd1),
@@ -1561,11 +1561,11 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE){
                       lwrP = fit - (2 * se.fit),
                       uprS = fit + (crit * se.fit),
                       lwrS = fit - (crit * se.fit))
-    pred1$Treatment<-"treated"
-    pred1$Treatment<-as.factor(pred1$Treatment)
+    pred1$CI<-"treated"
+    pred1$CI<-as.factor(pred1$CI)
     plot<-plot+
       geom_point(BSVar1,mapping=ggplot2::aes(x=C,y=I,color = dataset))+
-      geom_ribbon(pred1,mapping=ggplot2::aes(ymin = lwrP, ymax = uprP ,fill=Treatment), alpha = 0.2 ) +
+      geom_ribbon(pred1,mapping=ggplot2::aes(ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2 ) +
       labs(y = "Relative Solubility",
            x = "Temperature")
     print(plot)
