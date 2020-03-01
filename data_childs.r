@@ -68,7 +68,7 @@ tppData %>%
   kable()
 #save preprocessed
 saveRDS(tppData,"tppData_preprocessed.Rds")
-
+tppData <- readRDS("~/CS7290-/external data/tppData_preprocessed.Rds")
 #########################################CAUTION: I assigned this to the same variable
 #To look up a compound, please edit dataset (drug) and uniqueID
 stk4 <- filter(tppData, dataset == "Staurosporine", uniqueID=="STK4_IPI00011488")
@@ -76,7 +76,7 @@ stk4 <- filter(tppData, dataset == "Panobinostat", uniqueID=="HDAC10")
 stk4 <- filter(tppData, dataset == "Panobinostat", uniqueID=="RAP2B")
 
 
-stk4 <- filter(tppData,uniqueID=="KIAA1430_IPI00853627",dataset == "Dasatinib")
+stk4 <- filter(tppData,uniqueID=="HDAC6_IPI00005711",dataset == "Dasatinib")
 stk4 <- filter(tppData, dataset == "ATP", uniqueID=="C6ORF106_IPI00013269")
 stk4 <- subset(tppData, uniqueID=="P36507")
 stk4 <- subset(tppData, uniqueID=="P46940")
@@ -96,8 +96,7 @@ stk4 %>% filter(compoundConcentration == 20, replicate ==1) %>%
 
 stk4_plot <- ggplot(stk4,aes(x=temperature, y = relAbundance))+
   geom_point(aes(shape = factor(replicate),color = factor(compoundConcentration)),
-             size = 2)+theme_bw()+ggtitle(stk4$uniqueID) + scale_color_manual(print(stk4$dataset[1]),
-                                                                       values = c("#808080","#da7f2d"))
+             size = 2)+theme_bw()+ggtitle(stk4$uniqueID) 
 print(stk4_plot)
 
 

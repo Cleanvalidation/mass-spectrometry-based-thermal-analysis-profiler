@@ -1490,16 +1490,19 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE){
  
   #return fit and confidence intervals
   ci<-function(df2,i,alpha){
+    BSVarN<-df2 %>% subset(uniqueID == df1$uniqueID[i] )
     BSVar <-df2 %>% subset(uniqueID == df1$uniqueID[i] & dataset== "vehicle")
     BSVar$dataset<-as.factor(BSVar$dataset)
     BSVar1<-df2 %>% subset(uniqueID == df1$uniqueID[i]& dataset== "treated")
     BSVar1$dataset<-as.factor(BSVar1$dataset)
     fit <-  stats::smooth.spline(x = BSVar$C, y=BSVar$I,cv=TRUE)
     fit1<-  stats::smooth.spline(x = BSVar1$C, y=BSVar1$I,cv=TRUE)
+    fitN<-  stats::smooth.spline(x = BSVarN$C, y=BSVarN$I,cv=TRUE)
 #####try GAM
     #fit penalized splines
     m <- gam(I ~ s(C), data = BSVar , method = "ML")
     m1<- gam(I ~ s(C), data = BSVar1, method = "ML")
+    mn<- gam(I ~ s(C), data = BSVarN, method = "ML")
     #Plot boostrapped  residuals with 95%CI
     #PLP<-plot(m, shade = TRUE, seWithMean = TRUE, residuals = TRUE, pch = 16, cex = 0.8)
     #generate random values from a multivariate normal distribution
@@ -1563,11 +1566,26 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE){
                       lwrS = fit - (crit * se.fit))
     pred1$CI<-"treated"
     pred1$CI<-as.factor(pred1$CI)
+    pred1$AUC<-pracma::trapz(pred1$fit)-pracma::trapz(pred$fit)
+    pred1$AUC<-round(pred1$AUC[1],3)
+    if( pred1$AUC[1] > 5){
+     pred1$AUC<-pracma::trapz(pred1$lwrP)-pracma::trapz(pred$uprP)#AUC diff in stabilized CI
+    }else if ( pred1$AUC[1]< -5){
+      pred1$AUC<-pracma::trapz(pred$lwrP)-pracma::trapz(pred1$uprP)#AUC diff in destabilized CI
+    }else{
+      pred1$AUC<-pracma::trapz(pred$fit)-pracma::trapz(pred1$fit) #AUC diff in fit
+    }
+    pred1$Tm<-approx(pred1$fit,pred1$C,0.5)$y-approx(pred$fit,pred$C,0.5)$y# Tm difference (+ stabilized)
+    pred1$RSS<- sum(m$residuals,m1$residuals)^2 #RSS diff(+ stabilized)
+    pred1$Tm<-round(pred1$Tm[1],1)
+    pred1$RSS<- signif(pred1$RSS[1],digits = 3) %>% as.numeric()
     plot<-plot+
       geom_point(BSVar1,mapping=ggplot2::aes(x=C,y=I,color = dataset))+
       geom_ribbon(pred1,mapping=ggplot2::aes(ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2 ) +
       labs(y = "Relative Solubility",
-           x = "Temperature")
+           x = "Temperature")+
+      ggplot2::annotate("text", x=62, y=1, label= paste("\u03A3","RSS= ", pred1$RSS[1] ))+
+      ggplot2::annotate("text", x=62, y=0.9, label=  paste("\u0394", "AUC = ",round(pred1$AUC[1],3)))+ggplot2::annotate("text", x=62, y=0.8, label= paste("\u0394","Tm = ",round(pred1$Tm[1],3),"\u00B0C"))
     print(plot)
   }
 
