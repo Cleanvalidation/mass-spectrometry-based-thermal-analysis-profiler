@@ -9,7 +9,7 @@ library(grid)
 library(readxl)
 library(nls2)
 library(minpack.lm)
-library(nlstools)
+
 library(pkgcond)
 library(rlist)
 library(pracma)
@@ -742,12 +742,13 @@ CP<-function(df_0){
     #find duplicates and subtract 1 from LineRegion
     #find duplicates and get the first one
     dap<-list()
+    
     dap[[i]]<-df_0[[i]] %>% subset(df_0[[i]]$C %in% Split$C) 
     dap[[i]]$LineRegion<-as.numeric(dap[[i]]$LineRegion)
     
     
     Dap<-dap[[i]] %>%dplyr::group_split(C)
-    dap<-lapply(Dap,function(x) x %>% dplyr::mutate(LineRegion=min(LineRegion)))
+    dap<-lapply(Dap,function(x) x %>% dplyr::mutate(LineRegion=max(LineRegion)))
     dap<-rbindlist(dap) %>% as.data.frame(.)
     df_0[[i]]$LineRegion[df_0[[i]]$C %in% dap$C]<-dap$LineRegion
     df_0[[i]]$LineRegion<-as.factor(df_0[[i]]$LineRegion)
@@ -963,22 +964,21 @@ tlstat<-function(DF,df,df1,PI=FALSE){
     #null
     mean3<-list()
     mean3[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),AUC = rep(0,1), dataset="null",uniqueID=DF[[i]]$uniqueID[1],Tm=rep(0,1))
-    DF<-lapply(DF,function(x) x %>% na.omit())
+    
     for(i in 1:length(DF)){
       DF[[i]]<-unique(DF[[i]])
       mean3[[i]]<-DF[[i]] %>% data.frame(.) %>% 
         dplyr::group_nest(LineRegion,uniqueID) %>% 
         dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
                       CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
-                      Tm=with(DF[[i]], approx( DF[[i]]$I,DF[[i]]$C, xout=max(DF[[i]]$I, na.rm=TRUE)-0.5))$y,
+                      Tm=with(DF[[i]], approx(DF[[i]]$I,DF[[i]]$C, xout=max(DF[[i]]$I, na.rm=TRUE)-0.5))$y,
                       slope=map(M1,function(x){as.numeric(coef(x)[2])}),
                       intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
                       rss=map(M1,function(x){deviance(x)}),
-                      Rsq=map(M1,function(x){summary(x)$r.squared}),
-                      AUC = purrr::map2(data,CI,function(x,y) pracma::trapz(x$C,y[,'fit'])),
-                      dataset="null",
+                      Rsq=map(M1,function(x){summary(x)$r.squared}), 
+                      purrr::map2(data,CI,function(x,y) pracma::trapz(x$C,y[,'fit'])),
+                      dataset="treated",
                       uniqueID=DF[[i]]$uniqueID[1])
-      
       
       
       
@@ -1194,6 +1194,7 @@ Rssv<-lapply(tlresults, function(x) x %>% subset(stringr::str_detect(tolower(dat
 Rsst<-lapply(tlresults, function(x) x %>% subset(stringr::str_detect(tolower(dataset), pattern = "treated")) %>% 
                dplyr::rowwise(.) %>%  dplyr::mutate(RSS=sum(.$rss))%>% dplyr::select(RSS,Tm,dataset,uniqueID)%>% data.table::first(.$RSS,.$Tm,.$dataset,.$uniqueID))
 #find the rss difference between treated and vehicle 
+
 Rssv<-lapply(Rssv,function(x)na.omit(x))
 Rsst<-lapply(Rsst,function(x)na.omit(x))
 #find common IDs
@@ -1201,7 +1202,7 @@ CID<-intersect(rbindlist(Rsst)$uniqueID,rbindlist(Rssv)$uniqueID)
 #keep common IDs
 Rssv<-Rssv %>% purrr::keep(function(x) isTRUE(x$uniqueID %in% CID)) 
 Rsst<-Rsst %>% purrr::keep(function(x) isTRUE(x$uniqueID %in% CID))
-                           
+Nsum<-Nsum %>% purrr::keep(function(x) isTRUE(x$uniqueID %in% CID))                           
 K1<-data.frame(rbindlist(purrr::map2(Rsst,Rssv,function(x,y) data.frame(RSSd = x$RSS-y$RSS, Tma = x$Tm - y$Tm)))) 
 K2<-rbindlist(Rssv)$uniqueID %>% as.data.frame(.)
 Dsum<-data.frame(K1,K2)
