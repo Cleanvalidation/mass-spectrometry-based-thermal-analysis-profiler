@@ -574,7 +574,7 @@ find_pat = function(pat, x)
 # #prepare a list of concentration values
 # conclist<-unique(d$CC)
 # #prepare a list of proteins
-setwd("~/test_01/Canonical/CS7290-/internal data")
+setwd("~/CS7290-/internal data")
 # # df<- read_excel("eFT_30K_all5samples_PROTEINS.xlsx")
 df.temps <- data.frame(temp_ref = c('126', '127N', '127C', '128N', '128C', '129N','129C', '130N', '130C', '131'), temperature = c(37, 40.1, 43.5, 47.5, 50.4, 54, 57, 60.8, 65, 67), stringsAsFactors = FALSE)
 df.samples <- data.frame(sample_id = c('F1', 'F2', 'F3','F4','F5'), sample_name = c('MEK_1','MEK_2', 'MEK_3','DMSO_1','DMSO_3'), stringsAsFactors = FALSE)
@@ -800,9 +800,7 @@ BStrap<-function(Data0,n,N){
   #Bootstrap"sample with replacement":
   BS<-lapply(Data0, function(x)x %>% select(uniqueID,C,I,LineRegion) %>%  dplyr::sample_n(n,replace=TRUE))
   #generate mean intensities per $C value
-  BA<-lapply(BS, function(x) x %>%dplyr::group_by(uniqueID,C,LineRegion) %>% dplyr::summarise(n=n(),mean=mean(I,na.rm=TRUE),var=var(I,na.rm=TRUE))) 
-  BSvar<-lapply(BA,function(x) x %>%dplyr::rowwise() %>%  dplyr::mutate(uniqueID= uniqueID,LineRegion=LineRegion,I = rnorm(n = length(var), mean = mean, sd = sqrt(var)))) 
-  
+  BS<-lapply(BS,function(x) x[order(x$C),])
   return(BS)
 }
 
@@ -1166,7 +1164,6 @@ tlresults<-tlstat(DFN,df_,df_1,PI=FALSE)#place null, vehicle and treated lists w
 #prediction intervals with bootstrap
 tlresults_PI<-tlstat(BSvarN,BSvar,BSvar1,PI=TRUE)
 
-
 ##Apply Filters
 #####################
 
@@ -1386,15 +1383,15 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
   #Residuals
   rn<-data.frame(c(residuals(null$M1[[1]]),residuals(null$M1[[2]]),residuals(null$M1[[3]])))
   Pred<-cbind(Pred,rn)
-  names(Pred)<- names(Pred)<-c("fit","lower","upper","C","I","dataset",'residuals')
+  names(Pred)<- names(Pred)<-c("fit","lower","upper","C","I","Treatment",'residuals')
   rn<-data.frame(c(residuals(vehicle$M1[[1]]),residuals(vehicle$M1[[2]]),residuals(vehicle$M1[[3]])))
   Pred1<-cbind(Pred1,rn)
-  names(Pred1)<- names(Pred1)<-c("fit","lower","upper","C","I","dataset",'residuals')
+  names(Pred1)<- names(Pred1)<-c("fit","lower","upper","C","I","Treatment",'residuals')
   rn<-data.frame(c(residuals(treated$M1[[1]]),residuals(treated$M1[[2]]),residuals(treated$M1[[3]])))
-  Pred2<-cbind(Pred1,Pred2)
-  names(Pred2)<- names(Pred2)<-c("fit","lower","upper","C","I","dataset",'residuals')
-
-  PLrs<-ggplot2::ggplot(Preds, ggplot2::aes(x =fit,y = residuals,color=dataset)) +ggplot2::geom_point()+ ggplot2::ggtitle(paste(Df1[[i]]$uniqueID[1]))+ggplot2::xlab("Fitted Intensities")+ggplot2::ylab("Residuals")
+  Pred2<-cbind(Pred2,rn)
+  names(Pred2)<- names(Pred2)<-c("fit","lower","upper","C","I","Treatment",'residuals')
+  Preds<-rbind(Pred1,Pred2)
+  PLrs<-ggplot2::ggplot(Preds, ggplot2::aes(x =fit,y = residuals,color=Treatment)) +ggplot2::geom_point()+ ggplot2::ggtitle(paste(Df1[[i]]$uniqueID[1]))+ggplot2::xlab("Fitted Intensities")+ggplot2::ylab("Residuals")
   print(PLrs)
   PLR_P2<-PLR_P1+ggplot2::geom_point(Pred2, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +ggplot2::geom_ribbon(data=Pred2,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+
     ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")
@@ -1430,7 +1427,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
     print(PLR)
   }
 }
-i=3
+i=2
 
 plotTL<-tlCI(i,df1,df2,Df1,overlay=TRUE)
 #df1 <- only IDs in order desc(stability)
@@ -1498,22 +1495,21 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE){
   ###########################################
   DF_f1<-rbindlist(df_1)%>% as.data.frame(.) %>% subset(uniqueID == df1)
   treated<-Df1 %>% subset(uniqueID == df1 & dataset == "treated")
-
+  
   
   ###########################################
   #get confidence intervals for all conditions
   ###########################################
- 
+  
   #return fit and confidence intervals
-  ci<-function(df2,i,alpha){
-
+  ci<-function(df1,df2,i,alpha){
     BSVarN<-df2 %>% subset(uniqueID == df1 )
     BSVar <-df2 %>% subset(uniqueID == df1) %>% dplyr::mutate(dataset=ifelse(CC==0,'vehicle','treated')) %>% subset(dataset=="vehicle")
     
-
+    
     BSVarN<-df2 %>% subset(uniqueID == df1 )
     BSVar <-df2 %>% subset(uniqueID == df1 & dataset== "vehicle")
-
+    
     BSVar$dataset<-as.factor(BSVar$dataset)
     BSVar1<-df2 %>% subset(uniqueID == df1)%>% dplyr::mutate(dataset=ifelse(CC==0,'vehicle','treated')) %>% subset(dataset=="treated")
     
@@ -1521,19 +1517,19 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE){
     fit <-  stats::smooth.spline(x = BSVar$C, y=BSVar$I,cv=TRUE)
     fit1<-  stats::smooth.spline(x = BSVar1$C, y=BSVar1$I,cv=TRUE)
     fitN<-  stats::smooth.spline(x = BSVarN$C, y=BSVarN$I,cv=TRUE)
-
+    
     #####try GAM
     #fit penalized splines
     m <- mgcv::gam(I ~ s(C), data = BSVar , method = "ML")
     m1<-  mgcv::gam(I ~ s(C), data = BSVar1, method = "ML")
     mn<-  mgcv::gam(I ~ s(C), data = BSVarN, method = "ML")
-
-#####try GAM
+    
+    #####try GAM
     #fit penalized splines
     m <- gam(I ~ s(C), data = BSVar , method = "ML")
     m1<- gam(I ~ s(C), data = BSVar1, method = "ML")
     mn<- gam(I ~ s(C), data = BSVarN, method = "ML")
-
+    
     #Plot boostrapped  residuals with 95%CI
     #PLP<-plot(m, shade = TRUE, seWithMean = TRUE, residuals = TRUE, pch = 16, cex = 0.8)
     #generate random values from a multivariate normal distribution
@@ -1549,7 +1545,7 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE){
     se.fit <- pred$se.fit
     #get some parmeters
     Vb1<- vcov(m1)
-    newd1<- with(BSVar1,data.frame(C = seq(min(C), max(C), length = 200)))
+    newd1<- with(BSVar1,data.frame(C = seq(min(C), max(C), length = 30)))
     pred1<- predict(m1,newd1,se.fit = TRUE)
     se.fit1<- pred1$se.fit
     #generate std
@@ -1589,7 +1585,7 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE){
       geom_point(BSVar, mapping=ggplot2::aes(x=C,y=I,color = dataset))+
       geom_ribbon(aes(ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2) +
       ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::ggtitle("")
-  
+    
     pred1<- transform(cbind(data.frame(pred1),newd1),
                       uprP = fit + (2 * se.fit),
                       lwrP = fit - (2 * se.fit),
@@ -1601,9 +1597,9 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE){
     pred1$AUC<-round(pred1$AUC[1],3)
     if( pred1$AUC[1] > 5){
       pred1$AUC<-pracma::trapz(pred1$lwrP)-pracma::trapz(pred$uprP)#AUC diff in stabilized CI
-
-     pred1$AUC<-pracma::trapz(pred1$lwrP)-pracma::trapz(pred$uprP)#AUC diff in stabilized CI
-
+      
+      pred1$AUC<-pracma::trapz(pred1$lwrP)-pracma::trapz(pred$uprP)#AUC diff in stabilized CI
+      
     }else if ( pred1$AUC[1]< -5){
       pred1$AUC<-pracma::trapz(pred$lwrP)-pracma::trapz(pred1$uprP)#AUC diff in destabilized CI
     }else{
@@ -1632,10 +1628,7 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE){
       ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::ggtitle(c(as.character(df1),"alternative"))+
       ggplot2::annotate("text", x=62, y=1, label= paste("\u03A3","RSS= ", pred1$RSS[1] ))+
       ggplot2::annotate("text", x=62, y=0.9, label=  paste("\u0394", "AUC = ",round(pred1$AUC[1],3)))+ggplot2::annotate("text", x=62, y=0.8, label= paste("\u0394","Tm = ",round(pred1$Tm[1],3),"\u00B0C"))
-    print(plot1)
-    )
-)
-
+    
     plot<-plot+
       geom_point(BSVar1,mapping=ggplot2::aes(x=C,y=I,color = dataset))+
       geom_ribbon(pred1,mapping=ggplot2::aes(ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2 ) +
@@ -1644,82 +1637,11 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE){
       ggplot2::annotate("text", x=62, y=1, label= paste("\u03A3","RSS= ", pred1$RSS[1] ))+
       ggplot2::annotate("text", x=62, y=0.9, label=  paste("\u0394", "AUC = ",round(pred1$AUC[1],3)))+ggplot2::annotate("text", x=62, y=0.8, label= paste("\u0394","Tm = ",round(pred1$Tm[1],3),"\u00B0C"))
     print(plot)
-  }
-
-
-  
-  
-  #generate 95%CI for vehicle
-  Pred<-ci(df2,i,0.95)
-  
-            
-
-  
-
-#Pred<-Pred[1:length(DF1$C),]##############
-#Pred<-data.frame(Pred,DF1$C[1:nrow(Pred)],DF1$I[1:nrow(Pred)])################
-#names(Pred)<-c("fit","lower","upper","C","I")
-
-Pred2<-Pred2 %>% dplyr::mutate(Treatment=null$dataset[1])##################
-Pred2<-na.omit(Pred2)
-
-DF1$Treatment<-null$dataset[1]
- 
-PLN<-ggplot2::ggplot(Pred2,ggplot2::aes(x =C, y =I)) +ggplot2::geom_point(DF1,mapping =ggplot2::aes(x=C,y=I))+ ggplot2::ggtitle(paste(null$uniqueID[1],"null"))+ ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::annotate("text", x=62, y=1, label= paste("RSS= ",round(null$rss,3)))
-PLP<-PLN+geom_quantile(mapping=aes(x=DF1$C,y=DF1$I),data=DF1,method="rqss",lambda=null$lambda,formula= y ~ quantreg::qss(x, lambda =null$lambda),quantiles=c(0.025,0.975))#  ggplot2::geom_ribbon(data=Pred2,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)
- 
-  PLN<-ggplot2::ggplot(Pred2,ggplot2::aes(x =C, y =fit,color=Treatment)) +ggplot2::geom_point(DF1,mapping =ggplot2::aes(x=C,y=I))+ ggplot2::ggtitle(paste(null$uniqueID[1],"null"))+geom_quantile(formula = I ~ splines::ns(C,treated$df,knots = treated$knots),quantiles = 0.5)+ ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::annotate("text", x=62, y=1, label= paste("RSS= ",round(null$rss,3)))
-#   ggplot2::geom_ribbon(data=Pred2,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)
- 
-Pred<-Pred %>% dplyr::mutate(Treatment=vehicle$dataset[1])##################
-Pred<-na.omit(Pred)
-
-
-DF_f<-df2 %>% subset(uniqueID == df1) & dataset == "vehicle")
-DF_f$Treatment<-vehicle$dataset[1]
-
-PLR_P1<-ggplot2::ggplot(Pred, ggplot2::aes(x = C,y = fit,color=Treatment))+ggplot2::geom_point(DF_f, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +ggplot2::geom_ribbon(data=Pred,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)
- 
-PLP1<-PLR_P1 +geom_quantile(formula = DF_f$I ~ splines::ns(DF_f$C,df= vehicle$df,knots =vehicle$knots),quantiles = c(0.025,0.975))
- 
-#Area under the curve using trapezoid rule
-P1_AUC <- pracma::trapz(Pred$C,Pred$fit)
-P2_AUC <- pracma::trapz(Pred1$C,Pred1$fit)
-
-DF_f1<-df2 %>% subset(uniqueID == df1$uniqueID[i] & dataset == "treated")
-DF_f1$Treatment<-treated$dataset[1]
-Pred1$Treatment<-treated$dataset[1]
-PLR_P2<-PLR_P1+ggplot2::geom_point(DF_f1, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +ggplot2::geom_ribbon(data=Pred1,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+
-  ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")
-if(overlay=="TRUE"){
-  AUCd<-round(P2_AUC-P1_AUC,2)
-  Tm1<-data.frame()
-  Tm2<-data.frame()
-  
-  
-  Tm1<-Pred1[which.min(abs(Pred $fit - 0.5)),'C']#pred1 is vehicle
-  Tm2<-Pred2[which.min(abs(Pred1$fit - 0.5)),'C']#pred2 is treated
-  Tm_d<-round(Tm2 -Tm1,1)
-  p<-expression(paste(Delta, "AUCdiff"))
-  if(AUCd>0){
-    P1_AUC <- pracma::trapz(Pred1$C,Pred1$lower)
-    P2_AUC <- pracma::trapz(Pred2$C,Pred2$upper)
-    AUCd<-round(P2_AUC-P1_AUC,2)
-  }else{
-    P1_AUC <- pracma::trapz(Pred1$C,Pred1$upper)
-    P2_AUC <- pracma::trapz(Pred2$C,Pred2$lower)
-    AUCd<-round(P2_AUC-P1_AUC,2)
-  }
-  AUCd<-as.numeric(AUCd)
-  PLR_P2<-PLR_P1+ggplot2::geom_point(DF_f1,mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +ggplot2::geom_ribbon(data=Pred1,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+
-    ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::ggtitle(paste(null$uniqueID[1],"alternative"))+
-    ggplot2::annotate("text", x=62, y=1, label= paste("\u03A3","RSS= ",round(sum(vehicle$rss,treated$rss),3)))+
-    ggplot2::annotate("text", x=62, y=0.9, label=  paste("\u0394", "AUC = ",AUCd))+ ggplot2::annotate("text", x=62, y=0.8, label= paste("\u0394","Tm = ",Tm_d,"\u00B0C"))
-  #bquote(Value~is~sigma~R^{2}==.(r2.value)))
-  PLR_P2<-grid.arrange(PLN,PLR_P2, ncol=2)
-  print(PLR_P2)
-}else if(overlay=="FALSE"){
-  PLR<-PLR_P2+ggplot2::geom_point(data=Pred,mapping=ggplot2::aes(x=C,y=I))+ggplot2::geom_ribbon(data=Pred,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+ggplot2::ggtitle(paste(Df1[[i]]$uniqueID[1],"alternative"))+facet_wrap("Treatment") 
-  print(PLR)
+    }
 }
 
+
+  #generate 95%CI for vehicle
+  Pred<-ci(df1,df2,i,0.95)
+  
+        
