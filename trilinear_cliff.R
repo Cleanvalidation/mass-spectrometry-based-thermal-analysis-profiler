@@ -805,9 +805,9 @@ BStrap<-function(Data0,n,N){
 }
 
 
-BSvarN<- suppressWarnings(BStrap(RSN,1000,1000))
-BSvar<-suppressWarnings(BStrap(RS,1000,1000))
-BSvar1<-suppressWarnings(BStrap(RST,1000,1000))
+BSvarN<- suppressWarnings(BStrap(RSN,50,50))
+ BSvar<-suppressWarnings(BStrap(RS,50,50))
+BSvar1<-suppressWarnings(BStrap(RST,50,50))
 
 #append names to list 
 
@@ -1478,7 +1478,7 @@ BSvarN<- BSvarN%>% keep(function(x) x$uniqueID[1] %in% df1$uniqueID)
 
 #
 ###############################
-spCI<-function(i,df1,df2,Df1,overlay=TRUE){
+spCI<-function(i,df1,df2,Df1,overlay=TRUE,alpha){
   null<-data.frame()
   i<-i
   df_<-df_
@@ -1639,9 +1639,197 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE){
     print(plot)
     }
 }
+#generate 95%CI for vehicle
+Pred<-spCI(i,df1,df2,Df1,overlay=TRUE,0.05)
+##################################################
+#Sigmoidal function with confidence intervals
+###################################################
+
+fitSingleSigmoid <- function(x , y, start =c(Pl=0, a = 550, b = 10))
+{
+  try(nls(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl,
+          start = start,
+          data = list(x=x,y=y),
+          na.action = na.exclude,
+          algorithm = "port",
+          lower = c(0.0,1e-5,1e-5),
+          upper = c(1.5,15000,250),
+          control = nls.control(maxiter = 50)),
+      silent = TRUE)
+}
+repeatFits <- function(x,y, start= c(Pl = 0, a = 550, b=10),
+                       seed = NULL, alwaysPermute = FALSE, maxAttempts = 100){
+  i <-0
+  doFit <- TRUE
+  doVaryPars <-alwaysPermute
+  
+  if(!is.null(seed)){
+    set.seed(seed)
+  }  
+  while (doFit){
+    startTmp <-start * (1+doVaryPars*runif(1, -0.5,0.5))
+    m <- fitSingleSigmoid(x=x, y=y, start = startTmp)
+    i <- i +1
+    doFit <- inherits(m,"try-error") & i < maxAttempts
+    doVaryPars <- TRUE
+  }
+  return(m)
+}
+
+computeRSS <- function(x,y,start = c(Pl = 0, a = 550, b=10),seed = NULL,
+                       alwaysPermute = FALSE,maxAttempts = 100){
+  #start model fitting
+  fit <- repeatFits(x=x, y=y,start=start,seed=seed,alwaysPermute=alwaysPermute,maxAttempts = maxAttempts)
+  if(!inherits(fit,"try-error")){
+    #if model fit converged, calculate RSS and parameters
+    resid <-residuals(fit)
+    rss <- sum(resid^2,na.rm = TRUE)
+    fittedValues <- sum(!is.na(resid))
+    params <- coefficients(fit)
+    #Compute Tm for comparison (not needed for HT)
+    tm <- params[["a"]]/(params[["b"]] - log(1-params[["Pl"]])/(1/2 - params[["Pl"]]-1))
+  } else {
+    #if model did not converge, return default vals
+    rss <- NA
+    fittedValues <-0
+    params <- c(Pl=NA,a=NA,b=NA)
+    tm <- NA
+  }
+  out <- tibble(rss=rss, fittedValues = fittedValues, tm= tm,
+                a = params[["a"]],b = params[["b"]], Pl = params[["Pl"]])
+  return(out)
+  
+  
+}
+#GoF by RSS comparison for each protein
+#RSS difference
+
+computeRSSdiff <- function(x,y,treatment,maxAttempts = 100, repeatsIfNeg = 10){
+  rssDiff <- -1
+  repeats <- 0
+  alwaysPermute <- FALSE
+  
+  start0 = start1 <- c(Pl=0,a=550,b=10)
+  
+  while((is.na(rssDiff) | rssDiff<0) & repeats <= repeatsIfNeg){
+    
+    nullResults <- computeRSS(x=x, y=y, start = start0, seed=repeats,
+                              maxAttempts = maxAttempts,
+                              alwaysPermute = alwaysPermute)
+    
+    altResults <- tibble(x,y,treatment) %>%
+      group_by(treatment) %>%
+      do({
+        fit = computeRSS(x=.$x, y = .$y,start = start1, seed=repeats,
+                         maxAttempts = maxAttempts,
+                         alwaysPermute = alwaysPermute)
+        
+      }) %>% ungroup
+    rss0 <- nullResults$rss
+    rss1 <-sum(altResults$rss)
+    rssDiff <- rss0-rss1
+    
+    if(is.na(rssDiff) | rssDiff <0){
+      repeats <- repeats +1
+      alwaysPermute <- TRUE
+      start1 <- c(Pl = nullResults[["Pl"]],a = nullResults[["a"]],b=nullResults[["b"]])
+      
+    }
+  }
+  
+  n0 <-nullResults$fittedValues
+  n1 <-sum(altResults$fittedValues)
+  
+  tm <- altResults %>%
+    mutate(key = paste0("tm_",treatment)) %>%
+    dplyr::select(key,tm) %>% spread(key,tm)
+  
+  out <- tibble(rss0,rss1,rssDiff,n0,n1,repeats) %>%
+    cbind(tm)
+  return(out)
+}
 
 
-  #generate 95%CI for vehicle
-  Pred<-ci(df1,df2,i,0.95)
+  sigfit<-function(df_,df_1){
+    nlm1<-list(NA)
+    nlm2<-list(NA)
+    dfc<-list(NA)
+    dfy<-list(NA)
+    Pred<-list(NA)
+    Pred1<-list(NA)
+    df_<-lapply(df_,function(x)x %>% dplyr::mutate(dataset="vehicle"))
+    df_1<-lapply(df_1,function(x)x %>% dplyr::mutate(dataset="treated"))
+    #preliminary sigmoidal fit test
+    nlm1<-lapply(df_,function(x)inherits(fitSingleSigmoid(x$C,x$I),'try-error')) #remove non-sigmoidal data
+    nlm2<-df_[nlm1=="FALSE"] #keep fitted sigmoid
+    nlm1<-lapply(nlm2,function(x)fitSingleSigmoid(x$C,x$I)) #fit sigmoids
+    Ct<-purrr::map(nlm2,function(x) x %>% dplyr::mutate(CP=seq(from=min(x$C),to=max(x$C),length.out=length(x$C))))
+    dfc <- purrr::map2(nlm1,Ct,function(x,y)predict(x,data=y$C))#collect predicted values
+    result<-purrr::map2(Ct,dfc,function(x,y)cbind(data.frame(x),data.frame(y)))
+    
+    result$AUC<-data.table::rbindlist(purrr::map2(dfc,nlm2,function(x,y)pracma::trapz(y$C,x) %>% as.data.frame(.))) %>% as.data.frame(.)
+    Tm<-purrr::map2(dfc,nlm2,function(x,y) stats::approx(x,y$C,0.5)$y %>% as.data.frame(.))
+    result<-purrr::map2(result[1:length(Tm)],Tm,function(x,y)cbind(x,data.frame(y)))
+    result<-purrr::map(result[1:length(Tm)],function(x) x %>% dplyr::rename("Tm"="."))
+    #t<-lapply(result,function(x)x[,1:7])
+    dfy<-purrr::map(nlm1,function(x) try(nlstools::confint2(x,method="profile",level=0.95)))#tries to generate CI
+    nlm2<-purrr::map2(result,dfy,function(x,y)x %>% dplyr::mutate(Pl=y[1],a=y[2],b=y[3],Pl1=y[4],a1=y[5],b1=y[6]))
+    TNA<-purrr::map(dfy,function(x)all(!is.na(x))) #removes CIs which did not converge
+    #keep fitted results
+    nlm1<-nlm1[which(TNA=="TRUE")]
+    nlm2<-nlm2[which(TNA=="TRUE")]#keeps original data where CIs are located
+    dfy<-dfy[which(TNA=="TRUE")]#keeps equation parameters where CIs are located
+    dfc<-dfc[which(TNA=="TRUE")]#keeps predicted values where CIs are located
+    result<-nlm2[which(TNA=="TRUE")]
+    Pred<- purrr::map(result,function(x)data.frame(LOW = (1-x$Pl[1])/(1+exp((x$b[1]-x$a[1]/x$C)))+x$Pl[1], HI = (1-x$Pl1[1])/(1+exp((x$b1[1]-x$a1[1]/x$C)))+x$Pl1[1]))#get lower CI
+    Pred<-purrr::map2(result,Pred,function(x,y)cbind(x,y))
+    # pred<-purrr::map2(nlm2,dfc,function(x,y) data.frame(x) %>% dplyr::mutate(P=y))
+    # keep<-pred %>% purrr::keep(.,function(x)any(!inherits(x$Pl,'character')))#remove errors
+   
+    
+    #preliminary sigmoidal fit test
+    nlm1<-lapply(df_1,function(x)inherits(fitSingleSigmoid(x$C,x$I),'try-error')) #remove non-sigmoidal data
+    nlm2<-df_1[nlm1=="FALSE"] #keep fitted sigmoid
+    nlm1<-lapply(nlm2,function(x)fitSingleSigmoid(x$C,x$I)) #fit sigmoids
+    Ct<-purrr::map(nlm2,function(x) x %>% dplyr::mutate(CP=seq(from=min(x$C),to=max(x$C),length.out=length(x$C))))
+    dfc <- purrr::map2(nlm1,Ct,function(x,y)predict(x,data=y$C))#collect predicted values
+    result1<-purrr::map2(Ct,dfc,function(x,y)cbind(data.frame(x),data.frame(y)))
+    
+    result1$AUC<-data.table::rbindlist(purrr::map2(dfc,nlm2,function(x,y)pracma::trapz(y$C,x) %>% as.data.frame(.))) %>% as.data.frame(.)
+    Tm<-purrr::map2(dfc,nlm2,function(x,y) stats::approx(x,y$C,0.5)$y %>% as.data.frame(.))
+    result1<-purrr::map2(result1[1:length(Tm)],Tm,function(x,y)cbind(x,data.frame(y)))
+    result1<-purrr::map(result1[1:length(Tm)],function(x) x %>% dplyr::rename("Tm"="."))
+    #t<-lapply(result,function(x)x[,1:7])
+    dfy<-purrr::map(nlm1,function(x) try(nlstools::confint2(x,method="profile",level=0.95)))#tries to generate CI
+    nlm2<-purrr::map2(result1,dfy,function(x,y)x %>% dplyr::mutate(Pl=y[1],a=y[2],b=y[3],Pl1=y[4],a1=y[5],b1=y[6]))
+    TNA<-purrr::map(dfy,function(x)all(!is.na(x))) #removes CIs which did not converge
+    #keep fitted results
+    nlm1<-nlm1[which(TNA=="TRUE")]
+    nlm2<-nlm2[which(TNA=="TRUE")]#keeps original data where CIs are located
+    dfy<-dfy[which(TNA=="TRUE")]#keeps equation parameters where CIs are located
+    dfc<-dfc[which(TNA=="TRUE")]#keeps predicted values where CIs are located
+    result1<-nlm2[which(TNA=="TRUE")]
+    Pred1<- purrr::map(result1,function(x)data.frame(LOW = (1-x$Pl[1])/(1+exp((x$b[1]-x$a[1]/x$C)))+x$Pl[1], HI = (1-x$Pl1[1])/(1+exp((x$b1[1]-x$a1[1]/x$C)))+x$Pl1[1]))#get lower CI
+    Pred1<-purrr::map2(result1,Pred1,function(x,y)cbind(x,y))
+    #find common IDs between vehicle and treated with converging models
+    ID<-data.table::rbindlist(result)$uniqueID %>% as.data.frame(.) %>% unique(.)
+    names(ID)<-"uniqueID"
+    ID1<-data.table::rbindlist(result1)$uniqueID %>% as.data.frame(.) %>% unique(.)
+    names(ID1)<-"uniqueID"
+    IID<-intersect(ID,ID1)#get intersecting IDs which have convergence info
+  
+    #Filter data based on common IDs
+   
+    Pred<- Pred %>% purrr::keep(.,function(x) x$uniqueID[1] %in% IID$uniqueID)
+    Pred1<- Pred1 %>% purrr::keep(.,function(x) x$uniqueID[1] %in% IID$uniqueID)
+    #Check sigmoidal fit
+    P<-ggplot2::ggplot(Pred[[1]],ggplot2::aes(x=C,y=I))+ggplot2::geom_point(mapping=ggplot2::aes(color=dataset))+ggplot2::geom_ribbon(mapping=ggplot2::aes(ymin = Pred[[1]]$LOW, ymax = Pred[[1]]$HI,color=dataset,fill=dataset), alpha = 0.2 ) 
+    
+    P1<-P+ggplot2::geom_point(Pred1[[1]],mapping=ggplot2::aes(x=C,y=I,color=dataset))+ggplot2::geom_ribbon(mapping=ggplot2::aes(ymin = Pred1[[1]]$LOW, ymax = Pred1[[1]]$HI,color=dataset,fill=dataset), alpha = 0.2 ) + ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::ggtitle(c(as.character(Pred1[[1]]$uniqueID[1]),"alternative"))
+      
+    print(P1)
+    
+  }
+  
   
         
