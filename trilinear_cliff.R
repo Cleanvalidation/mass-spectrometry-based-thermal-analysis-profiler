@@ -1468,7 +1468,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
       ggplot2::annotate("text", x=62, y=1, label= paste("\u03A3","RSS= ",round(sum(Df1 %>% dplyr::filter(stringr::str_detect(tolower(dataset), pattern = "vehicle")) %>% dplyr::select(rss) %>% sum(.),Df1 %>% dplyr::filter(stringr::str_detect(tolower(dataset), pattern = "treated")) %>% dplyr::select(rss) %>% sum(.)),3)))+
       ggplot2::annotate("text", x=62, y=0.9, label=  paste("\u0394", "AUC = ",AUCd))+ ggplot2::annotate("text", x=62, y=0.8, label= paste("\u0394","Tm = ",Tm_d,"\u00B0C"))
     #bquote(Value~is~sigma~R^{2}==.(r2.value)))
-    PLR_P2<-grid.dplyr::arrange(PLN,PLR_P2, ncol=2)
+    par(mfrow=c(2,2))
     print(PLR_P2)
   }else if(overlay=="FALSE"){
     PLR<-PLR_P2+ggplot2::geom_point(data=Pred,mapping=ggplot2::aes(x=C,y=I))+ggplot2::geom_ribbon(data=Pred,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+ggplot2::ggtitle(paste(Df1$uniqueID[1],"alternative"))+facet_wrap("Treatment") 
