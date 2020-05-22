@@ -1,3 +1,25 @@
+# # install after setting up renv
+# install.packages("minpack.lm")
+# install.packages("rlist")
+# install.packages("data.table")
+# install.packages("knitr")
+# install.packages("ggthemes")
+# install.packages("gridExtra")
+# install.packages("grid")
+# install.packages("readxl")
+# install.packages("nls2")
+# install.packages("stats")
+# install.packages("ggplot2")
+# install.packages("pkgcond")
+# install.packages("rlist")
+# install.packages("pracma")
+# install.packages("fs")
+# install.packages("tidyverse")
+# install.packages("splines")
+# install.packages("mgcv")
+# install.packages("purrr")
+# install.packages("nlstools")
+
 
 library(minpack.lm)
 library(rlist)
@@ -13,6 +35,7 @@ library(ggplot2)
 library(pkgcond)
 library(rlist)
 library(pracma)
+library(fs)
 library(tidyverse)
 library(splines)
 library(mgcv)
@@ -115,7 +138,7 @@ normalize_cetsa <- function(df, temperatures) {
   df$Accession<-as.factor(df$Accession)
   df$temperature<-as.factor(df$temperature)
   df.jointP <- df %>%
-    dplyr::group_by(Accession,sample) %>% dplyr::mutate(n=n()) %>% #copies the number of temperatures per group
+    dplyr::group_by(Accession,sample) %>% dplyr::mutate(n=dplyr::n()) %>% #copies the number of temperatures per group
     dplyr::filter(n>=10) %>% #removes groups with less than 10 temperature channels
     dplyr::group_split(.) #split into groups
   
@@ -124,8 +147,12 @@ normalize_cetsa <- function(df, temperatures) {
                                                               T10 = value[temperature == temperatures[10]]/ value[temperature == temperatures[1]]) %>% 
                       dplyr::filter(T7 >= 0.4 & T7 <= 0.6 & T9 < 0.3 & T10 < 0.2))#normalization from TPP
   
-  #convert to df
+  #convert to df # dplyr::bind_rows #fix
+<<<<<<< HEAD
+  df.jointP<-dplyr::bind_rows(df.jointP)
+=======
   df.jointP<-data.table::rbindlist(df.jointP)
+>>>>>>> e5c4a2de14bf391c53bdf7979cd30964f7186f1c
   ## split[[i]] by sample group and filter
   l.bytype <- split.data.frame(df.jointP, df.jointP$sample)
   
@@ -140,13 +167,13 @@ normalize_cetsa <- function(df, temperatures) {
   
   df.median <- df %>%
     dplyr::group_by(sample,temperature) %>%
-    dplyr::summarise(value = median(value))
+    dplyr::mutate(value = median(value))
   
   df.median$temperature<-as.numeric(levels(df.median$temperature))[df.median$temperature]
   ## fit curves to the median data
   df.fit <- df.median %>%
     dplyr::group_by(sample) %>% 
-    dplyr::do(fit = cetsa_fit(d = ., norm = FALSE))
+    dplyr::do(fit = cetsa_fit(d = ., norm = FALSE))# do is to carry out an operation on a df
   ## calculate the fitted values
   d<-length(df.fit$fit)
   df.fittedVals<-0
@@ -154,13 +181,13 @@ normalize_cetsa <- function(df, temperatures) {
     if (is.na(df.fit$fit[i])) {
       df.fittedVals[i][[1]] <-NA_real_
     } else {
-      df.fittedVals[i] <- as.data.frame(predict(df.fit$fit[[i]]))#interesting, plot(df.fit$fit[[1]])
+      df.fittedVals[i] <- as.data.frame(predict(df.fit$fit[[i]]))
     } 
     
   }
   
   df.fittedVals<- df.fittedVals %>% as.data.frame()
-  names(df.fittedVals) <- df.fit$sample
+  names(df.fittedVals ) <- df.fit$sample
   
   df.fittedVals <- df.fittedVals %>% tidyr::gather()
   colnames(df.fittedVals)<-c('sample','fitted_values')
@@ -196,34 +223,11 @@ normalize_cetsa <- function(df, temperatures) {
 #' @import nls2
 #' @import dplyr
 #' @importFrom tidyr separate
-#' @import multidplyr
+#'
 #' @importFrom tibble rowid_to_column
 #'
 #' @export
-curves_cetsa <- function(df, normalized_data = TRUE, n_cores = 1, separator = NULL) {
-  cluster <- create_cluster(cores = n_cores)
-  
-  if (!is.null(separator)) {
-    df <- df %>%
-      tidyr::separate(sample, c('sample', 'replicate'), sep = separator, convert = TRUE)
-  }
-  
-  df.curve <- df %>%
-    rlist::list.group(sample, Accession) %>%
-    multidplyr::partition(sample, Accession, cluster=cluster) %>%
-    multidplyr::cluster_assign_each('normalized_data', normalized_data) %>%
-    multidplyr::cluster_assign_each('fit.cetsa', fit.cetsa) %>%
-    multidplyr::cluster_assign_each('cetsa_fit', cetsa_fit) %>%
-    multidplyr::cluster_library('nls2') %>%
-    dplyr::do(fit = cetsa_fit(d = ., norm = normalized_data)) %>%
-    dplyr::collect() %>%
-    dplyr::ungroup() %>%
-    tibble::rowid_to_column('ref') %>%
-    dplyr::rowwise() %>%
-    dplyr::mutate(Tm = Tm(fit)) %>%
-    dplyr::select(ref, Accession, sample, fit, Tm)
-  return(df.curve)
-}
+
 
 
 #' calculate CETSA statistics
@@ -240,7 +244,6 @@ curves_cetsa <- function(df, normalized_data = TRUE, n_cores = 1, separator = NU
 #'
 #' @export
 stats_cetsa <- function(df, plateau_temps = c(37,40,64,67)) {
-  
   df <- df%>%
     mutate(gof = gof(fit))
   
@@ -428,7 +431,7 @@ cetsa_fit <- function(d, norm = FALSE) {
     new_start <- nls2(y ~ fit.cetsa(p, k, m, t),
                       data = myData,
                       start = fine_start,
-                      algorithm = "brute-force",
+                      algorithm = "brute-force",#note: check other ones
                       control = nls.control(warnOnly=T,maxiter=5000))
     nls2(y ~ fit.cetsa(p, k, m, t),
          data = myData,
@@ -509,7 +512,7 @@ plot_cetsa <- function(r) {
       
       df <- data.frame(t = params$t, y = params$y) %>%
         rlist::list.group(t) %>%
-        dplyr::summarise(av = mean(y, na.rm = T), sd = ifelse(n() == 1, 0, sd(y, na.rm = T)))
+        dplyr::summarise(av = mean(y, na.rm = T), sd = ifelse(dplyr::n() == 1, 0, sd(y, na.rm = T)))
       
       ## plot experimental points
       if (firstplot) {
@@ -562,114 +565,106 @@ find_pat = function(pat, x)
 
 ##################################
 
-# read in the the STK4 data
-# d <- readRDS("tppData_Cliff_preprocessed.Rds")
-# #standardize names
-# d<-dplyr::rename(d,C=temperature,I=relAbundance,CC=compoundConcentration)
-# 
-# d$LineRegion<-NA
-# 
-
-
-# #prepare a list of datasets
-# datalist<-unique(d$dataset)
-# #prepare a list of concentration values
-# conclist<-unique(d$CC)
 # #prepare a list of proteins
 setwd("~/CS7290-/internal data")
-# # df<- read_excel("eFT_30K_all5samples_PROTEINS.xlsx")
+
 df.temps <- data.frame(temp_ref = c('126', '127N', '127C', '128N', '128C', '129N','129C', '130N', '130C', '131'), temperature = c(37, 40.1, 43.5, 47.5, 50.4, 54, 57, 60.8, 65, 67), stringsAsFactors = FALSE)
 df.samples <- data.frame(sample_id = c('F1', 'F2', 'F3','F4','F5'), sample_name = c('MEK_1','MEK_2', 'MEK_3','DMSO_1','DMSO_3'), stringsAsFactors = FALSE)
 
 f<-"~/CS7290-/internal data/eFT_30K_all5samples_PROTEINS.xlsx"
 df_raw <- read_cetsa(f)
-df_clean <- clean_cetsa(df_raw, temperatures = df.temps, samples = df.samples)
-df_norm <- normalize_cetsa(df_clean , df.temps$temperature) %>% unique(.)
+df_clean <- clean_cetsa(df_raw, temperatures = df.temps, samples = df.samples)#assigns temperature and replicate values
+df_norm <- normalize_cetsa(df_clean, df.temps$temperature) #normalizes according to Franken et. al. without R-squared filter
 df_norm <- df_norm %>% dplyr::select(-value,-correction)
+#rename columns
 df_norm <- df_norm %>% dplyr::rename(dataset = "sample")
-colnames(df_norm)<-c("uniqueID","dataset","C","I")
-d<-df_norm %>% unique(.) %>% dplyr::ungroup(.)#save unique data 
-d$CC<-ifelse(d$dataset=="F4" | d$dataset=="F5",0,1)#concentration
-d$dataset<-ifelse(d$dataset=="F4" | d$dataset=="F5","vehicle","treated")#dataset
-DF<-d %>% unique(.) %>% dplyr::group_split(uniqueID) 
-d_<-d %>% dplyr::filter(CC == 0) %>%  unique(.) %>% dplyr::group_split(uniqueID,dataset) 
-d_1<-d %>% dplyr::filter(CC > 0) %>% unique(.) %>%   dplyr::group_split(uniqueID,dataset) 
+colnames(df_norm)<-c("uniqueID","dataset","C","I")# uniqueID is protein accession, dataset is sample from PD output,C is temperature, I is intensity
+
+d<-df_norm %>% dplyr::ungroup(.)#get unique data
+d$CC<-ifelse(d$dataset=="F4" | d$dataset=="F5",0,1)#concentration values are defined in uM
+d$dataset<-ifelse(d$dataset=="F4" | d$dataset=="F5","vehicle","treated")#dataset is defined by PD sample definition
+DF<-d %>% unique(.) %>% dplyr::group_split(uniqueID) #split null dataset only by protein ID
+d_<-d %>% dplyr::filter(CC == 0) %>% dplyr::group_split(uniqueID,dataset) #split vehicle dataset
+d_1<-d %>% dplyr::filter(CC > 0) %>% dplyr::group_split(uniqueID,dataset) #split treated dataset
+
 
 #keep data with less than 2 missing values
-DF<-DF %>% purrr::keep(function(x) length(unique(x$C))>=9)
+DF<-DF %>% purrr::keep(function(x) length(unique(x$C))>=9)#keep values with at least 9 temperature channels (TMT10)
 d_<-d_ %>% purrr::keep(function(x) length(unique(x$C))>=9)
 d_1<-d_1 %>% purrr::keep(function(x) length(unique(x$C))>=9)
 #convert to data frame for uniqueID presence
-DF<-rbindlist(DF)
-d_<-rbindlist(d_)
-d_1<-rbindlist(d_1)
+DF<-data.table::rbindlist(DF)
+d_<-data.table::rbindlist(d_)
+d_1<-data.table::rbindlist(d_1)
 #make sure uniqueIDs are present for treated and vehicle
 CID<-intersect(DF$uniqueID,d_$uniqueID)
 CID<-intersect(CID,d_1$uniqueID)
 DF<-DF %>% subset(uniqueID %in% CID)
+DF$LineRegion<-1
 d_<-d_%>% subset(uniqueID %in% CID)
+d_$LineRegion<-1
 d_1<-d_1%>% subset(uniqueID %in% CID)
+d_1$LineRegion<-1
 #split dataset into equal-sized lists
 DF<-DF %>%  dplyr::group_split(uniqueID) 
 d_<-d_ %>% dplyr::group_split(uniqueID,dataset) 
 d_1<-d_1 %>% dplyr::group_split(uniqueID,dataset) 
 
 
-#null hypothesis
-# DF<-d
-# DF<-DF[order(DF$C),]
-#Alternative hypothesis
-
-
 
 DLR<-function(d){
   #preallocate final result as a list
   df_n<-vector(mode = "list", length(d))
+  df_n[[1]]<-data.frame()
   df1<-df_n
   df2<-df1
   df3<-df1
   df_1<-df_n
   df0<-df_n
   df_0<-df_n
-  
-  df_1<-lapply(d, function(x) {x %>% dplyr::group_by(C) %>% dplyr::summarise(.,
-                                                                             I=mean(I,na.rm=TRUE))
+ 
+  df_1<-lapply(d, function(x) {x %>% dplyr::group_by(C) %>% dplyr::mutate(I=mean(I,na.rm=TRUE))
     
   })
+  df_1 <-lapply(df_1,function(x){x %>% dplyr::mutate(C = as.factor(C),CC=as.factor(CC))
+  }) 
+  #rank intensity values using 3 regions,  rename column as LineRegion
+  LR<-lapply(df_1, function(x) {dplyr::ntile(dplyr::desc(x$I),3)%>%
+      as.data.frame(.) %>% dplyr::rename("LineRegion"=".")})
+  df_1<-purrr::map(df_1,function(x){x %>% dplyr::select(-LineRegion)})#remove Line Region column from one dataset before merging
   #Add ranks to the list
-  df_1<-lapply(df_1, function(x) {
-    dplyr::mutate(x,LineRegion=dplyr::ntile(dplyr::desc(I),3))
-  })
+  df_1<-purrr::map2(df_1,LR, function(x,y) {c(x,y) %>% as.data.frame(.)})
+  df_1 <-lapply(df_1,function(x){x %>% dplyr::mutate(C = as.factor(C),I=as.data.frame.numeric(I),CC=as.factor(CC),
+                                                     LineRegion=as.data.frame.numeric(LineRegion))})
   
-  d<-lapply(d,function(x) x %>% dplyr::arrange(C))
-  for(i in 1:length(d)){
-    
-    #assign line regions on original dataset
-    #here we would like to split[[i]] the data by regions to calculate linear models
-    df1[[i]]<-d[[i]] %>% dplyr::filter(I>=tail(df_1[[i]]$I[df_1[[i]]$LineRegion==1],1)) %>% dplyr::mutate(LineRegion=1) 
-    df2[[i]]<-d[[i]] %>% dplyr::filter(I<=tail(df_1[[i]]$I[df_1[[i]]$LineRegion==1],1),I>=tail(df_1[[i]]$I[df_1[[i]]$LineRegion==2],1)) %>% dplyr::mutate(LineRegion=2)
-    df3[[i]]<-d[[i]]%>%dplyr::filter(I<=head(df_1[[i]]$I[df_1[[i]]$LineRegion==3],1)) %>% dplyr::mutate(LineRegion=3)
-    
-    
-    
-    #Inital guess:define the changepoint as the last points of regions 1 and 2
-    change1<-tail(df1[[i]]$C,1)
-    # 
-    change2<-tail(df2[[i]]$C,1)# 
-    # 
-    
-    #Set mean and variance of the top plateau
-    Eq1<-mean(df1[[i]]$I)
-    vEq1<-var(df1[[i]]$I)
-    
-    #define the number of samples in the blank
-    nblank<-nrow(df1[[i]])
+  d<-lapply(d,function(x) x %>% dplyr::arrange(C)) 
+  #separate by Line Regions
+  df1<-lapply(df_1,function(x){x %>% dplyr::filter(LineRegion==1) %>% as.data.frame()})
+  df2<-lapply(df_1,function(x){x %>% dplyr::filter(LineRegion==2) %>% as.data.frame()})
+  df3<-lapply(df_1,function(x){x %>% dplyr::filter(LineRegion==3) %>% as.data.frame()})
+  #determine the changepoints for trilinear function
+  change1<-lapply(df1,function(x){utils::tail(x$C,1)})
+  change2<-lapply(df2,function(x){utils::tail(x$C,1)})
+  #Set mean and variance of the top plateau (lowest T response in LR 1)
+  Eq1<-lapply(df1,function(x)lapply(x$I,mean,na.rm=TRUE))
+  vEq1<-lapply(df1,function(x)lapply(x$I,var,na.rm=TRUE))
+  nblank<-lapply(df1,function(x)lapply(x %>% select(I),NROW))
+  
+  Eq1<-dplyr::bind_rows(Eq1)
+  vEq1<-dplyr::bind_rows(vEq1)
+  nblank<-dplyr::bind_rows(nblank)
+  #calculate t statistic to generate confidence intervals at change points
+  tstat<-numeric(1)
+  alpha<-0.05
+  tstat<-qt(1-alpha,nblank-1)*sqrt(vEq1*nblank+(vEq1*nblank)/(nblank-1))
+  for(i in 1:length(d)){                                                                                                                                                                                                                                                        
+
     
     #calculate t statistic
     alpha <- 0.05
     tstat<-numeric(1)
     
-    tstat<-qt(1-alpha,nblank-1)*sqrt(vEq1*nblank+(vEq1*nblank)/(nblank-1))
+    
     
     #define confidence intervals for the blank
     CI_1H<-Eq1+tstat*sqrt(vEq1)
@@ -688,17 +683,12 @@ DLR<-function(d){
     vEq1<-var(df3[[i]]$I)
     #define the number of samples in the bottom plateau
     nblank<-nrow(df3[[i]])
-    
     #calculate t statistic
     alpha <- 0.05
     tstat<- qt(1-alpha,nblank-1)*sqrt(vEq1*nblank+(vEq1*nblank)/(nblank-1))
-    
-    
     #define confidence intervals for the blank
     CI_1H<-Eq1+tstat*sqrt(vEq1)
-    
     CI_1L<-Eq1-tstat*sqrt(vEq1)
-    
     #If Eq11 is nan set CI_1H1 as the max Intensity in region 3
     #define the start of region 2 to overlay CI
     ph1<-df2[[i]]$I[df2[[i]]$I %in% tail(df2[[i]]$I)]
@@ -724,25 +714,16 @@ CP<-function(df_0){
   ctest<-df_n
   dap<-df_n
   Split<-df_n
-  #changepoint check control:
-  for(i in 1:length(df_0)){
-    df_0[[i]]<-df_0[[i]] %>% dplyr::dplyr::arrange(C)
+
+  for(i in seq_along(df_0)){
+    df_0[[i]]<-df_0[[i]] %>%dplyr::arrange(C)
     ctest<-NA
     ctest<-df_0[[i]] %>%dplyr::group_by(C,LineRegion)%>%dplyr::mutate(n=dplyr::n()) %>% dplyr::ungroup()
-    
-    ###############################################
-    
     #get the data points that belong to two regions
     Split<-ctest %>%subset(n<(max(n))) %>% data.frame()
     Split<-Split %>% subset(Split$C[duplicated(Split$C)] %in% Split$C)
     Split$LineRegion<-as.numeric(Split$LineRegion)
-    # 
-    # mode<-function(x){
-    #   ux<-unique(x)
-    #   ux[which.max(tabulate(match(x,ux)))]
-    # }
-    #find duplicates and subtract 1 from LineRegion
-    #find duplicates and get the first one
+    
     dap<-list()
     
     dap[[i]]<-df_0[[i]] %>% subset(df_0[[i]]$C %in% Split$C) 
@@ -758,13 +739,13 @@ CP<-function(df_0){
   return(df_0)
 }
 
-
-
 #preallocate list
 results<-vector(mode = "list", length(d_))
 results_t<-vector(mode = "list",length(d_1))
 results_n<-vector(mode = "list",length(DF))
-gdc <- memoise::cache_filesystem("~/Google Drive/.rcache")
+#enable folder for memoise to save outputs
+#gdc <- memoise::cache_filesystem("~/Google Drive/.rcache")#initialize folder location to store results 
+#and remove from local memory
 results<-suppressWarnings(DLR(d_))#First guess at line regions
 results_t<-suppressWarnings(DLR(d_1))
 results_n<-suppressWarnings(DLR(DF))
@@ -789,13 +770,17 @@ BStrap<-function(Data0,n,N){
   n<-n
   N<-N
   BS<-NA
-  
   BA<-NA
-  
   BSvar<-list(NA)
   BSvar[[1]]<-data.frame()
+  Data1<-lapply(Data0,function(x)x %>%dplyr::group_by(C) %>% 
+                  dplyr::summarise(I=mean(I),LineRegion=LineRegion)%>% unique(.))
+
+  L<-purrr::map2(Data0,Data1,function(x,y)
   
-  #Bootstrap"sample with replacement":
+  BS<-lapply(Data0, function(x){x
+    boot::boot.ci(x$I,conf=0.95,type="norm",R=n)})
+  #Bootstrap"sample with replacement"
   BS<-lapply(Data0, function(x)x %>% dplyr::select(uniqueID,C,I,LineRegion) %>%  dplyr::sample_n(n,replace=TRUE))
   #generate mean intensities per $C value
   BS<-lapply(BS,function(x) x[order(x$C),])
@@ -1244,7 +1229,7 @@ K1<-data.frame(rbindlist(purrr::map2(Rsst,Rssv,function(x,y) data.frame(RSSd = x
 K2<-rbindlist(Rssv)$uniqueID %>% as.data.frame(.)
 Dsum<-data.frame(K1,K2)
 names(Dsum)<-c("RSSd","Tma","uniqueID")
-Dsum<-Dsum %>% dplyr::mutate(rank = ntile(Dsum$Tma,7))
+Dsum<-Dsum %>% dplyr::mutate(rank = dplyr::ntile(Dsum$Tma,7))
 #keep data where the difference in RSS is less than the null
 #nsum converted to data frame
 Nsum<-data.frame(RSSn=data.table::rbindlist(Nsum))
@@ -1262,7 +1247,14 @@ Dsum2<-Dsum %>% dplyr::right_join(Nsum,by = c("uniqueID"="uniqueID"))
 Dsum<-Dsum2
 Dsum$RSSd<-Dsum1$RSSd
 Dsum$Tma<-Dsum1$Tma
+<<<<<<< HEAD
+Dsum<-Dsum %>% dplyr::mutate(rank = dplyr::ntile(Dsum$Tma,7))
+=======
 Dsum<-Dsum %>% dplyr::mutate(rank = ntile(Dsum$Tma,7))
+<<<<<<< HEAD
+>>>>>>> 48b0e0212b914fc1957c76becaf225697947f6bc
+=======
+>>>>>>> 48b0e0212b914fc1957c76becaf225697947f6bc
 Dsum<-dplyr::arrange(Dsum, dplyr::desc(Tma), dplyr::desc(RSSd))  %>% dplyr::filter(RSSd>0) 
 
 test<-data.frame()
@@ -1468,7 +1460,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
       ggplot2::annotate("text", x=62, y=1, label= paste("\u03A3","RSS= ",round(sum(Df1 %>% dplyr::filter(stringr::str_detect(tolower(dataset), pattern = "vehicle")) %>% dplyr::select(rss) %>% sum(.),Df1 %>% dplyr::filter(stringr::str_detect(tolower(dataset), pattern = "treated")) %>% dplyr::select(rss) %>% sum(.)),3)))+
       ggplot2::annotate("text", x=62, y=0.9, label=  paste("\u0394", "AUC = ",AUCd))+ ggplot2::annotate("text", x=62, y=0.8, label= paste("\u0394","Tm = ",Tm_d,"\u00B0C"))
     #bquote(Value~is~sigma~R^{2}==.(r2.value)))
-    PLR_P2<-grid.dplyr::arrange(PLN,PLR_P2, ncol=2)
+    par(mfrow=c(2,2))
     print(PLR_P2)
   }else if(overlay=="FALSE"){
     PLR<-PLR_P2+ggplot2::geom_point(data=Pred,mapping=ggplot2::aes(x=C,y=I))+ggplot2::geom_ribbon(data=Pred,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+ggplot2::ggtitle(paste(Df1$uniqueID[1],"alternative"))+facet_wrap("Treatment") 
@@ -1936,10 +1928,10 @@ sigCI <- function(object, parm, level = 0.95, method = c("asymptotic", "profile"
     Pred1<- Pred1 %>% purrr::keep(.,function(x) x$uniqueID[1] %in% IID$uniqueID)
     #Get differences in Tm, AUC and sum of RSS values for vehicle and treated
     P<-data.frame(data.table::rbindlist(Pred))
-    P<- P %>% dplyr::group_by(uniqueID) %>% dplyr::mutate(id = n())
+    P<- P %>% dplyr::group_by(uniqueID) %>% dplyr::mutate(id = dplyr::n())
     
     P1<-data.frame(data.table::rbindlist(Pred1))
-    P1<- P1 %>% dplyr::group_by(uniqueID) %>% dplyr::mutate(id = n())
+    P1<- P1 %>% dplyr::group_by(uniqueID) %>% dplyr::mutate(id = dplyr::n())
     
     
     Pred<-purrr::map2(Pred,Pred1,function(x,y)x %>% dplyr::mutate(Tm = round(y$Tm-x$Tm,1),AUC = round(y$AUC-x$AUC,2),RSS=round(sum(x$RSS+y$RSS),1)))
