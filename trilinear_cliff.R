@@ -566,12 +566,21 @@ df_norm <- df_norm %>% dplyr::select(-value,-correction)
 #rename columns
 df_norm <- df_norm %>% dplyr::rename(dataset = "sample")
 colnames(df_norm)<-c("uniqueID","dataset","C","I")
+<<<<<<< HEAD
 d<-df_norm %>% unique(.) %>% dplyr::ungroup(.)#get unique data
 d$CC<-ifelse(d$dataset=="F4" | d$dataset=="F5",0,1)#concentration values are defined in uM
 d$dataset<-ifelse(d$dataset=="F4" | d$dataset=="F5","vehicle","treated")#dataset is defined by PD sample definition
 DF<-d %>% unique(.) %>% dplyr::group_split(uniqueID) #split null dataset only by protein ID
 d_<-d %>% dplyr::filter(CC == 0) %>%  unique(.) %>% dplyr::group_split(uniqueID,dataset) #split vehicle dataset
 d_1<-d %>% dplyr::filter(CC > 0) %>% unique(.) %>% dplyr::group_split(uniqueID,dataset) #split treated dataset
+=======
+d<-df_norm %>% unique(.) %>% dplyr::ungroup(.)#save unique data 
+d$CC<-ifelse(d$dataset=="F4" | d$dataset=="F5",0,1)#concentration
+d$dataset<-ifelse(d$dataset=="F4" | d$dataset=="F5","vehicle","treated")#dataset
+DF<-d %>% unique(.) %>% dplyr::group_split(uniqueID) 
+d_<-d %>% dplyr::filter(CC == 0) %>%  unique(.) %>% dplyr::group_split(uniqueID,dataset) 
+d_1<-d %>% dplyr::filter(CC > 0) %>% unique(.) %>%   dplyr::group_split(uniqueID,dataset) 
+>>>>>>> 48b0e0212b914fc1957c76becaf225697947f6bc
 
 #keep data with less than 2 missing values
 DF<-DF %>% purrr::keep(function(x) length(unique(x$C))>=9)#keep values with at least 9 temperature channels (TMT10)
@@ -1232,6 +1241,9 @@ Dsum$Tma<-Dsum1$Tma
 Dsum<-Dsum %>% dplyr::mutate(rank = dplyr::ntile(Dsum$Tma,7))
 =======
 Dsum<-Dsum %>% dplyr::mutate(rank = ntile(Dsum$Tma,7))
+<<<<<<< HEAD
+>>>>>>> 48b0e0212b914fc1957c76becaf225697947f6bc
+=======
 >>>>>>> 48b0e0212b914fc1957c76becaf225697947f6bc
 Dsum<-dplyr::arrange(Dsum, dplyr::desc(Tma), dplyr::desc(RSSd))  %>% dplyr::filter(RSSd>0) 
 
