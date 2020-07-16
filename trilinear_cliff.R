@@ -1252,7 +1252,11 @@ Dsum2<-Dsum %>% dplyr::right_join(Nsum,by = c("uniqueID"="uniqueID"))
 Dsum<-Dsum2
 Dsum$RSSd<-Dsum1$RSSd
 Dsum$Tma<-Dsum1$Tma
+<<<<<<< HEAD
 Dsum<-Dsum %>% dplyr::mutate(rank = dplyr::ntile(Dsum$Tma,7))
+=======
+Dsum<-Dsum %>% dplyr::mutate(rank = ntile(Dsum$Tma,7))
+>>>>>>> 48b0e0212b914fc1957c76becaf225697947f6bc
 Dsum<-dplyr::arrange(Dsum, dplyr::desc(Tma), dplyr::desc(RSSd))  %>% dplyr::filter(RSSd>0) 
 
 test<-data.frame()
