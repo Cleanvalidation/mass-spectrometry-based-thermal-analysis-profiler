@@ -197,34 +197,11 @@ normalize_cetsa <- function(df, temperatures) {
 #' @import nls2
 #' @import dplyr
 #' @importFrom tidyr separate
-#' @import multidplyr
+#'
 #' @importFrom tibble rowid_to_column
 #'
 #' @export
-curves_cetsa <- function(df, normalized_data = TRUE, n_cores = 1, separator = NULL) {
-  cluster <- create_cluster(cores = n_cores)
-  
-  if (!is.null(separator)) {
-    df <- df %>%
-      tidyr::separate(sample, c('sample', 'replicate'), sep = separator, convert = TRUE)
-  }
-  
-  df.curve <- df %>%
-    rlist::list.group(sample, Accession) %>%
-    multidplyr::partition(sample, Accession, cluster=cluster) %>%
-    multidplyr::cluster_assign_each('normalized_data', normalized_data) %>%
-    multidplyr::cluster_assign_each('fit.cetsa', fit.cetsa) %>%
-    multidplyr::cluster_assign_each('cetsa_fit', cetsa_fit) %>%
-    multidplyr::cluster_library('nls2') %>%
-    dplyr::do(fit = cetsa_fit(d = ., norm = normalized_data)) %>%
-    dplyr::collect() %>%
-    dplyr::ungroup() %>%
-    tibble::rowid_to_column('ref') %>%
-    dplyr::rowwise() %>%
-    dplyr::mutate(Tm = Tm(fit)) %>%
-    dplyr::select(ref, Accession, sample, fit, Tm)
-  return(df.curve)
-}
+
 
 
 #' calculate CETSA statistics
@@ -241,7 +218,6 @@ curves_cetsa <- function(df, normalized_data = TRUE, n_cores = 1, separator = NU
 #'
 #' @export
 stats_cetsa <- function(df, plateau_temps = c(37,40,64,67)) {
-  
   df <- df%>%
     mutate(gof = gof(fit))
   
