@@ -1,3 +1,25 @@
+# # install after setting up renv
+# install.packages("minpack.lm")
+# install.packages("rlist")
+# install.packages("data.table")
+# install.packages("knitr")
+# install.packages("ggthemes")
+# install.packages("gridExtra")
+# install.packages("grid")
+# install.packages("readxl")
+# install.packages("nls2")
+# install.packages("stats")
+# install.packages("ggplot2")
+# install.packages("pkgcond")
+# install.packages("rlist")
+# install.packages("pracma")
+# install.packages("fs")
+# install.packages("tidyverse")
+# install.packages("splines")
+# install.packages("mgcv")
+# install.packages("purrr")
+# install.packages("nlstools")
+
 
 library(minpack.lm)
 library(rlist)
@@ -125,8 +147,8 @@ normalize_cetsa <- function(df, temperatures) {
                                                               T10 = value[temperature == temperatures[10]]/ value[temperature == temperatures[1]]) %>% 
                       dplyr::filter(T7 >= 0.4 & T7 <= 0.6 & T9 < 0.3 & T10 < 0.2))#normalization from TPP
   
-  #convert to df
-  df.jointP<-data.table::rbindlist(df.jointP)
+  #convert to df # dplyr::bind_rows #fix
+  df.jointP<-dplyr::bind_rows(df.jointP)
   ## split[[i]] by sample group and filter
   l.bytype <- split.data.frame(df.jointP, df.jointP$sample)
   
@@ -141,13 +163,13 @@ normalize_cetsa <- function(df, temperatures) {
   
   df.median <- df %>%
     dplyr::group_by(sample,temperature) %>%
-    dplyr::summarise(value = median(value))
+    dplyr::mutate(value = median(value))
   
   df.median$temperature<-as.numeric(levels(df.median$temperature))[df.median$temperature]
   ## fit curves to the median data
   df.fit <- df.median %>%
     dplyr::group_by(sample) %>% 
-    dplyr::do(fit = cetsa_fit(d = ., norm = FALSE))
+    dplyr::do(fit = cetsa_fit(d = ., norm = FALSE))# do is to carry out an operation on a df
   ## calculate the fitted values
   d<-length(df.fit$fit)
   df.fittedVals<-0
@@ -155,13 +177,13 @@ normalize_cetsa <- function(df, temperatures) {
     if (is.na(df.fit$fit[i])) {
       df.fittedVals[i][[1]] <-NA_real_
     } else {
-      df.fittedVals[i] <- as.data.frame(predict(df.fit$fit[[i]]))#interesting, plot(df.fit$fit[[1]])
+      df.fittedVals[i] <- as.data.frame(predict(df.fit$fit[[i]]))
     } 
     
   }
   
   df.fittedVals<- df.fittedVals %>% as.data.frame()
-  names(df.fittedVals) <- df.fit$sample
+  names(df.fittedVals ) <- df.fit$sample
   
   df.fittedVals <- df.fittedVals %>% tidyr::gather()
   colnames(df.fittedVals)<-c('sample','fitted_values')
@@ -405,7 +427,7 @@ cetsa_fit <- function(d, norm = FALSE) {
     new_start <- nls2(y ~ fit.cetsa(p, k, m, t),
                       data = myData,
                       start = fine_start,
-                      algorithm = "brute-force",
+                      algorithm = "brute-force",#note: check other ones
                       control = nls.control(warnOnly=T,maxiter=5000))
     nls2(y ~ fit.cetsa(p, k, m, t),
          data = myData,
@@ -539,48 +561,28 @@ find_pat = function(pat, x)
 
 ##################################
 
-# read in the the STK4 data
-# d <- readRDS("tppData_Cliff_preprocessed.Rds")
-# #standardize names
-# d<-dplyr::rename(d,C=temperature,I=relAbundance,CC=compoundConcentration)
-# 
-# d$LineRegion<-NA
-# 
-
-
-# #prepare a list of datasets
-# datalist<-unique(d$dataset)
-# #prepare a list of concentration values
-# conclist<-unique(d$CC)
 # #prepare a list of proteins
 setwd("~/CS7290-/internal data")
-# # df<- read_excel("eFT_30K_all5samples_PROTEINS.xlsx")
+
 df.temps <- data.frame(temp_ref = c('126', '127N', '127C', '128N', '128C', '129N','129C', '130N', '130C', '131'), temperature = c(37, 40.1, 43.5, 47.5, 50.4, 54, 57, 60.8, 65, 67), stringsAsFactors = FALSE)
 df.samples <- data.frame(sample_id = c('F1', 'F2', 'F3','F4','F5'), sample_name = c('MEK_1','MEK_2', 'MEK_3','DMSO_1','DMSO_3'), stringsAsFactors = FALSE)
 
 f<-"~/CS7290-/internal data/eFT_30K_all5samples_PROTEINS.xlsx"
 df_raw <- read_cetsa(f)
 df_clean <- clean_cetsa(df_raw, temperatures = df.temps, samples = df.samples)#assigns temperature and replicate values
-df_norm <- normalize_cetsa(df_clean , df.temps$temperature) %>% unique(.)#normalizes according to Franken et. al. without R-squared filter
+df_norm <- normalize_cetsa(df_clean, df.temps$temperature) #normalizes according to Franken et. al. without R-squared filter
 df_norm <- df_norm %>% dplyr::select(-value,-correction)
 #rename columns
 df_norm <- df_norm %>% dplyr::rename(dataset = "sample")
-colnames(df_norm)<-c("uniqueID","dataset","C","I")
-<<<<<<< HEAD
-d<-df_norm %>% unique(.) %>% dplyr::ungroup(.)#get unique data
+colnames(df_norm)<-c("uniqueID","dataset","C","I")# uniqueID is protein accession, dataset is sample from PD output,C is temperature, I is intensity
+
+d<-df_norm %>% dplyr::ungroup(.)#get unique data
 d$CC<-ifelse(d$dataset=="F4" | d$dataset=="F5",0,1)#concentration values are defined in uM
 d$dataset<-ifelse(d$dataset=="F4" | d$dataset=="F5","vehicle","treated")#dataset is defined by PD sample definition
 DF<-d %>% unique(.) %>% dplyr::group_split(uniqueID) #split null dataset only by protein ID
-d_<-d %>% dplyr::filter(CC == 0) %>%  unique(.) %>% dplyr::group_split(uniqueID,dataset) #split vehicle dataset
-d_1<-d %>% dplyr::filter(CC > 0) %>% unique(.) %>% dplyr::group_split(uniqueID,dataset) #split treated dataset
-=======
-d<-df_norm %>% unique(.) %>% dplyr::ungroup(.)#save unique data 
-d$CC<-ifelse(d$dataset=="F4" | d$dataset=="F5",0,1)#concentration
-d$dataset<-ifelse(d$dataset=="F4" | d$dataset=="F5","vehicle","treated")#dataset
-DF<-d %>% unique(.) %>% dplyr::group_split(uniqueID) 
-d_<-d %>% dplyr::filter(CC == 0) %>%  unique(.) %>% dplyr::group_split(uniqueID,dataset) 
-d_1<-d %>% dplyr::filter(CC > 0) %>% unique(.) %>%   dplyr::group_split(uniqueID,dataset) 
->>>>>>> 48b0e0212b914fc1957c76becaf225697947f6bc
+d_<-d %>% dplyr::filter(CC == 0) %>% dplyr::group_split(uniqueID,dataset) #split vehicle dataset
+d_1<-d %>% dplyr::filter(CC > 0) %>% dplyr::group_split(uniqueID,dataset) #split treated dataset
+
 
 #keep data with less than 2 missing values
 DF<-DF %>% purrr::keep(function(x) length(unique(x$C))>=9)#keep values with at least 9 temperature channels (TMT10)
@@ -620,43 +622,45 @@ DLR<-function(d){
   df_1<-lapply(d, function(x) {x %>% dplyr::group_by(C) %>% dplyr::mutate(I=mean(I,na.rm=TRUE))
     
   })
-  df_1 <-lapply(df_1,function(x){x %>% dplyr::mutate(C = as.factor(C),I=as.factor(I),CC=as.factor(CC))
+  df_1 <-lapply(df_1,function(x){x %>% dplyr::mutate(C = as.factor(C),CC=as.factor(CC))
   }) 
+  #rank intensity values using 3 regions,  rename column as LineRegion
   LR<-lapply(df_1, function(x) {dplyr::ntile(dplyr::desc(x$I),3)%>%
       as.data.frame(.) %>% dplyr::rename("LineRegion"=".")})
-  df_1<-purrr::map(df_1,function(x){x %>% dplyr::select(-LineRegion)})
+  df_1<-purrr::map(df_1,function(x){x %>% dplyr::select(-LineRegion)})#remove Line Region column from one dataset before merging
   #Add ranks to the list
   df_1<-purrr::map2(df_1,LR, function(x,y) {c(x,y) %>% as.data.frame(.)})
   df_1 <-lapply(df_1,function(x){x %>% dplyr::mutate(C = as.factor(C),I=as.data.frame.numeric(I),CC=as.factor(CC),
                                                      LineRegion=as.data.frame.numeric(LineRegion))})
   
   d<-lapply(d,function(x) x %>% dplyr::arrange(C)) 
+  #separate by Line Regions
   df1<-lapply(df_1,function(x){x %>% dplyr::filter(LineRegion==1) %>% as.data.frame()})
   df2<-lapply(df_1,function(x){x %>% dplyr::filter(LineRegion==2) %>% as.data.frame()})
   df3<-lapply(df_1,function(x){x %>% dplyr::filter(LineRegion==3) %>% as.data.frame()})
+  #determine the changepoints for trilinear function
+  change1<-lapply(df1,function(x){utils::tail(x$C,1)})
+  change2<-lapply(df2,function(x){utils::tail(x$C,1)})
+  #Set mean and variance of the top plateau (lowest T response in LR 1)
+  Eq1<-lapply(df1,function(x)lapply(x$I,mean,na.rm=TRUE))
+  vEq1<-lapply(df1,function(x)lapply(x$I,var,na.rm=TRUE))
+  nblank<-lapply(df1,function(x)lapply(x %>% select(I),NROW))
   
-  change1<-lapply(df1,function(x){x %>% tail(x$C,1)})
-  change2<-lapply(df2,function(x){x %>% tail(x$C,1)})
+  Eq1<-dplyr::bind_rows(Eq1)
+  vEq1<-dplyr::bind_rows(vEq1)
+  nblank<-dplyr::bind_rows(nblank)
+  #calculate t statistic to generate confidence intervals at change points
+  tstat<-numeric(1)
+  alpha<-0.05
+  tstat<-qt(1-alpha,nblank-1)*sqrt(vEq1*nblank+(vEq1*nblank)/(nblank-1))
   for(i in 1:length(d)){                                                                                                                                                                                                                                                        
-    
-    #Inital guess:define the changepoint as the last points of regions 1 and 2
-    change1<-tail(df1[[i]]$C,1)
-    # 
-    change2<-tail(df2[[i]]$C,1)# 
-    # 
-    
-    #Set mean and variance of the top plateau
-    Eq1<-lapply(df1[[i]]$I, mean, na.rm = TRUE)
-    vEq1<-var(df1[[i]]$I)
-    
-    #define the number of samples in the blank
-    nblank<-nrow(df1[[i]])
+
     
     #calculate t statistic
     alpha <- 0.05
     tstat<-numeric(1)
     
-    tstat<-qt(1-alpha,nblank-1)*sqrt(vEq1*nblank+(vEq1*nblank)/(nblank-1))
+    
     
     #define confidence intervals for the blank
     CI_1H<-Eq1+tstat*sqrt(vEq1)
@@ -735,7 +739,9 @@ CP<-function(df_0){
 results<-vector(mode = "list", length(d_))
 results_t<-vector(mode = "list",length(d_1))
 results_n<-vector(mode = "list",length(DF))
-gdc <- memoise::cache_filesystem("~/Google Drive/.rcache")
+#enable folder for memoise to save outputs
+#gdc <- memoise::cache_filesystem("~/Google Drive/.rcache")#initialize folder location to store results 
+#and remove from local memory
 results<-suppressWarnings(DLR(d_))#First guess at line regions
 results_t<-suppressWarnings(DLR(d_1))
 results_n<-suppressWarnings(DLR(DF))
@@ -770,7 +776,7 @@ BStrap<-function(Data0,n,N){
   
   BS<-lapply(Data0, function(x){x
     boot::boot.ci(x$I,conf=0.95,type="norm",R=n)})
-  #Bootstrap"sample with replacement":
+  #Bootstrap"sample with replacement"
   BS<-lapply(Data0, function(x)x %>% dplyr::select(uniqueID,C,I,LineRegion) %>%  dplyr::sample_n(n,replace=TRUE))
   #generate mean intensities per $C value
   BS<-lapply(BS,function(x) x[order(x$C),])
