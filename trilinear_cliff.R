@@ -148,7 +148,11 @@ normalize_cetsa <- function(df, temperatures) {
                       dplyr::filter(T7 >= 0.4 & T7 <= 0.6 & T9 < 0.3 & T10 < 0.2))#normalization from TPP
   
   #convert to df # dplyr::bind_rows #fix
+<<<<<<< HEAD
   df.jointP<-dplyr::bind_rows(df.jointP)
+=======
+  df.jointP<-data.table::rbindlist(df.jointP)
+>>>>>>> e5c4a2de14bf391c53bdf7979cd30964f7186f1c
   ## split[[i]] by sample group and filter
   l.bytype <- split.data.frame(df.jointP, df.jointP$sample)
   
