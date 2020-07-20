@@ -125,7 +125,7 @@ normalize_cetsa <- function(df, temperatures) {
                                                               T10 = value[temperature == temperatures[10]]/ value[temperature == temperatures[1]]) %>% 
                       dplyr::filter(T7 >= 0.4 & T7 <= 0.6 & T9 < 0.3 & T10 < 0.2))#normalization from TPP
   
-  #convert to df
+  #convert to df # dplyr::bind_rows #fix
   df.jointP<-data.table::rbindlist(df.jointP)
   ## split[[i]] by sample group and filter
   l.bytype <- split.data.frame(df.jointP, df.jointP$sample)
@@ -147,7 +147,7 @@ normalize_cetsa <- function(df, temperatures) {
   ## fit curves to the median data
   df.fit <- df.median %>%
     dplyr::group_by(sample) %>% 
-    dplyr::do(fit = cetsa_fit(d = ., norm = FALSE))
+    dplyr::do(fit = cetsa_fit(d = ., norm = FALSE))# do is to carry out an operation on a df
   ## calculate the fitted values
   d<-length(df.fit$fit)
   df.fittedVals<-0
@@ -405,7 +405,7 @@ cetsa_fit <- function(d, norm = FALSE) {
     new_start <- nls2(y ~ fit.cetsa(p, k, m, t),
                       data = myData,
                       start = fine_start,
-                      algorithm = "brute-force",
+                      algorithm = "brute-force",#note: check other ones
                       control = nls.control(warnOnly=T,maxiter=5000))
     nls2(y ~ fit.cetsa(p, k, m, t),
          data = myData,
