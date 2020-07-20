@@ -1,25 +1,26 @@
-# # install after setting up renv
-# install.packages("minpack.lm")
-# install.packages("rlist")
-# install.packages("data.table")
-# install.packages("knitr")
-# install.packages("ggthemes")
-# install.packages("gridExtra")
-# install.packages("grid")
-# install.packages("readxl")
-# install.packages("nls2")
-# install.packages("stats")
-# install.packages("ggplot2")
-# install.packages("pkgcond")
-# install.packages("rlist")
-# install.packages("pracma")
-# install.packages("fs")
-# install.packages("tidyverse")
-# install.packages("splines")
-# install.packages("mgcv")
-# install.packages("purrr")
-# install.packages("nlstools")
-
+# install after setting up renv
+install.packages("minpack.lm")
+install.packages("rlist")
+install.packages("data.table")
+install.packages("knitr")
+install.packages("ggthemes")
+install.packages("gridExtra")
+install.packages("grid")
+install.packages("readxl")
+install.packages("nls2")
+install.packages("stats")
+install.packages("ggplot2")
+install.packages("pkgcond")
+install.packages("rlist")
+install.packages("pracma")
+install.packages("fs")
+install.packages("tidyverse")
+install.packages("splines")
+install.packages("mgcv")
+install.packages("purrr")
+install.packages("nlstools")
+install.packages("readxl")
+install.packages("nls2")
 
 library(minpack.lm)
 library(rlist)
@@ -139,20 +140,24 @@ normalize_cetsa <- function(df, temperatures) {
   df$temperature<-as.factor(df$temperature)
   df.jointP <- df %>%
     dplyr::group_by(Accession,sample) %>% dplyr::mutate(n=dplyr::n()) %>% #copies the number of temperatures per group
-    dplyr::filter(n>=10) %>% #removes groups with less than 10 temperature channels
-    dplyr::group_split(.) #split into groups
+    dplyr::filter(n>=10) %>% dplyr::mutate(.,T7 = value[temperature == temperatures[7]]/value[temperature == temperatures[1]],
+                                           T9 = value[temperature == temperatures[9]]/value[temperature == temperatures[1]],
+                                           T10 = value[temperature == temperatures[10]]/ value[temperature == temperatures[1]]) %>% 
+    dplyr::filter(T7 >= 0.4 & T7 <= 0.6 & T9 < 0.3 & T10 < 0.2)#normalization from TPP
+    #  %>% #removes groups with less than 10 temperature channels
+    # dplyr::group_split(.) #split into groups
   
-  df.jointP<-lapply(df.jointP,function(x) x %>% dplyr::mutate(.,T7 = value[temperature == temperatures[7]]/value[temperature == temperatures[1]],
-                                                              T9 = value[temperature == temperatures[9]]/value[temperature == temperatures[1]],
-                                                              T10 = value[temperature == temperatures[10]]/ value[temperature == temperatures[1]]) %>% 
-                      dplyr::filter(T7 >= 0.4 & T7 <= 0.6 & T9 < 0.3 & T10 < 0.2))#normalization from TPP
-  
-  #convert to df # dplyr::bind_rows #fix
-  df.jointP<-dplyr::bind_rows(df.jointP)
+  # df.jointP<-lapply(df.jointP,function(x) x %>% dplyr::mutate(.,T7 = value[temperature == temperatures[7]]/value[temperature == temperatures[1]],
+  #                                                             T9 = value[temperature == temperatures[9]]/value[temperature == temperatures[1]],
+  #                                                             T10 = value[temperature == temperatures[10]]/ value[temperature == temperatures[1]]) %>% 
+  #                     dplyr::filter(T7 >= 0.4 & T7 <= 0.6 & T9 < 0.3 & T10 < 0.2))#normalization from TPP
+  # 
+  # df.jointP<-dplyr::bind_rows(df.jointP)
+
   ## split[[i]] by sample group and filter
   l.bytype <- split.data.frame(df.jointP, df.jointP$sample)
   
-  ## determine which group contains the greatest number of curves and use this for normalization
+  ## determine which sample (F1 through FN) contains the greatest number of curves and use this for normalization
   n.filter <- lapply(l.bytype, nrow)
   df.normP <- l.bytype[[which.max(n.filter)]]
   norm.accessions <- df.normP$Accession
@@ -166,34 +171,20 @@ normalize_cetsa <- function(df, temperatures) {
     dplyr::mutate(value = median(value))
   
   df.median$temperature<-as.numeric(levels(df.median$temperature))[df.median$temperature]
-  ## fit curves to the median data
+  ## fit curves to the median data for each sample (F1 through FN)
   df.fit <- df.median %>%
     dplyr::group_by(sample) %>% 
-    dplyr::do(fit = cetsa_fit(d = ., norm = FALSE))# do is to carry out an operation on a df
+    dplyr::do(fit = cetsa_fit(d = ., norm = FALSE)) %>% 
+    dplyr::mutate(fitted_values = list(predict(fit) %>%
+                    as.data.frame(.))) %>% 
+    dplyr::select(sample,fit,fitted_values) 
   ## calculate the fitted values
   d<-length(df.fit$fit)
-  df.fittedVals<-0
-  for (i in 1:d){
-    if (is.na(df.fit$fit[i])) {
-      df.fittedVals[i][[1]] <-NA_real_
-    } else {
-      df.fittedVals[i] <- as.data.frame(predict(df.fit$fit[[i]]))
-    } 
-    
-  }
-  
-  df.fittedVals<- df.fittedVals %>% as.data.frame()
-  names(df.fittedVals ) <- df.fit$sample
-  
-  df.fittedVals <- df.fittedVals %>% tidyr::gather()
-  colnames(df.fittedVals)<-c('sample','fitted_values')
-  
-  df.fittedValst<-df.fittedVals %>% dplyr::group_by(sample)
   
   ## calculate ratios between the fitted curves and the median values
   df.out <- df.median %>%
-    data.frame(dplyr::full_join(df.fittedValst,df.median,'sample')) %>%
-    dplyr::mutate(correction = df.fittedValst$fitted_values / value) %>% dplyr::select('sample','temperature','value','fitted_values','correction')
+    data.frame(dplyr::left_join(df.fit,df.median,'sample')) %>%
+    dplyr::mutate(correction = df.fit$fitted_values / value) %>% dplyr::select('sample','temperature','value','fitted_values','correction')
   
   ## apply normalization factor to data
   df$temperature<-as.numeric(levels(df$temperature))[df$temperature]
