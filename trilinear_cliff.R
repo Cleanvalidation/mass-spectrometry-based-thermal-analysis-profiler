@@ -140,6 +140,7 @@ normalize_cetsa <- function(df, temperatures) {
   df$temperature<-as.factor(df$temperature)
   df.jointP <- df %>%
     dplyr::group_by(Accession,sample) %>% dplyr::mutate(n=dplyr::n()) %>% #copies the number of temperatures per group
+<<<<<<< HEAD
     dplyr::filter(n>=10) %>% dplyr::mutate(.,T7 = value[temperature == temperatures[7]]/value[temperature == temperatures[1]],
                                            T9 = value[temperature == temperatures[9]]/value[temperature == temperatures[1]],
                                            T10 = value[temperature == temperatures[10]]/ value[temperature == temperatures[1]]) %>% 
@@ -154,6 +155,22 @@ normalize_cetsa <- function(df, temperatures) {
   # 
   # df.jointP<-dplyr::bind_rows(df.jointP)
 
+=======
+    dplyr::filter(n>=10) %>% #removes groups with less than 10 temperature channels
+    dplyr::group_split(.) #split into groups
+  
+  df.jointP<-lapply(df.jointP,function(x) x %>% dplyr::mutate(.,T7 = value[temperature == temperatures[7]]/value[temperature == temperatures[1]],
+                                                              T9 = value[temperature == temperatures[9]]/value[temperature == temperatures[1]],
+                                                              T10 = value[temperature == temperatures[10]]/ value[temperature == temperatures[1]]) %>% 
+                      dplyr::filter(T7 >= 0.4 & T7 <= 0.6 & T9 < 0.3 & T10 < 0.2))#normalization from TPP
+  
+  #convert to df # dplyr::bind_rows #fix
+<<<<<<< HEAD
+  df.jointP<-dplyr::bind_rows(df.jointP)
+=======
+  df.jointP<-data.table::rbindlist(df.jointP)
+>>>>>>> e5c4a2de14bf391c53bdf7979cd30964f7186f1c
+>>>>>>> 7e9935984fccd27d87a2c22dd79a8c2ad82c1852
   ## split[[i]] by sample group and filter
   l.bytype <- split.data.frame(df.jointP, df.jointP$sample)
   
