@@ -154,6 +154,19 @@ normalize_cetsa <- function(df, temperatures) {
   # 
   # df.jointP<-dplyr::bind_rows(df.jointP)
 
+
+    dplyr::filter(n>=10) %>% #removes groups with less than 10 temperature channels
+    dplyr::group_split(.) #split into groups
+  
+  df.jointP<-lapply(df.jointP,function(x) x %>% dplyr::mutate(.,T7 = value[temperature == temperatures[7]]/value[temperature == temperatures[1]],
+                                                              T9 = value[temperature == temperatures[9]]/value[temperature == temperatures[1]],
+                                                              T10 = value[temperature == temperatures[10]]/ value[temperature == temperatures[1]]) %>% 
+                      dplyr::filter(T7 >= 0.4 & T7 <= 0.6 & T9 < 0.3 & T10 < 0.2))#normalization from TPP
+  
+  #convert to df # dplyr::bind_rows #fix
+
+  df.jointP<-dplyr::bind_rows(df.jointP)
+
   ## split[[i]] by sample group and filter
   l.bytype <- split.data.frame(df.jointP, df.jointP$sample)
   
@@ -1234,14 +1247,9 @@ Dsum2<-Dsum %>% dplyr::right_join(Nsum,by = c("uniqueID"="uniqueID"))
 Dsum<-Dsum2
 Dsum$RSSd<-Dsum1$RSSd
 Dsum$Tma<-Dsum1$Tma
-<<<<<<< HEAD
+
 Dsum<-Dsum %>% dplyr::mutate(rank = dplyr::ntile(Dsum$Tma,7))
-=======
-Dsum<-Dsum %>% dplyr::mutate(rank = ntile(Dsum$Tma,7))
-<<<<<<< HEAD
->>>>>>> 48b0e0212b914fc1957c76becaf225697947f6bc
-=======
->>>>>>> 48b0e0212b914fc1957c76becaf225697947f6bc
+
 Dsum<-dplyr::arrange(Dsum, dplyr::desc(Tma), dplyr::desc(RSSd))  %>% dplyr::filter(RSSd>0) 
 
 test<-data.frame()
