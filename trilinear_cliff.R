@@ -1,26 +1,26 @@
-# install after setting up renv
-install.packages("minpack.lm")
-install.packages("rlist")
-install.packages("data.table")
-install.packages("knitr")
-install.packages("ggthemes")
-install.packages("gridExtra")
-install.packages("grid")
-install.packages("readxl")
-install.packages("nls2")
-install.packages("stats")
-install.packages("ggplot2")
-install.packages("pkgcond")
-install.packages("rlist")
-install.packages("pracma")
-install.packages("fs")
-install.packages("tidyverse")
-install.packages("splines")
-install.packages("mgcv")
-install.packages("purrr")
-install.packages("nlstools")
-install.packages("readxl")
-install.packages("nls2")
+# # install after setting up renv
+# install.packages("minpack.lm")
+# install.packages("rlist")
+# install.packages("data.table")
+# install.packages("knitr")
+# install.packages("ggthemes")
+# install.packages("gridExtra")
+# install.packages("grid")
+# install.packages("readxl")
+# install.packages("nls2")
+# install.packages("stats")
+# install.packages("ggplot2")
+# install.packages("pkgcond")
+# install.packages("rlist")
+# install.packages("pracma")
+# install.packages("fs")
+# install.packages("tidyverse")
+# install.packages("splines")
+# install.packages("mgcv")
+# install.packages("purrr")
+# install.packages("nlstools")
+# install.packages("readxl")
+# install.packages("nls2")
 
 library(minpack.lm)
 library(rlist)
@@ -144,26 +144,6 @@ normalize_cetsa <- function(df, temperatures) {
                                            T9 = value[temperature == temperatures[9]]/value[temperature == temperatures[1]],
                                            T10 = value[temperature == temperatures[10]]/ value[temperature == temperatures[1]]) %>% 
     dplyr::filter(T7 >= 0.4 & T7 <= 0.6 & T9 < 0.3 & T10 < 0.2)#normalization from TPP
-    #  %>% #removes groups with less than 10 temperature channels
-    # dplyr::group_split(.) #split into groups
-  
-  # df.jointP<-lapply(df.jointP,function(x) x %>% dplyr::mutate(.,T7 = value[temperature == temperatures[7]]/value[temperature == temperatures[1]],
-  #                                                             T9 = value[temperature == temperatures[9]]/value[temperature == temperatures[1]],
-  #                                                             T10 = value[temperature == temperatures[10]]/ value[temperature == temperatures[1]]) %>% 
-  #                     dplyr::filter(T7 >= 0.4 & T7 <= 0.6 & T9 < 0.3 & T10 < 0.2))#normalization from TPP
-  # 
-  # df.jointP<-dplyr::bind_rows(df.jointP)
-
-
-    dplyr::filter(n>=10) %>% #removes groups with less than 10 temperature channels
-    dplyr::group_split(.) #split into groups
-  
-  df.jointP<-lapply(df.jointP,function(x) x %>% dplyr::mutate(.,T7 = value[temperature == temperatures[7]]/value[temperature == temperatures[1]],
-                                                              T9 = value[temperature == temperatures[9]]/value[temperature == temperatures[1]],
-                                                              T10 = value[temperature == temperatures[10]]/ value[temperature == temperatures[1]]) %>% 
-                      dplyr::filter(T7 >= 0.4 & T7 <= 0.6 & T9 < 0.3 & T10 < 0.2))#normalization from TPP
-  
-  #convert to df # dplyr::bind_rows #fix
 
   df.jointP<-dplyr::bind_rows(df.jointP)
 
@@ -193,18 +173,23 @@ normalize_cetsa <- function(df, temperatures) {
     dplyr::select(sample,fit,fitted_values) 
   ## calculate the fitted values
   d<-length(df.fit$fit)
-  
+  #unnest fitted values from list and name value column
+  check<-df.fit %>% tidyr::unnest_legacy(fitted_values=fitted_values) %>% dplyr::rename("fitted_values"=".")
+  check<-check %>% unique(.) 
+  check$sample<-as.factor(check$sample)
+  check$temperature<-rep(df.temps$temperature,d)
+  test<-df.median %>% dplyr::group_by(sample,temperature) %>% dplyr::left_join(check,c('sample','temperature'))
   ## calculate ratios between the fitted curves and the median values
-  df.out <- df.median %>%
-    data.frame(dplyr::left_join(df.fit,df.median,'sample')) %>%
-    dplyr::mutate(correction = df.fit$fitted_values / value) %>% dplyr::select('sample','temperature','value','fitted_values','correction')
-  
+  df.out <- test %>%
+    dplyr::mutate(correction = fitted_values / value) %>% dplyr::select('sample','temperature','value','fitted_values','correction')
+  df.out<-df.out %>% dplyr::select(-fitted_values,-value)
   ## apply normalization factor to data
   df$temperature<-as.numeric(levels(df$temperature))[df$temperature]
-  df <- df %>% dplyr::left_join(df.out %>% dplyr::select(sample,temperature,correction), by = c('sample', 'temperature')) %>%
+  df$correction<-df.out$correction
+  df <- df %>% 
     dplyr::mutate(norm_value = value * correction) %>% dplyr::ungroup(.)
   
-  return(df)
+    return(df)
 }
 
 #
@@ -622,92 +607,65 @@ DLR<-function(d){
   df_1<-df_n
   df0<-df_n
   df_0<-df_n
- 
+  
   df_1<-lapply(d, function(x) {x %>% dplyr::group_by(C) %>% dplyr::mutate(I=mean(I,na.rm=TRUE))
     
   })
-  df_1 <-lapply(df_1,function(x){x %>% dplyr::mutate(C = as.factor(C),CC=as.factor(CC))
-  }) 
+  
   #rank intensity values using 3 regions,  rename column as LineRegion
   LR<-lapply(df_1, function(x) {dplyr::ntile(dplyr::desc(x$I),3)%>%
       as.data.frame(.) %>% dplyr::rename("LineRegion"=".")})
   df_1<-purrr::map(df_1,function(x){x %>% dplyr::select(-LineRegion)})#remove Line Region column from one dataset before merging
-  #Add ranks to the list
+  #Add LR to the list
   df_1<-purrr::map2(df_1,LR, function(x,y) {c(x,y) %>% as.data.frame(.)})
-  df_1 <-lapply(df_1,function(x){x %>% dplyr::mutate(C = as.factor(C),I=as.data.frame.numeric(I),CC=as.factor(CC),
-                                                     LineRegion=as.data.frame.numeric(LineRegion))})
+  df_1 <-lapply(df_1,function(x){x %>% dplyr::mutate(C = C,I=I,CC=as.factor(CC))})
   
-  d<-lapply(d,function(x) x %>% dplyr::arrange(C)) 
   #separate by Line Regions
   df1<-lapply(df_1,function(x){x %>% dplyr::filter(LineRegion==1) %>% as.data.frame()})
   df2<-lapply(df_1,function(x){x %>% dplyr::filter(LineRegion==2) %>% as.data.frame()})
   df3<-lapply(df_1,function(x){x %>% dplyr::filter(LineRegion==3) %>% as.data.frame()})
-  #determine the changepoints for trilinear function
-  change1<-lapply(df1,function(x){utils::tail(x$C,1)})
-  change2<-lapply(df2,function(x){utils::tail(x$C,1)})
-  #Set mean and variance of the top plateau (lowest T response in LR 1)
-  Eq1<-lapply(df1,function(x)lapply(x$I,mean,na.rm=TRUE))
-  vEq1<-lapply(df1,function(x)lapply(x$I,var,na.rm=TRUE))
-  nblank<-lapply(df1,function(x)lapply(x %>% select(I),NROW))
   
-  Eq1<-dplyr::bind_rows(Eq1)
-  vEq1<-dplyr::bind_rows(vEq1)
-  nblank<-dplyr::bind_rows(nblank)
-  #calculate t statistic to generate confidence intervals at change points
-  tstat<-numeric(1)
-  alpha<-0.05
-  tstat<-qt(1-alpha,nblank-1)*sqrt(vEq1*nblank+(vEq1*nblank)/(nblank-1))
-  for(i in 1:length(d)){                                                                                                                                                                                                                                                        
+  #preallocate model data per line region
+  LM1<-list(NA)
+  LM2<-list(NA)
+  LM3<-list(NA)
+  #linear fit per line region
+  LM1<-purrr::map(df1,function(x)lm(formula = I~C,data = x))
+  LM2<-purrr::map(df2,function(x)lm(formula = I~C,data = x))
+  LM3<-purrr::map(df3,function(x)lm(formula = I~C,data = x))
+  #fit per line region with confidence intervals
+  fit1<-purrr::map(LM1,function(x)predict(x,se.fit = TRUE))
+  fit2<-purrr::map(LM2,function(x)predict(x,se.fit = TRUE))
+  fit3<-purrr::map(LM3,function(x)predict(x,se.fit = TRUE))
+  #keep last value for CI 
+  fit1 <- purrr::map(fit1,function(x) tail(x$se.fit,1))
+  fit2 <- purrr::map(fit2,function(x) tail(x$se.fit,1))
+  fit3 <- purrr::map(fit3,function(x) tail(x$se.fit,1))
 
-    
-    #calculate t statistic
-    alpha <- 0.05
-    tstat<-numeric(1)
-    
-    
-    
-    #define confidence intervals for the blank
-    CI_1H<-Eq1+tstat*sqrt(vEq1)
-    CI_1L<-Eq1-tstat*sqrt(vEq1)
-    
-    #define the start of region 2 to overlay CI control
-    
-    df2[[i]]$LineRegion<-ifelse(df2[[i]]$I<CI_1L,2,1)
-    
-    
-    #if the intensity value for LR 2 is below CI, keep the LineRegion
-    
-    #Now repeat for change 2
-    #Set mean and variance of the bottom plateau control
-    Eq1<-mean(df3[[i]]$I)
-    vEq1<-var(df3[[i]]$I)
-    #define the number of samples in the bottom plateau
-    nblank<-nrow(df3[[i]])
-    #calculate t statistic
-    alpha <- 0.05
-    tstat<- qt(1-alpha,nblank-1)*sqrt(vEq1*nblank+(vEq1*nblank)/(nblank-1))
-    #define confidence intervals for the blank
-    CI_1H<-Eq1+tstat*sqrt(vEq1)
-    CI_1L<-Eq1-tstat*sqrt(vEq1)
-    #If Eq11 is nan set CI_1H1 as the max Intensity in region 3
-    #define the start of region 2 to overlay CI
-    ph1<-df2[[i]]$I[df2[[i]]$I %in% tail(df2[[i]]$I)]
-    ph1<-ifelse(ph1>=CI_1H,2,3)
-    df2[[i]]$LineRegion[df2[[i]]$I %in% tail(df2[[i]]$I)]<-ph1
-    
-    #if the intensity values of df2 fall above the 95% intervals
-    #LR 2 is conserved, otherwise, set as LR 3
-    
-    df_0[[i]]<-rbind(df1[[i]],df2[[i]],df3[[i]])
-    
-    df_0[[i]]<-df_0[[i]][order(df_0[[i]]$C),]
-    #df1<-df1 %>% filter(CC>0)
-    df_0[[i]]$LineRegion<-as.factor(df_0[[i]]$LineRegion)
-    
-    df_n[[i]]<-df_0[[i]]
-  }
-  return(df_n)
+  #append CI to original data (columns must have the same rows for map2)
+  df1<-purrr::map2(df1,fit1,function(x,y)cbind(x,rep(y,nrow(x))) %>% dplyr::rename('CI'='rep(y, nrow(x))'))
+  df2<-purrr::map2(df2,fit2,function(x,y)cbind(x,rep(y,nrow(x))) %>% dplyr::rename('CI'='rep(y, nrow(x))'))
+  df3<-purrr::map2(df3,fit3,function(x,y)cbind(x,rep(y,nrow(x))) %>% dplyr::rename('CI'='rep(y, nrow(x))'))
+  
+  #Reassign line Regions if intensity falls within previous Line Region's CI
+  
+  df2<-purrr::map2(df1,df2,function(x,y)y %>%
+                     dplyr::mutate(LineRegion=ifelse(any(y$I<tail(x$I-x$CI,1)),2,1))) 
+ 
+  df3<-purrr::map2(df2,df3,function(x,y)y %>% 
+                     dplyr::mutate(LineRegion=ifelse(any(y$I<tail(x$I-x$CI,1)),3,2))) 
+  
+  df1<-df1 %>% dplyr::bind_rows(.)
+  df2<-df2 %>% dplyr::bind_rows(.)
+  df3<-df3 %>% dplyr::bind_rows(.)
+  #merge all prepared lists to one data frame
+  df_0<-rbind(df1,df2,df3) 
+  #define line Region as a factor
+  df_0$LineRegion<-as.factor(df_0$LineRegion)
+  return(df_0)
 }
+
+
 
 CP<-function(df_0){
   df_n<-vector(mode = "list", length(df_0))
@@ -723,13 +681,13 @@ CP<-function(df_0){
     Split<-ctest %>%subset(n<(max(n))) %>% data.frame()
     Split<-Split %>% subset(Split$C[duplicated(Split$C)] %in% Split$C)
     Split$LineRegion<-as.numeric(Split$LineRegion)
-    
+
     dap<-list()
-    
-    dap[[i]]<-df_0[[i]] %>% subset(df_0[[i]]$C %in% Split$C) 
+
+    dap[[i]]<-df_0[[i]] %>% subset(df_0[[i]]$C %in% Split$C)
     dap[[i]]$LineRegion<-as.numeric(dap[[i]]$LineRegion)
-    
-    
+
+
     Dap<-dap[[i]] %>%dplyr::group_split(C)
     dap<-lapply(Dap,function(x) x %>% dplyr::mutate(LineRegion=max(LineRegion)))
     dap<-rbindlist(dap) %>% as.data.frame(.)
