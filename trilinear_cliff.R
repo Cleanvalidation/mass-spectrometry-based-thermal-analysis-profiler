@@ -668,24 +668,24 @@ DLR<-function(d){
 #this function takes original data with replicates as an input
 CP<-function(df_0,d){ #df_0 is the result data frame and d is the orginal data with replicates
   # 
-  # d<-d %>% dplyr::group_split(uniqueID)
+   d<-d %>% dplyr::group_split(uniqueID)
   #remove data points with missing data for replicates
   d<-d %>% purrr::keep(function(x){
     nrow(x)>=40
   })
   #make sure uniqueIDs are consistent among data frames
   d<-dplyr::bind_rows(d)
-  
+  df_0<-dplyr::bind_rows(df_0)
   #keep the IDs in df_0 which are present in d
-  df_0<-df_0 %>% subset(uniqueID %in% d$uniqueID)
+  df_0<-df_0 %>% dplyr::filter(uniqueID %in% d$uniqueID)
   #Split into lists once again
   d<-d %>% dplyr::group_split(uniqueID)
   df_0<-df_0 %>% dplyr::group_split(uniqueID)
   #remove IDs that are not common in both datasets
   d<-d %>% purrr::keep(function(x) any(x$uniqueID %in% results$uniqueID))
   #For the original data (unlabeled LR) define LR with intensities
-  d<-purrr::map2(d,df_0,function(x,y) x %>% #if the intensity in DF is greater than the max(LR2) label 1 else if the intensity is less than min (LR=2)label 3
-                   dplyr::mutate(LineRegion=ifelse(x$I>=max(y$I[y$LineRegion==2]),1,ifelse(x$I<=min(y$I[y$LineRegion==2]),3,2))))
+  d<-suppressWarnings(purrr::map2(d,df_0,function(x,y) x %>% #if the intensity in DF is greater than the max(LR2) label 1 else if the intensity is less than min (LR=2)label 3
+                   dplyr::mutate(LineRegion=as.numeric(ifelse(x$I>=max(y$I[y$LineRegion==2]),1,ifelse(x$I<=min(y$I[y$LineRegion==2]),3,2))))))
   df_n<-vector(mode = "list", length(df_0))
   ctest<-df_n
   dap<-df_n
@@ -698,17 +698,16 @@ CP<-function(df_0,d){ #df_0 is the result data frame and d is the orginal data w
   #Keep data with common C values
   dap<-purrr::map2(df_0,Split,function(x,y) x %>% subset(x$C %in% y$C) %>% dplyr::mutate(LineRegion=as.numeric(LineRegion)))
   #In the case where the line regions are split for the same C (temperature value) use the latter LR
-  dap<-suppressWarnings(lapply(dap,function(x) x %>% dplyr::mutate(LineRegion=max(LineRegion))))
+  dap<-suppressWarnings(lapply(dap,function(x) x %>% dplyr::mutate(LineRegion=as.numeric(max(LineRegion)))))
   
-  df_0<-purrr::map2(df_0,dap,function(x,y) x %>% subset(x$C %in% y$C) %>% dplyr::mutate(LineRegion=as.factor(y$LineRegion)))
+  df_0<-purrr::map2(df_0,dap,function(x,y) x %>% subset(x$C %in% y$C) %>% dplyr::mutate(C= as.factor(C),LineRegion=as.numeric(y$LineRegion),CC=as.factor(CC),I=as.factor(I),dataset=as.factor(dataset)))
   df_0<-dplyr::bind_rows(df_0) %>% as.data.frame(.) 
   df<-df_0 %>% dplyr::select(-CI,-n)#to use map2 you need consistent df lengths
-  d<-dplyr::bind_rows(d)
-  d1<-d %>% subset(uniqueID %in% df$uniqueID & C %in% df$C) %>% dplyr::mutate(LineRegion=df$LineRegion)
-  return(df_0)
+  d<-dplyr::bind_rows(d) %>% as.data.frame(.) %>% dplyr::mutate(CC=as.factor(CC),C=as.factor(C),I=as.factor(I),LineRegion=as.numeric(LineRegion),dataset=as.factor(dataset))
+  d1<-d %>% dplyr::full_join(df,by=c("uniqueID","dataset","CC","C","I")) 
+  d1<-d1%>% dplyr::mutate(LineRegion=ifelse(!is.na(LineRegion.y),LineRegion.y,LineRegion.x)) %>% dplyr::select(-LineRegion.x,-LineRegion.y)
+  return(d1)
 }
-
-
 
 #preallocate list
 results<-vector(mode = "list", length(d_))
@@ -720,55 +719,56 @@ results_n<-vector(mode = "list",length(DF))
 results<-suppressWarnings(DLR(d_))#First guess at line regions
 results_t<-suppressWarnings(DLR(d_1))
 results_n<-suppressWarnings(DLR(DF))
-#keep only IDs found in both datasets
+#remove protein channels with missing values
 results<-results %>% lapply(function(x) na.omit(x))
 results_t<-results_t %>% lapply(function(x) na.omit(x))
 results_n<-results_n %>% lapply(function(x) na.omit(x))
 
 #reassign changepoints shared between line regions
-df_<-suppressWarnings(CP(results,d))
-df_1<-suppressWarnings(CP(results_t,d))# 
+df_<-suppressWarnings(CP(results,d)) %>% dplyr::filter(dataset=="vehicle")
+df_1<-suppressWarnings(CP(results_t,d))%>% dplyr::filter(dataset=="treated")# 
 DFN<-suppressWarnings(CP(results_n,d))# 
-#remove results to save space 
+d#remove results to save space 
 rm(results,results_t,results_n,d_,d_1,DF)
 
 #boostrap function
 #returns bootstrapped intensities
 #n is the sampling window
 #N is the number of iterations
-BStrap<-function(Data0,n,N){
-  n<-n
-  N<-N
-  BS<-NA
-  BA<-NA
-  BSvar<-list(NA)
-  BSvar[[1]]<-data.frame()
-  Data1<-lapply(Data0,function(x)x %>%dplyr::group_by(C) %>% 
-                  dplyr::summarise(I=mean(I),LineRegion=LineRegion)%>% unique(.))
-  
-  BS<-lapply(Data0, function(x){x
-    boot::boot.ci(x$I,conf=0.95,type="norm",R=n)})
-  #Bootstrap"sample with replacement"
-  BS1<-lapply(Data0, function(x)x %>% dplyr::select(uniqueID,C,I,LineRegion) %>%  dplyr::sample_n(n,replace=TRUE))
-  #generate mean intensities per $C value
-  BS<-lapply(BS,function(x) x[order(x$C),])
-  
-  return(BS)
-}
-
-
-BSvarN<- suppressWarnings(BStrap(DFN,1000,1000))
-BSvar<-suppressWarnings(BStrap(df_,1000,1000))
-BSvar1<-suppressWarnings(BStrap(df_1,1000,1000))
-
-BSvar<-lapply(BSvar,function(x)x[order(x$C),])
-BSvar1<-lapply(BSvar1,function(x)x[order(x$C),])
-BSvarN<-lapply(BSvarN,function(x)x[order(x$C),])
+# BStrap<-function(Data0,n,N){
+#   n<-n
+#   N<-N
+#   BS<-NA
+#   BA<-NA
+#   BSvar<-list(NA)
+#   BSvar[[1]]<-data.frame()
+#   Data0$I<-as.numeric(as.vector(Data0$I))
+#   Data0<-Data0 %>% group_split(uniqueID)
+#   Data1<-lapply(Data0,function(x) x %>% dplyr::group_by(C) %>% 
+#                   dplyr::mutate(I=mean(I),LineRegion=LineRegion)%>% unique(.))
+#   
+#   BS<-lapply(Data1, function(x){x %>% boot::boot(x$I,statistic = bs,R=n,formula = )})
+#   #Bootstrap"sample with replacement"
+#   BS1<-lapply(Data0, function(x)x %>% dplyr::select(uniqueID,C,I,LineRegion) %>%  dplyr::sample_n(n,replace=TRUE))
+#   #generate mean intensities per $C value
+#   BS<-lapply(BS,function(x) x[order(x$C),])
+#   
+#   return(BS)
+# }
+# 
+# 
+# BSvarN<- suppressWarnings(BStrap(DFN,1000,1000))
+# BSvar<-suppressWarnings(BStrap(df_,1000,1000))
+# BSvar1<-suppressWarnings(BStrap(df_1,1000,1000))
+# 
+# BSvar<-lapply(BSvar,function(x)x[order(x$C),])
+# BSvar1<-lapply(BSvar1,function(x)x[order(x$C),])
+# BSvarN<-lapply(BSvarN,function(x)x[order(x$C),])
 #append names to list 
 
-df_<-lapply(df_,function(x)x[order(x$C),])
-df_1<-lapply(df_1,function(x)x[order(x$C),])
-DFN<-lapply(DFN,function(x)x[order(x$C),])
+df_<-lapply(df_ %>% dplyr::group_split(uniqueID),function(x)x[order(x$C),])
+df_1<-lapply(df_1%>% dplyr::group_split(uniqueID),function(x)x[order(x$C),])
+DFN<-lapply(DFN%>% dplyr::group_split(uniqueID),function(x)x[order(x$C),])
 
 
 
