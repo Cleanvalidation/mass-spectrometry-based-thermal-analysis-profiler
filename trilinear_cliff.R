@@ -728,7 +728,7 @@ results_n<-results_n %>% lapply(function(x) na.omit(x))
 df_<-suppressWarnings(CP(results,d)) %>% dplyr::filter(dataset=="vehicle")
 df_1<-suppressWarnings(CP(results_t,d))%>% dplyr::filter(dataset=="treated")# 
 DFN<-suppressWarnings(CP(results_n,d))# 
-d#remove results to save space 
+#remove results to save space 
 rm(results,results_t,results_n,d_,d_1,DF)
 
 #boostrap function
@@ -779,7 +779,10 @@ tlstat<-function(DF,df,df1,PI=FALSE){
   DF<-DF
   df<-df
   df1<-df1
-  
+  #switch from factor to numeric
+  df<-lapply(df,function(x) x %>% dplyr::mutate(C=as.numeric(as.vector(C)),I=as.numeric(as.vector(I))))
+  df1<-lapply(df1,function(x) x %>% dplyr::mutate(C=as.numeric(as.vector(C)),I=as.numeric(as.vector(I))))
+  DF<-lapply(DF,function(x) x %>% dplyr::mutate(C=as.numeric(as.vector(C)),I=as.numeric(as.vector(I))))
   mean1<-list()
   mean1[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),AUC = rep(0,1),dataset="vehicle",uniqueID=df[[i]]$uniqueID[1],Tm=rep(0,1))
   if(!isTRUE(PI)){
@@ -874,6 +877,11 @@ tlstat<-function(DF,df,df1,PI=FALSE){
     results<-rlist::list.rbind(c(mean1,mean1_1,mean3)) %>% dplyr::group_split(uniqueID)
   } else if (isTRUE(PI)){
     for(i in 1:length(df)){
+      #switch from factor to numeric
+      df<-lapply(df,function(x) x %>% dplyr::mutate(C=as.numeric(as.vector(C)),I=as.numeric(as.vector(I))))
+      df1<-lapply(df1,function(x) x %>% dplyr::mutate(C=as.numeric(as.vector(C)),I=as.numeric(as.vector(I))))
+      DF<-lapply(DF,function(x) x %>% dplyr::mutate(C=as.numeric(as.vector(C)),I=as.numeric(as.vector(I))))
+      
       df[[i]]<-unique(df[[i]])
       mean1[[i]]<-df[[i]] %>% data.frame(.) %>% 
         dplyr::group_nest(LineRegion,uniqueID) %>%
@@ -968,6 +976,11 @@ tlstat<-function(DF,df,df1,PI=FALSE){
 spstat<-function(DF,df,df1,PI=FALSE){
   #plot spline results
   if(!isTRUE(PI)){
+    #switch from factor to numeric
+    df<-lapply(df,function(x) x %>% dplyr::mutate(C=as.numeric(as.vector(C)),I=as.numeric(as.vector(I))))
+    df1<-lapply(df1,function(x) x %>% dplyr::mutate(C=as.numeric(as.vector(C)),I=as.numeric(as.vector(I))))
+    DF<-lapply(DF,function(x) x %>% dplyr::mutate(C=as.numeric(as.vector(C)),I=as.numeric(as.vector(I))))
+    
     i<-1
     mean1<-list()
     mean1[[1]]<-data.frame(spar=rep(0,1),Tm=rep(0,1),lambda=rep(0,1),df=rep(0,1),rss=rep(0,1),knots=rep(0,1),AUC = rep(0,1),dataset="vehicle",uniqueID=df[[i]]$uniqueID[1])
@@ -1042,6 +1055,11 @@ spstat<-function(DF,df,df1,PI=FALSE){
     
     results<-rlist::list.rbind(c(mean1,mean1_1,mean3)) %>% dplyr::group_split(uniqueID)
   } else if (isTRUE(PI)){
+    #switch from factor to numeric
+    df<-lapply(df,function(x) x %>% dplyr::mutate(C=as.numeric(as.vector(C)),I=as.numeric(as.vector(I))))
+    df1<-lapply(df1,function(x) x %>% dplyr::mutate(C=as.numeric(as.vector(C)),I=as.numeric(as.vector(I))))
+    DF<-lapply(DF,function(x) x %>% dplyr::mutate(C=as.numeric(as.vector(C)),I=as.numeric(as.vector(I))))
+    
     i<-1
     mean1<-list()
     mean1[[1]]<-data.frame(spar=rep(0,1),Tm=rep(0,1),lambda=rep(0,1),df=rep(0,1),rss=rep(0,1),knots=rep(0,1),AUC = rep(0,1),dataset="vehicle",uniqueID=df[[i]]$uniqueID[1])
@@ -1152,7 +1170,7 @@ spstat<-function(DF,df,df1,PI=FALSE){
 tlresults<-list()
 tlresults_PI<-list()
 #confidence intervals
-tlresults<-tlstat(DFN,df_,df_1,PI=FALSE)#place null, vehicle and treated lists with no prediction intervals
+tlresults<-suppressWarnings(tlstat(DFN,df_,df_1,PI=FALSE))#place null, vehicle and treated lists with no prediction intervals
 
 tlf<-function(tlresults){
 ##Apply Filters
@@ -1173,7 +1191,7 @@ tlresults<-tlresults %>% keep(function(x) mean(data.frame(x)$Tm[stringr::str_det
 
 Nsum<-list()
 Nsum[[1]]<-data.frame(RSS=0,Tm=0)
-
+#get the summed rss values for null
 Nsum<-lapply(tlresults, function(x) x %>% subset(stringr::str_detect(tolower(dataset), pattern = "null")) %>% 
                dplyr::rowwise(.) %>%  dplyr::mutate(RSS=sum(.$rss))%>% dplyr::select(RSS,Tm,dataset,uniqueID)%>% head(.,1))
 
@@ -1207,7 +1225,7 @@ Nsum<-Nsum %>% dplyr::mutate(id=rownames(Nsum))
 
 Nsum$dataset<-as.factor(Nsum$dataset)
 #mutate data frame
-#Cliff 1D
+#join two data frames by uniqueID
 Dsum1<-Dsum %>% dplyr::left_join(Nsum,by = c("uniqueID"="uniqueID"))
 #Childs
 Dsum2<-Dsum %>% dplyr::right_join(Nsum,by = c("uniqueID"="uniqueID"))
@@ -1215,9 +1233,9 @@ Dsum2<-Dsum %>% dplyr::right_join(Nsum,by = c("uniqueID"="uniqueID"))
 Dsum<-Dsum2
 Dsum$RSSd<-Dsum1$RSSd
 Dsum$Tma<-Dsum1$Tma
-
+#rank the data by Tm change
 Dsum<-Dsum %>% dplyr::mutate(rank = dplyr::ntile(Dsum$Tma,7))
-
+#arrange data from greater Tm and RSS difference to lowest
 Dsum<-dplyr::arrange(Dsum, dplyr::desc(Tma), dplyr::desc(RSSd))  %>% dplyr::filter(RSSd>0) 
 
 test<-data.frame()
@@ -1245,13 +1263,18 @@ Df1<-tlresults[orows$id] #divide 1=highly destabilized,4=noeffect,7=highly stabi
 df1<-list()
 #get uniqueID and dataset for stable proteins with decreasing RSS differences
 df1<-lapply(Df1,function(x) x %>% dplyr::select(uniqueID,dataset) %>% head(.,1))
-df1<-data.frame(rbindlist(df1))
+df1<-data.frame(dplyr::bind_rows(df1))
 
 #unlist to data.frame
 #order the original data by RSS differences
 #
-df2<-rbindlist(DFN) %>% as.data.frame(.) %>% right_join(df1, by = c('uniqueID' = 'uniqueID') ) %>% dplyr::select(-dataset.y)
-names(df2)<-c("uniqueID","Dataset","C","I","CC","LineRegion")
+DFN<- DFN %>% dplyr::bind_rows(.)
+DFN$uniqueID<-as.vector(DFN$uniqueID)
+df1$uniqueID<-as.vector(df1$uniqueID)
+
+
+df2<-DFN %>% dplyr::right_join(df1,by=c("uniqueID")) %>% dplyr::select(-dataset.y) %>% dplyr::rename("dataset"="dataset.x") %>% dplyr::mutate(C=as.numeric(as.vector(C)),I=as.numeric(as.vector(I)))
+
 return(list(df1,df2,Df1))
 }
 #return filtered lists
@@ -1262,14 +1285,13 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
   df1<-df1
   Df1<-Df1[[i]]
   
-  
-  DF1<-df2 %>% subset(uniqueID == df1$uniqueID[i]) %>% dplyr::mutate(dataset=ifelse(CC==0,'vehicle','treated'))
+  DF1<-df2 %>% subset(uniqueID == df1$uniqueID[i]) 
   
   null<-Df1 %>% subset(dataset == "null")
   
-  pred1<-predict(null$M1[[1]], interval="confidence")
-  pred2<-predict(null$M1[[2]], interval="confidence")
-  pred3<-predict(null$M1[[3]], interval="confidence")
+  pred1<-predict(null$M1[[1]], interval="confidence") %>% as.data.frame(.)
+  pred2<-predict(null$M1[[2]], interval="confidence")%>% as.data.frame(.)
+  pred3<-predict(null$M1[[3]], interval="confidence")%>% as.data.frame(.)
   Pred1<-NA
   pred1<-na.omit(pred1)
   pred2<-na.omit(pred2)
@@ -1279,18 +1301,18 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
   LOW<-NA
   HI<-NA
   if (nrow(pred1)>0 & nrow(pred2)>0 & nrow(pred3)>0){
-    Pred<-rbind(pred1,pred2,pred3)
+    Pred<-dplyr::bind_rows(pred1,pred2,pred3)
   } else if (nrow(pred2)>0 & nrow(pred3)>0){
-    Pred<-rbind(pred2,pred3)
+    Pred<-dplyr::bind_rows(pred2,pred3)
   } else if (nrow(pred1)>0 & nrow(pred2)>0){
-    Pred<-rbind(pred1,pred2)  
+    Pred<-dplyr::bind_rows(pred1,pred2)  
   }else if (nrow(pred1)>0 & nrow(pred3)>0){
-    Pred<-rbind(pred1,pred3)
+    Pred<-dplyr::bind_rows(pred1,pred3)
   }
-  rownames(Pred)<-1:nrow(Pred)
+  rownames(Pred)<-as.vector(1:nrow(Pred))
   
   #Pred<-Pred[1:length(DF1$C),]##############
-  Pred<-data.frame(Pred,DF1$C[1:nrow(Pred)],DF1$I[1:nrow(Pred)])################
+  Pred<-cbind(Pred,DF1$C[1:nrow(Pred)],DF1$I[1:nrow(Pred)])################
   names(Pred)<-c("fit","lower","upper","C","I")
   
   Pred$Treatment<-null$dataset[1]##################
@@ -1308,9 +1330,9 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
   
   vehicle<-Df1 %>% subset(dataset == "vehicle")
   
-  pred1<-predict(vehicle$M1[[1]], interval="confidence")
-  pred2<-predict(vehicle$M1[[2]], interval="confidence")
-  pred3<-predict(vehicle$M1[[3]], interval="confidence")
+  pred1<-predict(vehicle$M1[[1]], interval="confidence")%>% as.data.frame(.)
+  pred2<-predict(vehicle$M1[[2]], interval="confidence")%>% as.data.frame(.)
+  pred3<-predict(vehicle$M1[[3]], interval="confidence")%>% as.data.frame(.)
   Pred1<-NA
   pred1<-na.omit(pred1)
   pred2<-na.omit(pred2)
@@ -1320,13 +1342,13 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
   LOW<-NA
   HI<-NA
   if (nrow(pred1)>0 & nrow(pred2)>0 & nrow(pred3)>0){
-    Pred1<-rbind(pred1,pred2,pred3)
+    Pred1<-dplyr::bind_rows(pred1,pred2,pred3)
   } else if (nrow(pred2)>0 & nrow(pred3)>0){
-    Pred1<-rbind(pred2,pred3)
+    Pred1<-dplyr::bind_rows(pred2,pred3)
   } else if (nrow(pred1)>0 & nrow(pred2)>0){
-    Pred1<-rbind(pred1,pred2)  
+    Pred1<-dplyr::bind_rows(pred1,pred2)  
   }else if (nrow(pred1)>0 & nrow(pred3)>0){
-    Pred1<-rbind(pred1,pred3)
+    Pred1<-dplyr::bind_rows(pred1,pred3)
   }
   
   #Pred<-Pred[1:length(DF1$C),]##############
@@ -1341,15 +1363,16 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
   PLR_P1<-ggplot2::ggplot(Pred1, ggplot2::aes(x = C,y = fit,color=Treatment))+ggplot2::geom_point(Pred1, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +ggplot2::geom_ribbon(data=Pred1,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)
   
   DF_f1<-data.frame()
-  DF_f1<-df2 %>% subset(uniqueID == df1$uniqueID[i]) %>% dplyr::mutate(dataset=ifelse(CC==0,'vehicle','treated')) %>% subset(dataset=="treated")
+  DF_f1<-df2 %>% subset(uniqueID == df1$uniqueID[i]) %>% dplyr::mutate(dataset=ifelse(CC==0,'vehicle','treated'))
+  DF_f1<-DF_f1 %>% subset(dataset =="vehicle")
   
   
   treated<-data.frame()
   treated<-Df1 %>% subset(dataset == "treated")
   
-  pred1<-predict(treated$M1[[1]], interval="confidence")
-  pred2<-predict(treated$M1[[2]], interval="confidence")
-  pred3<-predict(treated$M1[[3]], interval="confidence")
+  pred1<-predict(treated$M1[[1]], interval="confidence")%>% as.data.frame(.)
+  pred2<-predict(treated$M1[[2]], interval="confidence")%>% as.data.frame(.)
+  pred3<-predict(treated$M1[[3]], interval="confidence")%>% as.data.frame(.)
   
   pred1<-na.omit(pred1)
   pred2<-na.omit(pred2)
@@ -1359,15 +1382,15 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
   LOW<-NA
   HI<-NA
   if (nrow(pred1)>0 & nrow(pred2)>0 & nrow(pred3)>0){
-    Pred2<-rbind(pred1,pred2,pred3)
+    Pred2<-dplyr::bind_rows(pred1,pred2,pred3)
   } else if (nrow(pred2)>0 & nrow(pred3)>0){
-    Pred2<-rbind(pred2,pred3)
+    Pred2<-dplyr::bind_rows(pred2,pred3)
   } else if (nrow(pred1)>0 & nrow(pred2)>0){
-    Pred2<-rbind(pred1,pred2)  
+    Pred2<-dplyr::bind_rows(pred1,pred2)  
   }else if (nrow(pred1)>0 & nrow(pred3)>0){
-    Pred2<-rbind(pred1,pred3)
+    Pred2<-dplyr::bind_rows(pred1,pred3)
   }
-  rownames(Pred2)<-1:nrow(Pred2)
+  rownames(Pred2)<-as.vector(1:nrow(Pred2))
   
   #Pred<-Pred[1:length(DF1$C),]##############
   Pred2<-data.frame(Pred2,DF_f1$C[1:nrow(Pred2)],DF_f1$I[1:nrow(Pred2)])################
@@ -1375,19 +1398,19 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
   
   Pred2$Treatment<-treated$dataset[1]##################
   Pred2<-na.omit(Pred2)
-  rownames(Pred2)<-1:nrow(Pred2)
+  rownames(Pred2)<-as.vector(1:nrow(Pred2))
   #Area under the curve using trapezoid rule
   P1_AUC <- pracma::trapz(Pred1$C,Pred1$I)
   P2_AUC <- pracma::trapz(Pred2$C,Pred2$I)
   #Residuals
-  rn<-data.frame(c(residuals(null$M1[[1]]),residuals(null$M1[[2]]),residuals(null$M1[[3]])))
+  rn<-data.frame(residuals=c(residuals(null$M1[[1]]),residuals(null$M1[[2]]),residuals(null$M1[[3]])))
   Pred<-cbind(Pred,rn)
   names(Pred)<- names(Pred)<-c("fit","lower","upper","C","I","Treatment",'residuals')
   rn<-data.frame(c(residuals(vehicle$M1[[1]]),residuals(vehicle$M1[[2]]),residuals(vehicle$M1[[3]])))
   Pred1<-cbind(Pred1,rn)
   names(Pred1)<- names(Pred1)<-c("fit","lower","upper","C","I","Treatment",'residuals')
   rn<-data.frame(c(residuals(treated$M1[[1]]),residuals(treated$M1[[2]]),residuals(treated$M1[[3]])))
-  Pred2<-cbind(Pred2,rn)
+  Pred2<-cbind(Pred2,rn[1:nrow(Pred2),])
   names(Pred2)<- names(Pred2)<-c("fit","lower","upper","C","I","Treatment",'residuals')
   Preds<-rbind(Pred1,Pred2)
   PLrs<-ggplot2::ggplot(Preds, ggplot2::aes(x =fit,y = residuals,color=Treatment)) +
@@ -1405,7 +1428,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
     
     Tm1<-Pred1[which.min(abs(Pred1$fit - 0.5)),'C']#pred1 is vehicle
     Tm2<-Pred2[which.min(abs(Pred2$fit - 0.5)),'C']#pred2 is treated
-    Tm_d<-Tm2 -Tm1
+    Tm_d<-as.numeric(as.vector(Tm2))-as.numeric(as.vector(Tm1))
     p<-expression(paste(Delta, "AUCdiff"))
     if(AUCd>0){
       P1_AUC <- pracma::trapz(Pred1$C,Pred1$lower)
