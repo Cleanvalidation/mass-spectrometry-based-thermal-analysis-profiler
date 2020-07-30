@@ -770,89 +770,94 @@ df_<-lapply(df_ %>% dplyr::group_split(uniqueID),function(x)x[order(x$C),])
 df_1<-lapply(df_1%>% dplyr::group_split(uniqueID),function(x)x[order(x$C),])
 DFN<-lapply(DFN%>% dplyr::group_split(uniqueID),function(x)x[order(x$C),])
 
-
-
 tlstat<-function(DF,df,df1,PI=FALSE){
   #preallocate list results
   #control/vehicle
   i<-1
   DF<-DF
   df<-df
-  df1<-df1
-  #switch from factor to numeric
-  df<-lapply(df,function(x) x %>% dplyr::mutate(C=as.numeric(as.vector(C)),I=as.numeric(as.vector(I))))
-  df1<-lapply(df1,function(x) x %>% dplyr::mutate(C=as.numeric(as.vector(C)),I=as.numeric(as.vector(I))))
-  DF<-lapply(DF,function(x) x %>% dplyr::mutate(C=as.numeric(as.vector(C)),I=as.numeric(as.vector(I))))
-  mean1<-list()
-  mean1[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),AUC = rep(0,1),dataset="vehicle",uniqueID=df[[i]]$uniqueID[1],Tm=rep(0,1))
+  
+  #convert to df for numeric variables C and I 
+  DF<-dplyr::bind_rows(DF)
+  df1<-dplyr::bind_rows(df1)
+  df<-dplyr::bind_rows(df)
+  #convert factor to numeric columns
+  df1$C<-as.numeric(as.vector(df1$C))
+  df$C<-as.numeric(as.vector(df$C))
+  DF$C<-as.numeric(as.vector(DF$C))
+  
+  df1$I<-as.numeric(as.vector(df1$I))
+  df$I<-as.numeric(as.vector(df$I))
+  DF$I<-as.numeric(as.vector(DF$I))
+  #convert back to list
+  df1<- df1 %>% dplyr::group_split(uniqueID)
+  df<-df %>% dplyr::group_split(uniqueID)
+  DF<-DF %>% dplyr::group_split(uniqueID)
+  
   if(!isTRUE(PI)){
-    for(i in 1:length(df)){
-      df[[i]]<-unique(df[[i]])
-      mean1[[i]]<-df[[i]] %>% data.frame(.) %>% 
-        dplyr::group_nest(LineRegion,uniqueID) %>%
-        dplyr::mutate(M1=purrr::map(data,function(x){stats::lm(x$I ~ x$C)}),
-                      CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
-                      Tm=with(df[[i]], stats::approx(df[[i]]$I,df[[i]]$C, xout=max(df[[i]]$I, na.rm=TRUE)-0.5))$y,
-                      slope=purrr::map(M1,function(x){as.numeric(coef(x)[2])}),
-                      intercept=purrr::map(M1,function(x){as.numeric(coef(x)[1])}),
-                      rss=purrr::map(M1,function(x){deviance(x)}),
-                      Rsq=purrr::map(M1,function(x){summary(x)$r.squared}), 
-                      AUC = purrr::map2(data,CI,function(x,y) pracma::trapz(x$C,y[,'fit'])),
-                      dataset="vehicle",
-                      uniqueID=df[[i]]$uniqueID[1])
-      
-      
-    }
+    mean1<-list()
+    mean1[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),AUC = rep(0,1),dataset="treated",uniqueID=df1[[i]]$uniqueID[1],Tm=rep(0,1))
+    mean1<- lapply(df,function(x) x %>% data.frame(.) %>% 
+                     dplyr::group_nest(LineRegion,uniqueID) %>%
+                     dplyr::mutate(M1=purrr::map(data,function(x){stats::lm(x$I ~ x$C)}),
+                                   CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
+                                   Tm=with(x, stats::approx(x$I,x$C, xout=max(x$I, na.rm=TRUE)-0.5))$y,
+                                   slope=purrr::map(M1,function(x){as.numeric(coef(x)[2])}),
+                                   intercept=purrr::map(M1,function(x){as.numeric(coef(x)[1])}),
+                                   rss=purrr::map(M1,function(x){deviance(x)}),
+                                   Rsq=purrr::map(M1,function(x){summary(x)$r.squared}), 
+                                   AUC = purrr::map2(data,CI,function(x,y) pracma::trapz(x$C,y[,'fit'])),
+                                   dataset="vehicle",
+                                   uniqueID=x$uniqueID[1]))
+    
+    
+    
     
     #define linear models with outputs
     
     mean1_1<-list()
     mean1_1[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),AUC = rep(0,1),dataset="treated",uniqueID=df1[[i]]$uniqueID[1],Tm=rep(0,1))
     
+    mean1_1<- lapply(df1,function(x) x %>% data.frame(.) %>%
+                       dplyr::group_nest(LineRegion,uniqueID) %>% 
+                       dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
+                                     CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
+                                     Tm=with(x, stats::approx(x$I,x$C, xout=max(x$I, na.rm=TRUE)-0.5))$y,
+                                     slope=map(M1,function(x){as.numeric(coef(x)[2])}),
+                                     intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
+                                     rss=map(M1,function(x){deviance(x)}),
+                                     Rsq=map(M1,function(x){summary(x)$r.squared}), 
+                                     AUC = purrr::map2(data,CI,function(x,y) pracma::trapz(x$C,y[,'fit'])),
+                                     dataset="treated",
+                                     uniqueID=x$uniqueID[1]))
     
-    for(i in 1:length(df1)){
-      df1[[i]]<-unique(df1[[i]])
-      mean1_1[[i]]<-df1[[i]] %>% data.frame(.) %>% 
-        dplyr::group_nest(LineRegion,uniqueID) %>% 
-        dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
-                      CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
-                      Tm=with(df1[[i]], stats::approx(df1[[i]]$I,df1[[i]]$C, xout=max(df1[[i]]$I, na.rm=TRUE)-0.5))$y,
-                      slope=map(M1,function(x){as.numeric(coef(x)[2])}),
-                      intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
-                      rss=map(M1,function(x){deviance(x)}),
-                      Rsq=map(M1,function(x){summary(x)$r.squared}), 
-                      AUC = purrr::map2(data,CI,function(x,y) pracma::trapz(x$C,y[,'fit'])),
-                      dataset="treated",
-                      uniqueID=df1[[i]]$uniqueID[1])
-      
-      
-      
-    }
+    
+    
+    
     
     # null hypothesis
     #null
     mean3<-list()
     mean3[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),AUC = rep(0,1),dataset="null",uniqueID=DF[[i]]$uniqueID[1],Tm=rep(0,1))
     DF<-lapply(DF,function(x) x %>% na.omit())
-    for(i in 1:length(DF)){
-      DF[[i]]<-unique(DF[[i]])
-      mean3[[i]]<-DF[[i]] %>% data.frame(.) %>% 
-        dplyr::group_nest(LineRegion,uniqueID) %>% 
-        dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
-                      CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
-                      Tm=with(DF[[i]], stats::approx( DF[[i]]$I,DF[[i]]$C, xout=max(DF[[i]]$I, na.rm=TRUE)-0.5))$y,
-                      slope=map(M1,function(x){as.numeric(coef(x)[2])}),
-                      intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
-                      rss=map(M1,function(x){deviance(x)}),
-                      Rsq=map(M1,function(x){summary(x)$r.squared}),
-                      AUC = purrr::map2(data,CI,function(x,y) pracma::trapz(x$C,y[,'fit'])),
-                      dataset="null",
-                      uniqueID=DF[[i]]$uniqueID[1])
-      
-      
-      
-      
-    }
+    
+    mean3<- lapply(DF,function(x) x %>% data.frame(.) %>%
+                     dplyr::group_nest(LineRegion,uniqueID) %>% 
+                     dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
+                                   CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
+                                   Tm=with(x, stats::approx( x$I,x$C, xout=max(x$I, na.rm=TRUE)-0.5))$y,
+                                   slope=map(M1,function(x){as.numeric(coef(x)[2])}),
+                                   intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
+                                   rss=map(M1,function(x){deviance(x)}),
+                                   Rsq=map(M1,function(x){summary(x)$r.squared}),
+                                   AUC = purrr::map2(data,CI,function(x,y) pracma::trapz(x$C,y[,'fit'])),
+                                   dataset="null",
+                                   uniqueID=x$uniqueID[1]))
+    
+    
+    
+    
+    
     mean1<-lapply(mean1,function(x) x %>% dplyr::select(-data,-CI) %>% tidyr::unnest(Tm=Tm,slope=slope,intercept=intercept,rss=rss,Rsq=Rsq))
     mean1_1<-lapply(mean1_1,function(x) x %>% dplyr::select(-data,-CI) %>% tidyr::unnest(Tm=Tm,slope=slope,intercept=intercept,rss=rss,Rsq=Rsq))
     mean3<-lapply(mean3,function(x) x %>% dplyr::select(-data,-CI) %>% tidyr::unnest(Tm=Tm,slope=slope,intercept=intercept,rss=rss,Rsq=Rsq))
@@ -876,79 +881,72 @@ tlstat<-function(DF,df,df1,PI=FALSE){
     
     results<-rlist::list.rbind(c(mean1,mean1_1,mean3)) %>% dplyr::group_split(uniqueID)
   } else if (isTRUE(PI)){
-    for(i in 1:length(df)){
-      #switch from factor to numeric
-      df<-lapply(df,function(x) x %>% dplyr::mutate(C=as.numeric(as.vector(C)),I=as.numeric(as.vector(I))))
-      df1<-lapply(df1,function(x) x %>% dplyr::mutate(C=as.numeric(as.vector(C)),I=as.numeric(as.vector(I))))
-      DF<-lapply(DF,function(x) x %>% dplyr::mutate(C=as.numeric(as.vector(C)),I=as.numeric(as.vector(I))))
-      
-      df[[i]]<-unique(df[[i]])
-      mean1[[i]]<-df[[i]] %>% data.frame(.) %>% 
-        dplyr::group_nest(LineRegion,uniqueID) %>%
-        dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
-                      CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
-                      Tm=with(df[[i]], stats::approx(df[[i]]$I,df[[i]]$C, xout=max(df[[i]]$I, na.rm=TRUE)-0.5))$y,
-                      slope=map(M1,function(x){as.numeric(coef(x)[2])}),
-                      intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
-                      rss=map(M1,function(x){deviance(x)}),
-                      Rsq=map(M1,function(x){summary(x)$r.squared}), 
-                      AUC = purrr::map2(data,CI,function(x,y) pracma::trapz(x$C,y[,'fit'])),
-                      dataset="vehicle",
-                      uniqueID=df[[i]]$uniqueID[1])
-      
-      
-    }
+    mean1<-list()
+    mean1[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),AUC = rep(0,1),dataset="treated",uniqueID=df1[[i]]$uniqueID[1],Tm=rep(0,1))
+    mean1<- lapply(df,function(x) x %>% data.frame(.) %>% 
+                     dplyr::group_nest(LineRegion,uniqueID) %>%
+                     dplyr::mutate(M1=purrr::map(data,function(x){stats::lm(x$I ~ x$C)}),
+                                   CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
+                                   Tm=with(x, stats::approx(x$I,x$C, xout=max(x$I, na.rm=TRUE)-0.5))$y,
+                                   slope=purrr::map(M1,function(x){as.numeric(coef(x)[2])}),
+                                   intercept=purrr::map(M1,function(x){as.numeric(coef(x)[1])}),
+                                   rss=purrr::map(M1,function(x){deviance(x)}),
+                                   Rsq=purrr::map(M1,function(x){summary(x)$r.squared}), 
+                                   AUC = purrr::map2(data,CI,function(x,y) pracma::trapz(x$C,y[,'fit'])),
+                                   dataset="vehicle",
+                                   uniqueID=x$uniqueID[1]))
+    
+    
+    
+    
     #define linear models with outputs
     
     mean1_1<-list()
     mean1_1[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),AUC = rep(0,1),dataset="treated",uniqueID=df1[[i]]$uniqueID[1],Tm=rep(0,1))
     
+    mean1_1<- lapply(df1,function(x) x %>% data.frame(.) %>%
+                       dplyr::group_nest(LineRegion,uniqueID) %>% 
+                       dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
+                                     CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
+                                     Tm=with(x, stats::approx(x$I,x$C, xout=max(x$I, na.rm=TRUE)-0.5))$y,
+                                     slope=map(M1,function(x){as.numeric(coef(x)[2])}),
+                                     intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
+                                     rss=map(M1,function(x){deviance(x)}),
+                                     Rsq=map(M1,function(x){summary(x)$r.squared}), 
+                                     AUC = purrr::map2(data,CI,function(x,y) pracma::trapz(x$C,y[,'fit'])),
+                                     dataset="treated",
+                                     uniqueID=x$uniqueID[1]))
     
-    for(i in 1:length(df1)){
-      df1[[i]]<-unique(df1[[i]])
-      mean1_1[[i]]<-df1[[i]] %>% data.frame(.) %>% 
-        dplyr::group_nest(LineRegion,uniqueID) %>% 
-        dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
-                      CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
-                      Tm=with(df1[[i]], stats::approx(df1[[i]]$I,df1[[i]]$C, xout=max(df1[[i]]$I, na.rm=TRUE)-0.5))$y,
-                      slope=map(M1,function(x){as.numeric(coef(x)[2])}),
-                      intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
-                      rss=map(M1,function(x){deviance(x)}),
-                      Rsq=map(M1,function(x){summary(x)$r.squared}), 
-                      AUC = purrr::map2(data,CI,function(x,y) pracma::trapz(x$C,y[,'fit'])),
-                      dataset="treated",
-                      uniqueID=df1[[i]]$uniqueID[1])
-      
-      
-      
-    }
+    
+    
+    
     
     # null hypothesis
     #null
     mean3<-list()
-    mean3[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),AUC = rep(0,1), dataset="null",uniqueID=DF[[i]]$uniqueID[1],Tm=rep(0,1))
+    mean3[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),AUC = rep(0,1),dataset="null",uniqueID=DF[[i]]$uniqueID[1],Tm=rep(0,1))
+    DF<-lapply(DF,function(x) x %>% na.omit())
     
-    for(i in 1:length(DF)){
-      DF[[i]]<-unique(DF[[i]])
-      mean3[[i]]<-DF[[i]] %>% data.frame(.) %>% 
-        dplyr::group_nest(LineRegion,uniqueID) %>% 
-        dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
-                      CI=map(M1,function(x){predict(x,interval="confidence")[,1]} %>% data.frame(.)),
-                      Tm=with(DF[[i]], approx( DF[[i]]$I,DF[[i]]$C, xout=max(DF[[i]]$I, na.rm=TRUE)-0.5))$y,
-                      slope=map(M1,function(x){as.numeric(coef(x)[2])}),
-                      intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
-                      rss=map(M1,function(x){deviance(x)}),
-                      Rsq=map(M1,function(x){summary(x)$r.squared}), 
-                      AUC = purrr::map2(data,CI,function(x,y) pracma::trapz(x$C,y[,'fit'])),
-                      dataset="treated",
-                      uniqueID=DF[[i]]$uniqueID[1])
-      
-      
-      
-    }
-    mean1<-lapply(mean1,function(x) x %>% dplyr::select(-data,-CI) %>% tidyr::unnest_legacy(Tm=Tm,slope=slope,intercept=intercept,rss=rss,Rsq=Rsq))
-    mean1_1<-lapply(mean1_1,function(x) x %>% dplyr::select(-data,-CI) %>% tidyr::unnest_legacy(Tm=Tm,slope=slope,intercept=intercept,rss=rss,Rsq=Rsq))
-    mean3<-lapply(mean3,function(x) x %>% dplyr::select(-data,-CI) %>% tidyr::unnest_legacy(Tm=Tm,slope=slope,intercept=intercept,rss=rss,Rsq=Rsq))
+    mean3<- lapply(DF,function(x) x %>% data.frame(.) %>%
+                     dplyr::group_nest(LineRegion,uniqueID) %>% 
+                     dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
+                                   CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
+                                   Tm=with(x, stats::approx( x$I,x$C, xout=max(x$I, na.rm=TRUE)-0.5))$y,
+                                   slope=map(M1,function(x){as.numeric(coef(x)[2])}),
+                                   intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
+                                   rss=map(M1,function(x){deviance(x)}),
+                                   Rsq=map(M1,function(x){summary(x)$r.squared}),
+                                   AUC = purrr::map2(data,CI,function(x,y) pracma::trapz(x$C,y[,'fit'])),
+                                   dataset="null",
+                                   uniqueID=x$uniqueID[1]))
+    
+    
+    
+    
+    
+    mean1<-lapply(mean1,function(x) x %>% dplyr::select(-data,-CI) %>% tidyr::unnest(Tm=Tm,slope=slope,intercept=intercept,rss=rss,Rsq=Rsq))
+    mean1_1<-lapply(mean1_1,function(x) x %>% dplyr::select(-data,-CI) %>% tidyr::unnest(Tm=Tm,slope=slope,intercept=intercept,rss=rss,Rsq=Rsq))
+    mean3<-lapply(mean3,function(x) x %>% dplyr::select(-data,-CI) %>% tidyr::unnest(Tm=Tm,slope=slope,intercept=intercept,rss=rss,Rsq=Rsq))
     
     #convert to df and split by uniqueID 
     mean1<-dplyr::bind_rows(mean1)
@@ -969,17 +967,14 @@ tlstat<-function(DF,df,df1,PI=FALSE){
     
     results<-rlist::list.rbind(c(mean1,mean1_1,mean3)) %>% dplyr::group_split(uniqueID)
   }
-  results
+  return(results)
 }
 
 
 spstat<-function(DF,df,df1,PI=FALSE){
   #plot spline results
+  #switch from factor to numeric
   if(!isTRUE(PI)){
-    #switch from factor to numeric
-    df<-lapply(df,function(x) x %>% dplyr::mutate(C=as.numeric(as.vector(C)),I=as.numeric(as.vector(I))))
-    df1<-lapply(df1,function(x) x %>% dplyr::mutate(C=as.numeric(as.vector(C)),I=as.numeric(as.vector(I))))
-    DF<-lapply(DF,function(x) x %>% dplyr::mutate(C=as.numeric(as.vector(C)),I=as.numeric(as.vector(I))))
     
     i<-1
     mean1<-list()
@@ -1055,10 +1050,6 @@ spstat<-function(DF,df,df1,PI=FALSE){
     
     results<-rlist::list.rbind(c(mean1,mean1_1,mean3)) %>% dplyr::group_split(uniqueID)
   } else if (isTRUE(PI)){
-    #switch from factor to numeric
-    df<-lapply(df,function(x) x %>% dplyr::mutate(C=as.numeric(as.vector(C)),I=as.numeric(as.vector(I))))
-    df1<-lapply(df1,function(x) x %>% dplyr::mutate(C=as.numeric(as.vector(C)),I=as.numeric(as.vector(I))))
-    DF<-lapply(DF,function(x) x %>% dplyr::mutate(C=as.numeric(as.vector(C)),I=as.numeric(as.vector(I))))
     
     i<-1
     mean1<-list()
@@ -1113,7 +1104,7 @@ spstat<-function(DF,df,df1,PI=FALSE){
                                                          uniqueID=x$uniqueID[1],
                                                          n = nrow(x)))
     
-   
+    
     #convert to df and split by uniqueID 
     mean1<-dplyr::bind_rows(mean1)
     mean1_1<-dplyr::bind_rows(mean1_1)
@@ -1131,46 +1122,46 @@ spstat<-function(DF,df,df1,PI=FALSE){
     mean1_1<-mean1_1 %>% dplyr::group_split(uniqueID)
     mean3<-mean3 %>% dplyr::group_split(uniqueID)
     
-   
+    
+    #mutate(d1 = paramsAlternative - paramsNull,
+    #d2 = n1 - paramsAlternative
+    
+    ma<-purrr::map2(mean1,mean1_1,function(x,y) x %>% dplyr::mutate(n1=sum(x$n,y$n),DTm=y$Tm-x$Tm,RSS=y$rss+x$rss,DF=x$df+y$df,DAUC=y$AUC-x$AUC))
+    testResults <-purrr::map2(ma,mean3,function(x,y) x %>%
+                                #(rssDiff/d1)/(rss1/d2)
+                                dplyr::mutate(ftest = ((x$RSS-y$rss)/(x$DF-y$df))/(y$rss/(x$n1-x$DF)),
+                                              d1 = (x$DF-y$df),
+                                              d2 = (x$n1-x$DF),
+                                              pV = ifelse(is.na(stats::pf(ftest, df1 = d1,
+                                                                          df2 = d2)),NA,1 - stats::pf(ftest, df1 = (x$DF-y$df), df2 = (x$n1-x$DF))),
+                                              pA = stats::p.adjust(pV,"BH")))
+    
+    check<-dplyr::bind_rows(testResults) %>% data.frame(.)
+    ggplot(check)+
+      geom_density(aes(x=ftest),fill = "steelblue",alpha = 0.5) + 
+      geom_line(aes(x=ftest,y= df(ftest,df1=d1,df2=d2)),color="darkred",size = 1.5) +
+      theme_bw() +
+      coord_cartesian(xlim=c(0,10))
+    
+    
+    
+    #t1<-check[t$.>1]#remove negative or F test values <1
+    
+    
+    
+    mean1<-mean1 %>% purrr::keep(function(x) x$uniqueID %in% check)
+    mean1_1<-mean1_1 %>% purrr::keep(function(x) x$uniqueID %in% check)
+    mean3<-mean3 %>% purrr::keep(function(x) x$uniqueID %in% check)
+    results<-rlist::list.rbind(c(mean1,mean1_1,mean3)) %>% dplyr::group_split(uniqueID)
+    
   }
-  #mutate(d1 = paramsAlternative - paramsNull,
-  #d2 = n1 - paramsAlternative
-  
-  ma<-purrr::map2(mean1,mean1_1,function(x,y) x %>% dplyr::mutate(n1=sum(x$n,y$n),DTm=y$Tm-x$Tm,RSS=y$rss+x$rss,DF=x$df+y$df,DAUC=y$AUC-x$AUC))
-  testResults <-purrr::map2(ma,mean3,function(x,y) x %>%
-                              #(rssDiff/d1)/(rss1/d2)
-                              dplyr::mutate(ftest = ((x$RSS-y$rss)/(x$DF-y$df))/(y$rss/(x$n1-x$DF)),
-                                            d1 = (x$DF-y$df),
-                                            d2 = (x$n1-x$DF),
-                                            pV = ifelse(is.na(stats::pf(ftest, df1 = d1,
-                                                                        df2 = d2)),NA,1 - stats::pf(ftest, df1 = (x$DF-y$df), df2 = (x$n1-x$DF))),
-                                            pA = stats::p.adjust(pV,"BH"))
-                            )
-  
-  check<-dplyr::bind_rows(testResults) %>% data.frame(.)
-  ggplot(check)+
-    geom_density(aes(x=ftest),fill = "steelblue",alpha = 0.5) + 
-    geom_line(aes(x=ftest,y= df(ftest,df1=d1,df2=d2)),color="darkred",size = 1.5) +
-    theme_bw() +
-    coord_cartesian(xlim=c(0,10))
-  
- 
-
-  #t1<-check[t$.>1]#remove negative or F test values <1
-  
-  
-  
-  mean1<-mean1 %>% purrr::keep(function(x) x$uniqueID %in% check)
-  mean1_1<-mean1_1 %>% purrr::keep(function(x) x$uniqueID %in% check)
-  mean3<-mean3 %>% purrr::keep(function(x) x$uniqueID %in% check)
-  results<-rlist::list.rbind(c(mean1,mean1_1,mean3)) %>% dplyr::group_split(uniqueID)
-  results
+  return(results)
 }
 #gettrilinear results
 tlresults<-list()
 tlresults_PI<-list()
 #confidence intervals
-tlresults<-suppressWarnings(tlstat(DFN,df_,df_1,PI=FALSE))#place null, vehicle and treated lists with no prediction intervals
+tlresults<-tlstat(DFN,df_,df_1,PI=FALSE)#place null, vehicle and treated lists with no prediction intervals
 
 tlf<-function(tlresults){
 ##Apply Filters
@@ -1273,7 +1264,9 @@ DFN$uniqueID<-as.vector(DFN$uniqueID)
 df1$uniqueID<-as.vector(df1$uniqueID)
 
 
-df2<-DFN %>% dplyr::right_join(df1,by=c("uniqueID")) %>% dplyr::select(-dataset.y) %>% dplyr::rename("dataset"="dataset.x") %>% dplyr::mutate(C=as.numeric(as.vector(C)),I=as.numeric(as.vector(I)))
+df2<-df1 %>% dplyr::right_join(DFN,by=c("uniqueID")) %>% dplyr::select(-dataset.x) %>%
+  dplyr::rename("dataset"="dataset.y") 
+
 
 return(list(df1,df2,Df1))
 }
@@ -1317,13 +1310,13 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
   
   Pred$Treatment<-null$dataset[1]##################
   Pred<-na.omit(Pred)
-  
-  PLN<-ggplot2::ggplot(Pred, ggplot2::aes(x = C,y = fit,color=Treatment)) +
+  Pred$C<-as.numeric(as.vector(Pred$C))
+  Pred$I<-as.numeric(as.vector(Pred$I))
+  PLN<-ggplot2::ggplot(Pred, ggplot2::aes(x = C,y = I,color=Treatment)) +
     ggplot2::geom_point(ggplot2::aes(x=C,y=I))+ ggplot2::ggtitle(paste(Df1$uniqueID[1],"null"))+
     ggplot2::geom_ribbon(data=Pred,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+ 
     ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ 
-    ggplot2::annotate("text", x=62, y=1, label= paste("RSS= ",round(sum(null$rss),3)))
-  
+    annotate("text", x=62, y=1,label=paste("RSS= ",round(sum(null$rss),3)))
 
   
   DF_f<-df2 %>%subset(uniqueID == df1$uniqueID[i]) %>% dplyr::mutate(dataset=ifelse(CC==0,'vehicle','treated')) %>% subset(dataset=="vehicle")
@@ -1400,8 +1393,8 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
   Pred2<-na.omit(Pred2)
   rownames(Pred2)<-as.vector(1:nrow(Pred2))
   #Area under the curve using trapezoid rule
-  P1_AUC <- pracma::trapz(Pred1$C,Pred1$I)
-  P2_AUC <- pracma::trapz(Pred2$C,Pred2$I)
+  P1_AUC <- pracma::trapz(as.numeric(as.vector(Pred1$C)),as.numeric(as.vector(Pred1$I)))
+  P2_AUC <- pracma::trapz(as.numeric(as.vector(Pred2$C)),as.numeric(as.vector(Pred2$I)))
   #Residuals
   rn<-data.frame(residuals=c(residuals(null$M1[[1]]),residuals(null$M1[[2]]),residuals(null$M1[[3]])))
   Pred<-cbind(Pred,rn)
@@ -1431,12 +1424,12 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
     Tm_d<-as.numeric(as.vector(Tm2))-as.numeric(as.vector(Tm1))
     p<-expression(paste(Delta, "AUCdiff"))
     if(AUCd>0){
-      P1_AUC <- pracma::trapz(Pred1$C,Pred1$lower)
-      P2_AUC <- pracma::trapz(Pred2$C,Pred2$upper)
+      P1_AUC <- pracma::trapz(as.numeric(as.vector(Pred1$C)),as.numeric(as.vector(Pred1$lower)))
+      P2_AUC <- pracma::trapz(as.numeric(as.vector(Pred2$C)),as.numeric(as.vector(Pred2$upper)))
       AUCd<-round(P2_AUC-P1_AUC,2)
     }else{
-      P1_AUC <- pracma::trapz(Pred1$C,Pred1$upper)
-      P2_AUC <- pracma::trapz(Pred2$C,Pred2$lower)
+      P1_AUC <- pracma::trapz(as.numeric(as.vector(Pred1$C)),as.numeric(as.vector(Pred1$upper)))
+      P2_AUC <- pracma::trapz(as.numeric(as.vector(Pred2$C)),as.numeric(as.vector(Pred2$lower)))
       AUCd<-round(P2_AUC-P1_AUC,2)
     }
     AUCd<-as.numeric(AUCd)
