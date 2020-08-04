@@ -973,7 +973,23 @@ tlstat<-function(DF,df,df1,PI=FALSE){
 
 spstat<-function(DF,df,df1,PI=FALSE){
   #plot spline results
+  #convert to data frame
+  DF<-dplyr::bind_rows(DF)
+  df<-dplyr::bind_rows(df)
+  df1<-dplyr::bind_rows(df1)
   #switch from factor to numeric
+  #convert factor to numeric columns
+  df1$C<-as.numeric(as.vector(df1$C))
+  df$C<-as.numeric(as.vector(df$C))
+  DF$C<-as.numeric(as.vector(DF$C))
+  
+  df1$I<-as.numeric(as.vector(df1$I))
+  df$I<-as.numeric(as.vector(df$I))
+  DF$I<-as.numeric(as.vector(DF$I))
+  #convert back to list
+  DF<-DF %>% dplyr::group_split(uniqueID) 
+  df<-df %>% dplyr::group_split(uniqueID) 
+  df1<-df1 %>% dplyr::group_split(uniqueID) 
   if(!isTRUE(PI)){
     
     i<-1
@@ -1351,13 +1367,15 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
   Pred1$Treatment<-vehicle$dataset[1]##################
   Pred1<-na.omit(Pred1)
   rownames(Pred1)<-1:nrow(Pred1)
+  Pred1$C<-as.numeric(as.vector(Pred1$C))
+  Pred1$I<-as.numeric(as.vector(Pred1$I))
   
-  
-  PLR_P1<-ggplot2::ggplot(Pred1, ggplot2::aes(x = C,y = fit,color=Treatment))+ggplot2::geom_point(Pred1, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +ggplot2::geom_ribbon(data=Pred1,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)
+  PLR_P1<-ggplot2::ggplot(Pred1, ggplot2::aes(x = C,y = fit,color=Treatment))+ggplot2::geom_point(Pred1, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +
+    ggplot2::geom_ribbon(data=Pred1,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)
   
   DF_f1<-data.frame()
   DF_f1<-df2 %>% subset(uniqueID == df1$uniqueID[i]) %>% dplyr::mutate(dataset=ifelse(CC==0,'vehicle','treated'))
-  DF_f1<-DF_f1 %>% subset(dataset =="vehicle")
+  DF_f1<-DF_f1 %>% subset(dataset =="treated")
   
   
   treated<-data.frame()
@@ -1406,6 +1424,10 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
   Pred2<-cbind(Pred2,rn[1:nrow(Pred2),])
   names(Pred2)<- names(Pred2)<-c("fit","lower","upper","C","I","Treatment",'residuals')
   Preds<-rbind(Pred1,Pred2)
+  Preds$C<-as.numeric(as.vector(Preds$C))
+  Preds$I<-as.numeric(as.vector(Preds$I))
+  Pred2$C<-as.numeric(as.vector(Pred2$C))
+  Pred2$I<-as.numeric(as.vector(Pred2$I))
   PLrs<-ggplot2::ggplot(Preds, ggplot2::aes(x =fit,y = residuals,color=Treatment)) +
     ggplot2::geom_point()+ ggplot2::ggtitle(paste(Df1$uniqueID[1]))+
     ggplot2::xlab("Fitted Intensities")+ggplot2::ylab("Residuals")
@@ -1446,7 +1468,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
     print(PLR)
   }
 }
-i=2
+i=1
 
 plotTL<-tlCI(i,res[[1]],res[[2]],res[[3]],overlay=TRUE)
 #df1 <- only IDs in order desc(stability)
@@ -1480,7 +1502,7 @@ sl<-lapply(seq_along(sp),function(x) as.numeric({paste(x)}))
 #insert list index column
 sp<-map2(sp,sl,~.x %>% dplyr::mutate(id = as.numeric(.y)))
 sp<-data.table::rbindlist(sp) %>% as.data.frame(.)
-sp<-dplyr::dplyr::arrange(sp,dplyr::desc(AUCd),dplyr::desc(RSSd),dplyr::desc(Tmd)) %>% dplyr::select(uniqueID,id) %>% unique(.) 
+sp<-dplyr::arrange(sp,dplyr::desc(AUCd),dplyr::desc(RSSd),dplyr::desc(Tmd)) %>% dplyr::select(uniqueID,id) %>% unique(.) 
 #arrange results by decreasing AUCd, RSSd and Tmd and standardize the order in spresults
 #Df1 holds the model results and stats for splines 
 
@@ -1505,6 +1527,10 @@ rmvn <- function(n, mu, sig) { ## MVN random deviates
 spCI<-function(i,df1,df2,Df1,overlay=TRUE,alpha){
   null<-data.frame()
   i<-i
+  #set C and I as numeric
+  df2$C<-as.numeric(as.vector(df2$C))
+  df2$I<-as.numeric(as.vector(df2$I))
+ 
   df2$uniqueID<-as.character(df2$uniqueID)
   #get original data
   ###########################################
@@ -1533,9 +1559,9 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE,alpha){
     BSvarN<-df2 %>% subset(uniqueID == df1 ) 
     BSvar1 <-df2 %>% subset(uniqueID == df1 & dataset== "treated")
     BSvar <-df2 %>% subset(uniqueID == df1 & dataset== "vehicle")
-    BSVarN<-df2 %>% subset(uniqueID == df1 ) %>% dplyr::group_by(C) %>% dplyr::summarise(I=mean(I))
-    BSVar <-df2 %>% subset(uniqueID == df1 & dataset== "vehicle")%>% dplyr::group_by(C) %>% dplyr::summarise(I=mean(I))
-    BSVar1 <-df2 %>% subset(uniqueID == df1 & dataset== "treated")%>% dplyr::group_by(C) %>% dplyr::summarise(I=mean(I))
+    BSVarN<-df2 %>% subset(uniqueID == df1 ) %>%dplyr::group_by(C)# %>%  dplyr::mutate(I=mean(I))
+    BSVar <-df2 %>% subset(uniqueID == df1 & dataset== "vehicle")%>%dplyr::group_by(C)# %>% dplyr::mutate(I=mean(I))
+    BSVar1 <-df2 %>% subset(uniqueID == df1 & dataset== "treated")%>%dplyr::group_by(C)# %>% dplyr::mutate(I=mean(I))
     BSVarN<-BSVarN %>% dplyr::mutate(dataset="null") 
     BSVar<-BSVar %>% dplyr::mutate(dataset="vehicle")
     BSVar1<-BSVar1 %>% dplyr::mutate(dataset="treated")
@@ -1560,17 +1586,17 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE,alpha){
    
     #get some parmeters
     Vb <- vcov(m)
-    newd <- with(BSVar, data.frame(C = seq(min(C), max(C), length = 20)))
-    pred <- predict(m, newd, se.fit = TRUE)
+    newd <- with(BSVar, data.frame(C = seq(min(C), max(C), length = 20)))%>% as.data.frame(.)
+    pred <- predict(m, newd, se.fit = TRUE)%>% as.data.frame(.)
     se.fit <- pred$se.fit
     #get some parmeters
-    Vb1<- vcov(m1)
-    newd1<- with(BSVar1,data.frame(C = seq(min(C), max(C), length = 30)))
-    pred1<- predict(m1,newd1,se.fit = TRUE)
+    Vb1<- vcov(m1) 
+    newd1<- with(BSVar1,data.frame(C = seq(min(C), max(C), length = 30)))%>% as.data.frame(.)
+    pred1<- predict(m1,newd1,se.fit = TRUE) %>% as.data.frame(.)
     se.fit1<- pred1$se.fit
     #generate std
     set.seed(42)
-    N <- 10000
+    N <- 1000
     #sample n from mvn dist
     BUdiff <- mgcv::rmvn(N, mu = rep(0, nrow(Vb)), Vb )
     #sample n from mvn dist
@@ -1608,7 +1634,7 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE,alpha){
       geom_point(BSVar, mapping=ggplot2::aes(x=C,y=I,color = dataset))+
       geom_ribbon(aes(ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2) +
       ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::ggtitle("")
-    
+   
     pred1<- transform(cbind(data.frame(pred1),newd1),
                       uprP = fit + (2 * se.fit),
                       lwrP = fit - (2 * se.fit),
@@ -1645,11 +1671,12 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE,alpha){
     Pred1$dataset<-as.factor("treated")
     Preds<-rbind(Pred,Pred1)
     BSVar1$dataset<-as.factor("treated")
-    PLrs<-ggplot2::ggplot(Preds, ggplot2::aes(x =fit,y = rn,color=dataset)) +ggplot2::geom_point()+ ggplot2::ggtitle(paste(Df1$uniqueID[1]))+ggplot2::xlab("Fitted Intensities")+ggplot2::ylab("Residuals")
+    PLrs<-ggplot2::ggplot(Preds, ggplot2::aes(x =fit,y = rn,color=dataset)) +ggplot2::geom_point()+ 
+      ggplot2::ggtitle(paste(Df1[[i]]$uniqueID[1]))+ggplot2::xlab("Fitted Intensities")+ggplot2::ylab("Residuals")
     print(PLrs)
     plot1<-ggplot2::ggplot(BSVar,ggplot2::aes(x =C,y = I,color=dataset))+
       ggplot2::geom_point(BSvar,mapping=ggplot2::aes(x=C,y=I,color = dataset))+
-      ggplot2::geom_ribbon(pred,mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2 ) +
+      ggplot2::geom_ribbon(data.frame(pred),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2 ) +
       ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::ggtitle(c(as.character(df1),"alternative"))+
       ggplot2::annotate("text", x=62, y=1, label= paste("\u03A3","RSS= ", abs(pred1$RSS[1])))+
       ggplot2::annotate("text", x=62, y=0.9, label=  paste("\u0394", "AUC = ",round(pred1$AUC[1],3)))+ggplot2::annotate("text", x=62, y=0.8, label= paste("\u0394","Tm = ",round(pred1$Tm[1],3),"\u00B0C"))
@@ -1663,7 +1690,7 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE,alpha){
   }
 
 #generate 95%CI for splines
-Pred<-spCI(i,res_sp[[1]],res_sp[[2]],res_sp[[3]],overlay=TRUE,0.05)
+Pred<-spCI(i,res_sp[[1]],res_sp[[2]],res_sp[[3]],overlay=TRUE,alpha=0.05)
 ##################################################
 #Sigmoidal function with confidence intervals
 ###################################################
@@ -1826,6 +1853,24 @@ sigCI <- function(object, parm, level = 0.95, method = c("asymptotic", "profile"
     result1<-nlm1
     Pred<-nlm1
     Pred1<-list(rep(NA,length(df_1)))
+    #convert to data frame
+    df_<-dplyr::bind_rows(df_)#vehicle
+    df_1<-dplyr::bind_rows(df_1)#treated
+    DFN<-dplyr::bind_rows(DFN)#Null
+    #convert to factor
+    df_$C<-as.numeric(as.vector(df_$C))
+    df_1$C<-as.numeric(as.vector(df_1$C))
+    DFN$C<-as.numeric(as.vector(DFN$C))
+    
+    df_$I<-as.numeric(as.vector(df_$I))
+    df_1$I<-as.numeric(as.vector(df_1$I))
+    DFN$I<-as.numeric(as.vector(DFN$I))
+    
+    #convert back to list
+    df_<-df_ %>% dplyr::group_split(uniqueID)
+    df_1<-df_1 %>% dplyr::group_split(uniqueID)
+    DFN<-DFN %>% dplyr::group_split(uniqueID)
+    
     df_<-lapply(df_,function(x)x %>% dplyr::mutate(dataset="vehicle"))
     
     df_1<-lapply(df_1,function(x)x %>% dplyr::mutate(dataset="treated"))
@@ -1835,97 +1880,92 @@ sigCI <- function(object, parm, level = 0.95, method = c("asymptotic", "profile"
     
     df<-lapply(df_,function(x) x %>% dplyr::group_by(C) %>% dplyr::mutate(I = mean(I)))
     df1<-lapply(df_1,function(x) x %>% dplyr::group_by(C) %>% dplyr::mutate(I = mean(I)))
-    #sigmoidal fit
-    nlm1<-df %>% purrr::keep(function(x)!inherits(fitSingleSigmoid(x$C,x$I),'try-error')) #flag sigmoidal data
-    nlm2<-lapply(nlm1,function(x)x %>% group_by(uniqueID) %>% dplyr::mutate(fit = try(fitSingleSigmoid(x$C,x$I)))) #fit sigmoids
-    CT<-nlm2 %>% lapply(function(x) !coef(x)['Pl'][[1]]==0)#find values where Pl = 0 
-    nlm2<-nlm2[CT==TRUE]#filter nls data with Pl = 0
-    nlm1<-nlm1[CT==TRUE]
- 
-    Ct<-purrr::map(nlm1,function(x) seq(from=min(x$C),to=max(x$C),length.out=length(unique(x$C))))
-    Ct<-purrr::map2(nlm1,Ct,function(x,y) rep(y,length(x$C)/length(y))) 
-    Ct<-lapply(Ct,function(x)x[order(x)])
+    #sigmoidal fit for vehicle
+    #remove non-sigmoidal behaving proteins
+    nlm1<-df_ %>% purrr::keep(function(x)!inherits(fitSingleSigmoid(x$C,x$I),'try-error')) #flag and omit non-sigmoidal data
+    #calculate fit for the subset of proteins with sigmoidal behavior
+    nlm2<-lapply(nlm1,function(x)x %>% dplyr::mutate(fit = list(fitSingleSigmoid(x$C,x$I)))) #fit sigmoids
+    #remove proteins with a plateau value of zero 
+    CT<-nlm2 %>% purrr::keep(function(x) !coef(x$fit[[1]])[[1]]==0)#find values where Pl = 0 
+    #get confidence intervals for sigmoidal function
+    dfc <- purrr::map(CT,function(x) try(nlstools::confint2(x$fit[[1]],level=0.95)))#collect predicted values
+    #obtain sigmoidal equation parameters
+    nlm2<-purrr::map2(CT,dfc,function(x,y)x %>% dplyr::mutate(Pl=y[1],a=y[2],b=y[3],Pl1=y[4],a1=y[5],b1=y[6]))
+    #ready confidence intervals for plot
+    result<- purrr::map(nlm2,function(x)x %>%dplyr::rowwise(.) %>% dplyr::mutate(LOW = list((1-x$Pl[1])/(1+exp(x$b[1]-(x$a[1]/x$C))+x$Pl[1])), HI = list((1-x$Pl1[1])/(1+exp(x$b1[1]-(x$a1[1]/x$C)))+x$Pl1[1])))#get lower CI
     
-    dfc <- purrr::map(nlm2,function(x) try(nlstools::confint2(x,level=0.95)))#collect predicted values
-    nlm2<-purrr::map2(Ct,dfc,function(x,y)x %>% dplyr::mutate(Pl=y[1],a=y[2],b=y[3],Pl1=y[4],a1=y[5],b1=y[6]))
-    result<- purrr::map(nlm2,function(x)x %>%  dplyr::mutate(LOW = (1-as.numeric(x$Pl[1]))/(1+exp((as.numeric(x$b[1])-as.numeric(x$a[1])/x$CP)))+as.numeric(x$Pl[1]), HI = (1-as.numeric(x$Pl1[1]))/(1+exp((as.numeric(x$b1[1])-as.numeric(x$a1[1])/x$CP)))+as.numeric(x$Pl1[1])))#get lower CI
-    #result<-purrr::map2(nlm2,result,function(x,y)cbind(x,y))
-    
-    AUC<-data.table::rbindlist(purrr::map(result,function(x)pracma::trapz(x$C,x$I) %>% as.data.frame(.))) %>% as.data.frame(.)
+    AUC<-dplyr::bind_rows(purrr::map(result,function(x)pracma::trapz(x$C,x$I) %>% as.data.frame(.))) 
     Tm<- lapply(result,function(x) try(stats::approx(x$I,x$C,0.5)$y[1]))
-    T<- Tm %>% purrr::map(function(x) inherits(x,'try-error'))
-    Tm<-Tm[T==FALSE]
+    TM<- Tm %>% purrr::keep(function(x) !inherits(x,'try-error'))
+    #append Tm 
+    result<-purrr::map2(result[1:length(Tm)],Tm,function(x,y)cbind(x,data.frame(y))%>% dplyr::rename("Tm"="y"))
+    #append AUC
+    Pred<-purrr::map2(result[1:length(Tm)],AUC[1:length(Tm),],function(x,y)cbind(x,data.frame(y))%>% dplyr::rename("AUC"="y"))
+    #append RSS
+    Pred<-purrr::map(Pred,function(x) x %>% dplyr::mutate(RSS=deviance(x$fit[[1]])))
     
-    result<-purrr::map2(result[1:length(Tm)],Tm,function(x,y)cbind(x,data.frame(y)))
-    result<-purrr::map(result[1:length(Tm)],function(x) x %>% dplyr::rename("Tm"="y"))
-    result<-purrr::map2(result[1:length(Tm)],AUC[1:length(Tm),],function(x,y)cbind(x,data.frame(y)))
-    Pred<-purrr::map(result[1:length(Tm)],function(x) x %>% dplyr::rename("AUC"="y"))
-
-    #sigmoidal fit
-    nlm1<-df_1 %>% purrr::keep(function(x)!inherits(fitSingleSigmoid(x$C,x$I),'try-error')) #remove non-sigmoidal data
-    nlm2<-lapply(nlm1,function(x)fitSingleSigmoid(x$C,x$I)) #fit sigmoids
-    CT<-nlm2 %>% lapply(function(x) !coef(x)['Pl'][[1]]==0)#find values where Pl = 0 
-    nlm2<-nlm2[CT==TRUE]#filter nls data with Pl = 0
-    nlm1<-nlm1[CT==TRUE]
+    #sigmoidal fit for treated
+    nlm1<-df_1 %>% purrr::keep(function(x)!inherits(fitSingleSigmoid(x$C,x$I),'try-error')) #flag and omit non-sigmoidal data
     
-    Ct<-purrr::map(nlm1,function(x) seq(from=min(x$C),to=max(x$C),length.out=length(unique(x$C))))
-    Ct<-purrr::map2(nlm1,Ct,function(x,y) rep(y,length(x$C)/length(y))) 
-    Ct<-lapply(Ct,function(x)x[order(x)])
-    nlm1<-purrr::map2(nlm1,Ct,function(x,y) try(cbind(x,y)))
+    nlm2<-lapply(nlm1,function(x)x %>% dplyr::mutate(fit = list(fitSingleSigmoid(x$C,x$I)))) #fit sigmoids
+    CT<-nlm2 %>% purrr::keep(function(x) !coef(x$fit[[1]])[[1]]==0)#find values where Pl = 0 
+   
+    dfc <- purrr::map(CT,function(x) try(nlstools::confint2(x$fit[[1]],level=0.95)))#collect predicted values
+    nlm2<-purrr::map2(CT,dfc,function(x,y)x %>% dplyr::mutate(Pl=y[1],a=y[2],b=y[3],Pl1=y[4],a1=y[5],b1=y[6]))
+    #calculate CI
+    result1<- purrr::map(nlm2,function(x)x %>%dplyr::rowwise(.) %>% dplyr::mutate(LOW = list((1-x$Pl[1])/(1+exp(x$b[1]-(x$a[1]/x$C))+x$Pl[1])), HI = list((1-x$Pl1[1])/(1+exp(x$b1[1]-(x$a1[1]/x$C)))+x$Pl1[1])))#get lower CI
     
-    nlm<-lapply(nlm1,function(x) inherits(x,'try-error'))
-    nlm1<-nlm1[nlm==FALSE]
-    nlm1<-purrr::map(nlm1,function(x) x %>% dplyr::rename("CP"="y"))
-    nlm2<-nlm2[nlm==FALSE]
-    dfc <- purrr::map(nlm2,function(x) try(nlstools::confint2(x,level=0.95)))#collect predicted values
-    nlm2<-purrr::map2(nlm1,dfc,function(x,y)x %>% dplyr::mutate(Pl=y[1],a=y[2],b=y[3],Pl1=y[4],a1=y[5],b1=y[6]))
-    result1<- purrr::map(nlm2,function(x)x %>%  dplyr::mutate(LOW = (1-as.numeric(x$Pl[1]))/(1+exp((as.numeric(x$b[1])-as.numeric(x$a[1])/x$CP)))+as.numeric(x$Pl[1]), HI = (1-as.numeric(x$Pl1[1]))/(1+exp((as.numeric(x$b1[1])-as.numeric(x$a1[1])/x$CP)))+as.numeric(x$Pl1[1])))#get lower CI
-    #result<-purrr::map2(nlm2,result,function(x,y)cbind(x,y))
-    
-    
-    AUC<-data.table::rbindlist(purrr::map(result1,function(x)pracma::trapz(x$C,x$I) %>% as.data.frame(.))) %>% as.data.frame(.)
+    AUC<-dplyr::bind_rows(purrr::map(result1,function(x)pracma::trapz(x$C,x$I) %>% as.data.frame(.))) 
     Tm<- lapply(result1,function(x) try(stats::approx(x$I,x$C,0.5)$y[1]))
-    T<- Tm %>% purrr::map(function(x) inherits(x,'try-error'))
-    Tm<-Tm[T==FALSE]
-    
-    result1<-purrr::map2(result1[1:length(Tm)],Tm,function(x,y)cbind(x,data.frame(y)))
-    result1<-purrr::map(result1[1:length(Tm)],function(x) x %>% dplyr::rename("Tm"="y"))
-    result1<-purrr::map2(result1[1:length(Tm)],AUC[1:length(Tm),],function(x,y)cbind(x,data.frame(y)))
-    Pred1<-purrr::map(result1[1:length(Tm)],function(x) x %>% dplyr::rename("AUC"="y"))
-    
+    TM<- Tm %>% purrr::keep(function(x) !inherits(x,'try-error'))
+    #append Tm 
+    result1<-purrr::map2(result1[1:length(Tm)],Tm,function(x,y)cbind(x,data.frame(y))%>% dplyr::rename("Tm"="y"))
+    #append AUC
+    Pred1<-purrr::map2(result1[1:length(Tm)],AUC[1:length(Tm),],function(x,y)cbind(x,data.frame(y))%>% dplyr::rename("AUC"="y"))
+    #append RSS
+    Pred1<-purrr::map(Pred1,function(x) x %>% dplyr::mutate(RSS=deviance(x$fit[[1]])))
 
     #find common IDs between vehicle and treated with converging models
-    ID<-data.table::rbindlist(result)$uniqueID %>% as.data.frame(.) %>% unique(.)
+    ID<-dplyr::bind_rows(result)$uniqueID %>% unique(.)
     names(ID)<-"uniqueID"
-    ID1<-data.table::rbindlist(result1)$uniqueID %>% as.data.frame(.) %>% unique(.)
+    ID1<-dplyr::bind_rows(result1)$uniqueID %>% unique(.)
     names(ID1)<-"uniqueID"
     IID<-intersect(ID,ID1)#get intersecting IDs which have convergence info
-  
     #Filter data based on common IDs
-   
-    Pred<- Pred %>% purrr::keep(.,function(x) x$uniqueID[1] %in% IID$uniqueID)
-    Pred1<- Pred1 %>% purrr::keep(.,function(x) x$uniqueID[1] %in% IID$uniqueID)
-    #Get differences in Tm, AUC and sum of RSS values for vehicle and treated
-    P<-data.frame(data.table::rbindlist(Pred))
-    P<- P %>% dplyr::group_by(uniqueID) %>% dplyr::mutate(id = dplyr::n())
+    Pred<- Pred %>% purrr::keep(.,function(x) x$uniqueID[1] %in% IID)
+    Pred1<- Pred1 %>% purrr::keep(.,function(x) x$uniqueID[1] %in% IID)
+    Pred<-purrr::map2(Pred,Pred1,function(x,y)x %>% dplyr::mutate(Tm = round(y$Tm[1]-x$Tm[1],1),AUC = round(y$AUC[1]-x$AUC[1],2),RSS=round(sum(x$RSS[1]+y$RSS[1]),1)))
+    #Unlist the low and high values for CIs
+    LOW<-lapply(Pred,function(x)data.frame(LOW=x$LOW[[1]]))
+    HI<-lapply(Pred,function(x) data.frame(HI=x$HI[[1]]))
     
-    P1<-data.frame(data.table::rbindlist(Pred1))
-    P1<- P1 %>% dplyr::group_by(uniqueID) %>% dplyr::mutate(id = dplyr::n())
+    LOW1<-lapply(Pred1,function(x)x$LOW[[1]] %>% as.data.frame(.))
+    HI1<-lapply(Pred1,function(x) x$HI[[1]]%>% as.data.frame(.))
     
+    #append unlisted CIs to data frames
+    #remove fit column
     
-    Pred<-purrr::map2(Pred,Pred1,function(x,y)x %>% dplyr::mutate(Tm = round(y$Tm-x$Tm,1),AUC = round(y$AUC-x$AUC,2),RSS=round(sum(x$RSS+y$RSS),1)))
+    Pred<-purrr::map2(Pred,LOW,function(x,y)data.frame(c(x,y)))
+    Pred<-purrr::map2(Pred,HI,function(x,y)data.frame(c(x,y)))
+    
+    Pred1<-purrr::map2(Pred1,LOW1,function(x,y)data.frame(c(x,y)))
+    Pred1<-purrr::map2(Pred1,HI1,function(x,y)data.frame(c(x,y)))
+    
+    Pred<-Pred[[i]] 
+    Pred1<-Pred1[[i]]
+    
     
     #Check sigmoidal fit
-    P<- ggplot2::ggplot(Pred[[i]] %>% as.data.frame(), ggplot2::aes(x =CP,y = I,color=dataset)) +
-      ggplot2::geom_point(Pred[[i]] %>% as.data.frame(),mapping=ggplot2::aes(x=CP,y=I,color = dataset))+
-      ggplot2::geom_ribbon(Pred[[i]],mapping=ggplot2::aes(ymin = LOW, ymax = HI ,fill=dataset), alpha = 0.2 ) 
-     
-    P1<-P+
-      ggplot2::geom_point(Pred1[[i]] %>% as.data.frame(),mapping=ggplot2::aes(x=CP,y=I,color = dataset))+
-      ggplot2::geom_ribbon(Pred1[[i]],mapping=ggplot2::aes(ymin = LOW, ymax = HI ,fill=dataset), alpha = 0.2 ) +
+    P<-ggplot2::ggplot(Pred1, ggplot2::aes(x =C,y = I,color=dataset))+
+      ggplot2::geom_point(Pred1,mapping=ggplot2::aes(x=C,y=I,color = dataset))+
+      ggplot2::geom_ribbon(Pred1,mapping=ggplot2::aes(ymin = LOW[[1]], ymax = HI[[1]] ,fill=dataset), alpha = 0.2 ) +
       ggplot2::labs(y = "Relative Solubility",
                     x = "Temperature")+
-      ggplot2::annotate("text", x=62, y=0.9, label=  paste("\u0394", "AUC = ",Pred[[i]]$AUC))+ggplot2::annotate("text", x=62, y=0.8, label= paste("\u0394","Tm = ",Pred[[i]]$Tm,"\u00B0C"))
+      ggplot2::annotate("text", x=62, y=0.9, label=  paste("\u0394", "AUC = ",Pred$AUC[1]))+ggplot2::annotate("text", x=62, y=0.8, label= paste("\u0394","Tm = ",Pred$Tm[1],"\u00B0C"))
+    
+    P1<- P +ggplot2::geom_point(Pred,mapping=ggplot2::aes(x=C,y=I,color = dataset))+
+      ggplot2::geom_ribbon(Pred,mapping=ggplot2::aes(ymin = LOW[[1]], ymax = HI[[1]] ,fill=dataset), alpha = 0.2 ) 
+     
     
     print(P1)
     #Venn Creation
