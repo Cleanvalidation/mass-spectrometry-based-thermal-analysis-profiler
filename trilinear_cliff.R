@@ -580,7 +580,7 @@ d_1<-d_1 %>% purrr::keep(function(x) length(unique(x$C))>=9)
 #convert to data frame for uniqueID presence
 DF<-data.table::rbindlist(DF)
 d_<-data.table::rbindlist(d_)
-d_1<-data.table::rbindlist(d_1)
+d_1<-data.table::rbindlist(d_1)#1 
 #make sure uniqueIDs are present for treated and vehicle
 CID<-intersect(DF$uniqueID,d_$uniqueID)
 CID<-intersect(CID,d_1$uniqueID)
@@ -729,7 +729,7 @@ df_<-suppressWarnings(CP(results,d)) %>% dplyr::filter(dataset=="vehicle")
 df_1<-suppressWarnings(CP(results_t,d))%>% dplyr::filter(dataset=="treated")# 
 DFN<-suppressWarnings(CP(results_n,d))# 
 #remove results to save space 
-rm(results,results_t,results_n,d_,d_1,DF)
+rm(results,results_t,results_n,d_,d_1,DF)#10
 
 #boostrap function
 #returns bootstrapped intensities
@@ -1047,10 +1047,15 @@ spstat<-function(DF,df,df1,PI=FALSE){
                                                          n = nrow(x)))
     
     
+    #calculate differences in RSS between vehicle and null, treated and null
+    mean1<-purrr::map2(mean1,mean3,function(x,y)x %>% dplyr::mutate(RSSd = x$rss - y$rss))
+    mean1_1<-purrr::map2(mean1_1,mean3,function(x,y)x %>%dplyr::mutate(RSSd = x$rss - y$rss))
+    
     #convert to df and split by uniqueID 
     mean1<-dplyr::bind_rows(mean1)
     mean1_1<-dplyr::bind_rows(mean1_1)
     mean3<-dplyr::bind_rows(mean3)
+    
     #obtain common uniqueIDs
     CID<-intersect(mean1$uniqueID,mean1_1$uniqueID)
     CID<-intersect(CID,mean3$uniqueID)
@@ -1059,12 +1064,122 @@ spstat<-function(DF,df,df1,PI=FALSE){
     mean1_1<-mean1_1 %>% as.data.frame(.) %>% subset(uniqueID %in% CID)
     mean3<-mean3 %>% as.data.frame(.) %>% subset(uniqueID %in% CID)
     
+    
+    #merge 3 data frames
+    merge<-dplyr::bind_rows(mean1,mean1_1)
+    #set dataset as factor
+    merge$dataset<-as.factor(merge$dataset)
+    ##Calculate scaling factors
+    merge<-merge %>% dplyr::group_split(dataset) 
+    merge<-lapply(merge,function(x) x %>% 
+                    dplyr::summarise(M = median(RSSd, na.rm = T),
+                                     V = mad(RSSd, na.rm = T)^2,
+                                     dataset=dataset) %>% 
+                    dplyr::mutate(s0_sq = 1/2*V/M))
+    
     #split by uniqueIDs
     mean1<-mean1 %>% dplyr::group_split(uniqueID)
     mean1_1<-mean1_1 %>% dplyr::group_split(uniqueID)
     mean3<-mean3 %>% dplyr::group_split(uniqueID)
+    #F-test
+    #mutate(d1 = paramsAlternative - paramsNull,
+    #d2 = n1 - paramsAlternative
+    ma0<-purrr::map2(mean1,mean1_1,function(x,y)bind_rows(x,y))
+    ma<-purrr::map2(mean1,mean1_1,function(x,y) x %>%
+                      dplyr::mutate(n1=sum(x$n,y$n),
+                                    DTm=y$Tm[1]-x$Tm[1],
+                                    RSS=y$rss[1]+x$rss[1],
+                                    DF=x$df[1]+y$df[1],
+                                    DAUC=y$AUC[1]-x$AUC[1],
+                                    uniqueID=uniqueID)%>% 
+                      dplyr::select(uniqueID,n1,DTm,RSS,DF,DAUC))
+    ma<-purrr::map2(ma,ma0,function(x,y)x %>% dplyr::right_join(y,by="uniqueID"))
+    testResults <-purrr::map2(ma,mean3,function(x,y) x %>%
+                                #(rssDiff/d1)/(rss1/d2)
+                                dplyr::mutate(ftest = ((x$RSS[1]-y$rss[1])/(x$DF[1]-y$df[1]))/(y$rss[1]/(x$n1[1]-x$DF[1])),
+                                              d1 = (x$DF[1]-y$df[1]),
+                                              d2 = (x$n1[1]-x$DF[1]),
+                                              pV = ifelse(is.na(stats::pf(ftest, df1 = d1,
+                                                                          df2 = d2)),NA,1 - stats::pf(ftest, df1 = (x$DF[1]-y$df[1]), df2 = (x$n1[1]-x$DF[1]))),
+                                              pA = stats::p.adjust(pV,"BH"),
+                                              RSSd=(x$RSS[1]-y$rss[1])))
     
+    
+    check<-dplyr::bind_rows(testResults) 
+    ggplot(check)+
+      geom_density(aes(x=ftest),fill = "steelblue",alpha = 0.5) + 
+      geom_line(aes(x=ftest,y= df(ftest,df1=d1,df2=d2)),color="darkred",size = 1.5) +
+      theme_bw() +
+      coord_cartesian(xlim=c(0,10))
+    
+
+    #add the scaling factors to filtered RSS data as a separate column
+    #testResults$RSSd<- difference between combined rss for vehicle and treated vs null
+    #merge$RSSd<- difference between individual vehicle and treated rss
+    #RSS1 alternative hypothesis: combined RSS values
+    merge<-dplyr::bind_rows(merge) %>% unique(.)#bind rows since they're split with dataset
+    testResults<-dplyr::bind_rows(testResults)
+    testResults<-testResults %>% dplyr::mutate(s0_sq=ifelse(dataset=="vehicle",merge$s0_sq[merge$dataset=="vehicle"],merge$s0_sq[merge$dataset=="treated"]),
+                                               rssDiff = testResults$RSSd/testResults$s0_sq,
+                                               rss1 = testResults$RSS/testResults$s0_sq)
+    
+    compute_chisq<-testResults %>% dplyr::group_by(dataset) %>% dplyr::do(data.frame(d1 = MASS::fitdistr(x=.$rssDiff, densfun = "chi-squared", start = list(df=1))[["estimate"]],
+    d2 = MASS::fitdistr(x = .$rss1, densfun = "chi-squared", start = list(df = 1))[["estimate"]]))
+    
+    newD0F <- rssScaled %>%
+      filter(applicableForTesting) %>% 
+      group_by(dataset) %>% 
+      do(
+        data.frame(
+          d1 = MASS::fitdistr(x=.$rssDiff, densfun = "chi-squared", start = list(df=1))[["estimate"]],
+          d2 = MASS::fitdistr(x = .$rss1, densfun = "chi-squared", start = list(df = 1))[["estimate"]]))
+    newD0F %>% kable()
+    #compute test statistics and compare to the F distribution
+    
+    newFStatistics <- rssScaled %>% 
+      filter(applicableForTesting) %>% 
+      left_join(newD0F,by = "dataset") %>% 
+      mutate(fStat = (rssDiff/d1) / (rss1/d2),
+             pVal = 1 - pf(fStat, df1 = d1, df2 = d2)) %>% 
+      group_by(dataset) %>% 
+      mutate(pAdj = p.adjust(pVal,"BH"))
+    #plot the F statistics against the theoretical F distribution and check how well the null is approx
+    ggplot(newFStatistics) + 
+      geom_density(aes(x = fStat),fill = "steelblue", alpha = 0.5) + 
+      geom_line(aes(x=fStat, y = df(fStat, df1 = d1, df2 = d2)), color = "darkred",size = 1.5)+
+      facet_wrap(~dataset) + 
+      theme_bw()+
+      #zoom into small values
+      xlim(c(0,10))
+    #check the p value histograms
+    ggplot(newFStatistics) + geom_histogram(aes(x = pVal, y = ..density..),fill = "steelblue", alpha = 0.5,boundary = 0)+
+      geom_line(aes(x = pVal, y= dunif(pVal)), color = "darkred", size = 1.5)+
+      facet_wrap(~dataset)+theme_bw()
+    #detect significant shifts in proteins
+    topHits <- newFStatistics %>% 
+      filter(pAdj <= 0.01)%>% 
+      dplyr::select(dataset, uniqueID,fStat,pVal,pAdj) %>% 
+      arrange(-fStat) %>% 
+      nest(-dataset)
+    #how many proteins per dataset
+    topHits %>% 
+      mutate(topHits = map(data,nrow)) %>% 
+      unnest(topHits) %>% 
+      dplyr::select(-data) %>% 
+      kable()
+    #show detected targets in each dataset
+    lapply(topHits$data %>% set_names(topHits$dataset),kable)
+    
+    
+    #t1<-check[t$.>1]#remove negative or F test values <1
+    
+    
+    
+    mean1<-mean1 %>% purrr::keep(function(x) x$uniqueID %in% check)
+    mean1_1<-mean1_1 %>% purrr::keep(function(x) x$uniqueID %in% check)
+    mean3<-mean3 %>% purrr::keep(function(x) x$uniqueID %in% check)
     results<-rlist::list.rbind(c(mean1,mean1_1,mean3)) %>% dplyr::group_split(uniqueID)
+    
   } else if (isTRUE(PI)){
     
     i<-1
@@ -1568,9 +1683,9 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE,alpha){
     BSVarN$dataset<-as.factor(BSVarN$dataset)
     BSVar$dataset<-as.factor(BSVar$dataset)
     BSVar1$dataset<-as.factor(BSVar1$dataset)
-    fit <-  stats::smooth.spline(x = BSVar$C, y=BSVar$I,cv=TRUE)
-    fit1<-  stats::smooth.spline(x = BSVar1$C, y=BSVar1$I,cv=TRUE)
-    fitN<-  stats::smooth.spline(x = BSVarN$C, y=BSVarN$I,cv=TRUE)
+    fit <-  stats::smooth.spline(x = BSVar$C, y=BSVar$I,cv=F)
+    fit1<-  stats::smooth.spline(x = BSVar1$C, y=BSVar1$I,cv=F)
+    fitN<-  stats::smooth.spline(x = BSVarN$C, y=BSVarN$I,cv=F)
     
     #####try GAM
     #fit penalized splines
@@ -1844,7 +1959,10 @@ sigCI <- function(object, parm, level = 0.95, method = c("asymptotic", "profile"
   switch(method, asymptotic = asCI(object, parm, level), profile = asProf(object, parm, level))
 }
 
-  sigfit<-function(df_,df_1,i){
+  sigfit<-function(res[[2]],res_sp[[2]],i){
+    df_<-DFN
+    df_1<-DFN
+    DFN<-DFN
     nlm1<-list(rep(NA,length(df_)))
     nlm2<-nlm1
     dfc<-nlm1
@@ -1857,6 +1975,9 @@ sigCI <- function(object, parm, level = 0.95, method = c("asymptotic", "profile"
     df_<-dplyr::bind_rows(df_)#vehicle
     df_1<-dplyr::bind_rows(df_1)#treated
     DFN<-dplyr::bind_rows(DFN)#Null
+    #subset dataset for vehicle and treated
+    df_<-df_ %>% dplyr::filter(dataset=="vehicle")
+    df_1<-df_1 %>% dplyr::filter(dataset=="treated")
     #convert to factor
     df_$C<-as.numeric(as.vector(df_$C))
     df_1$C<-as.numeric(as.vector(df_1$C))
@@ -1871,20 +1992,20 @@ sigCI <- function(object, parm, level = 0.95, method = c("asymptotic", "profile"
     df_1<-df_1 %>% dplyr::group_split(uniqueID)
     DFN<-DFN %>% dplyr::group_split(uniqueID)
     
-    df_<-lapply(df_,function(x)x %>% dplyr::mutate(dataset="vehicle"))
-    
-    df_1<-lapply(df_1,function(x)x %>% dplyr::mutate(dataset="treated"))
     #order by C
     df_<-lapply(df_,function(x)x[order(x$C),])
     df_1<-lapply(df_1,function(x)x[order(x$C),])
+    DFN<-lapply(DFN,function(x)x[order(x$C),])
     
     df<-lapply(df_,function(x) x %>% dplyr::group_by(C) %>% dplyr::mutate(I = mean(I)))
     df1<-lapply(df_1,function(x) x %>% dplyr::group_by(C) %>% dplyr::mutate(I = mean(I)))
+    DFN<-lapply(DFN,function(x) x %>% dplyr::group_by(C) %>% dplyr::mutate(I = mean(I)))
     #sigmoidal fit for vehicle
     #remove non-sigmoidal behaving proteins
     nlm1<-df_ %>% purrr::keep(function(x)!inherits(fitSingleSigmoid(x$C,x$I),'try-error')) #flag and omit non-sigmoidal data
     #calculate fit for the subset of proteins with sigmoidal behavior
     nlm2<-lapply(nlm1,function(x)x %>% dplyr::mutate(fit = list(fitSingleSigmoid(x$C,x$I)))) #fit sigmoids
+    
     #remove proteins with a plateau value of zero 
     CT<-nlm2 %>% purrr::keep(function(x) !coef(x$fit[[1]])[[1]]==0)#find values where Pl = 0 
     #get confidence intervals for sigmoidal function
@@ -1935,36 +2056,40 @@ sigCI <- function(object, parm, level = 0.95, method = c("asymptotic", "profile"
     Pred<- Pred %>% purrr::keep(.,function(x) x$uniqueID[1] %in% IID)
     Pred1<- Pred1 %>% purrr::keep(.,function(x) x$uniqueID[1] %in% IID)
     Pred<-purrr::map2(Pred,Pred1,function(x,y)x %>% dplyr::mutate(Tm = round(y$Tm[1]-x$Tm[1],1),AUC = round(y$AUC[1]-x$AUC[1],2),RSS=round(sum(x$RSS[1]+y$RSS[1]),1)))
+    #remove fit column
+    Pred<-lapply(Pred,function(x) x %>% dplyr::select(-fit))
+    Pred1<-lapply(Pred1,function(x) x %>% dplyr::select(-fit))
     #Unlist the low and high values for CIs
+    
     LOW<-lapply(Pred,function(x)data.frame(LOW=x$LOW[[1]]))
     HI<-lapply(Pred,function(x) data.frame(HI=x$HI[[1]]))
     
-    LOW1<-lapply(Pred1,function(x)x$LOW[[1]] %>% as.data.frame(.))
-    HI1<-lapply(Pred1,function(x) x$HI[[1]]%>% as.data.frame(.))
+    LOW1<-lapply(Pred1,function(x)data.frame(LOW=x$LOW[[1]]))
+    HI1<-lapply(Pred1,function(x) data.frame(HI=x$LOW[[1]]))
     
     #append unlisted CIs to data frames
-    #remove fit column
-    
     Pred<-purrr::map2(Pred,LOW,function(x,y)data.frame(c(x,y)))
     Pred<-purrr::map2(Pred,HI,function(x,y)data.frame(c(x,y)))
     
     Pred1<-purrr::map2(Pred1,LOW1,function(x,y)data.frame(c(x,y)))
     Pred1<-purrr::map2(Pred1,HI1,function(x,y)data.frame(c(x,y)))
     
-    Pred<-Pred[[i]] 
-    Pred1<-Pred1[[i]]
     
-    
+    Pred<-Pred[[i]] %>% dplyr::select(uniqueID,dataset,C,I,CC,LineRegion,Pl,a,Pl1,a1,b1,Tm,
+                                      AUC,RSS,LOW,HI)
+    Pred1<-Pred1[[i]]%>% dplyr::select(uniqueID,dataset,C,I,CC,LineRegion,Pl,a,Pl1,a1,b1,Tm,
+                                       AUC,RSS,LOW,HI)
+
     #Check sigmoidal fit
     P<-ggplot2::ggplot(Pred1, ggplot2::aes(x =C,y = I,color=dataset))+
       ggplot2::geom_point(Pred1,mapping=ggplot2::aes(x=C,y=I,color = dataset))+
-      ggplot2::geom_ribbon(Pred1,mapping=ggplot2::aes(ymin = LOW[[1]], ymax = HI[[1]] ,fill=dataset), alpha = 0.2 ) +
+      ggplot2::geom_ribbon(Pred1,mapping=ggplot2::aes(ymin = LOW, ymax = HI ,fill=dataset), alpha = 0.2 ) +
       ggplot2::labs(y = "Relative Solubility",
                     x = "Temperature")+
       ggplot2::annotate("text", x=62, y=0.9, label=  paste("\u0394", "AUC = ",Pred$AUC[1]))+ggplot2::annotate("text", x=62, y=0.8, label= paste("\u0394","Tm = ",Pred$Tm[1],"\u00B0C"))
     
     P1<- P +ggplot2::geom_point(Pred,mapping=ggplot2::aes(x=C,y=I,color = dataset))+
-      ggplot2::geom_ribbon(Pred,mapping=ggplot2::aes(ymin = LOW[[1]], ymax = HI[[1]] ,fill=dataset), alpha = 0.2 ) 
+      ggplot2::geom_ribbon(Pred,mapping=ggplot2::aes(ymin = LOW, ymax = HI ,fill=dataset), alpha = 0.2 ) 
      
     
     print(P1)
