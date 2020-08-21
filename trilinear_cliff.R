@@ -1116,13 +1116,13 @@ spstat<-function(DF,df,df1,PI=FALSE){
     M<-median(testResults$rssDiff,na.rm=TRUE)
     V<-mad(testResults$rssDiff,na.rm=TRUE)
    #V is zero, so it would not work as a scaling factor
-    ggplot(testResults)+
-      geom_density(aes(x=testResults$Fvals),fill = "steelblue",alpha = 0.5) + 
-      geom_line(aes(x=Fvals,y= df(Fvals,df1=d1,df2=d2)),color="darkred",size = 1.5) +
-      theme_bw() +
-      coord_cartesian(xlim=c(0,100))+
-      ggplot2::xlab("F-values")
-    
+    # ggplot(testResults)+
+    #   geom_density(aes(x=testResults$Fvals),fill = "steelblue",alpha = 0.5) + 
+    #   geom_line(aes(x=Fvals,y= df(Fvals,df1=d1,df2=d2)),color="darkred",size = 1.5) +
+    #   theme_bw() +
+    #   coord_cartesian(xlim=c(0,100))+
+    #   ggplot2::xlab("F-values")
+    # 
     #alternative scaling factor sig0-sq
     altScale<-0.5*V/M
     #scale data
@@ -1133,12 +1133,12 @@ spstat<-function(DF,df,df1,PI=FALSE){
     #new F-test
     testScaled<-testScaled %>% dplyr::mutate(Fvals=(rssDiff/rss1)*(d2/d1))
     #scaled values 
-    ggplot(testScaled)+
-      geom_density(aes(x=Fvals),fill = "steelblue",alpha = 0.5) + 
-      geom_line(aes(x=Fvals,y= df(Fvals,df1=d1,df2=d2)),color="darkred",size = 1.5) +
-      theme_bw() +
-      coord_cartesian(xlim=c(0,100))+
-      ggplot2::xlab("F-values")
+    # ggplot(testScaled)+
+    #   geom_density(aes(x=Fvals),fill = "steelblue",alpha = 0.5) + 
+    #   geom_line(aes(x=Fvals,y= df(Fvals,df1=d1,df2=d2)),color="darkred",size = 1.5) +
+    #   theme_bw() +
+    #   coord_cartesian(xlim=c(0,100))+
+    #   ggplot2::xlab("F-values")
     #Define checked as filtered protein IDs
     check<-testScaled$uniqueID
     test<-testScaled %>% dplyr::filter(.$pAdj<0.01)
