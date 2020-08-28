@@ -671,31 +671,34 @@ DLR<-function(d){
   df_0<-rbind(df1,df2,df3) 
   #define line Region as a factor
   df_0$LineRegion<-as.factor(df_0$LineRegion)
+  df_0<-df_0 %>% dplyr::group_split(uniqueID)
   return(df_0)
 }
 
 
 #this function takes original data with replicates as an input
 CP<-function(df_0,d){ #df_0 is the result data frame and d is the orginal data with replicates
-  # 
-   d<-d %>% dplyr::group_split(uniqueID)
+  df_0<-lapply(df_0, function(x) x %>% dplyr::select(-missing,-CI))
   #remove data points with missing data for replicates
   d<-d %>% purrr::keep(function(x){
-    nrow(x)>=40
+    nrow(x)>=20
   })
   #make sure uniqueIDs are consistent among data frames
   d<-dplyr::bind_rows(d)
   df_0<-dplyr::bind_rows(df_0)
   #keep the IDs in df_0 which are present in d
   df_0<-df_0 %>% dplyr::filter(uniqueID %in% d$uniqueID)
+  
   #Split into lists once again
   d<-d %>% dplyr::group_split(uniqueID)
-  df_0<-df_0 %>% dplyr::group_split(uniqueID)
+  
   #remove IDs that are not common in both datasets
-  d<-d %>% purrr::keep(function(x) any(x$uniqueID %in% results$uniqueID))
+  d<-d %>% purrr::keep(function(x) x$uniqueID[1] %in% df_0$uniqueID)
+  #split into list
+  df_0<-df_0 %>% dplyr::group_split(uniqueID)
   #For the original data (unlabeled LR) define LR with intensities
   d<-suppressWarnings(purrr::map2(d,df_0,function(x,y) x %>% #if the intensity in DF is greater than the max(LR2) label 1 else if the intensity is less than min (LR=2)label 3
-                   dplyr::mutate(LineRegion=as.numeric(ifelse(x$I>=max(y$I[y$LineRegion==2]),1,ifelse(x$I<=min(y$I[y$LineRegion==2]),3,2))))))
+                   dplyr::mutate(LineRegion=as.numeric(ifelse(x$I>=min(y$I[y$LineRegion==1]),1,ifelse(x$I<min(y$I[y$LineRegion==2]),3,2))))))
   df_n<-vector(mode = "list", length(df_0))
   ctest<-df_n
   dap<-df_n
@@ -712,7 +715,7 @@ CP<-function(df_0,d){ #df_0 is the result data frame and d is the orginal data w
   
   df_0<-purrr::map2(df_0,dap,function(x,y) x %>% subset(x$C %in% y$C) %>% dplyr::mutate(C= as.factor(C),LineRegion=as.numeric(y$LineRegion),CC=as.factor(CC),I=as.factor(I),dataset=as.factor(dataset)))
   df_0<-dplyr::bind_rows(df_0) %>% as.data.frame(.) 
-  df<-df_0 %>% dplyr::select(-CI,-n)#to use map2 you need consistent df lengths
+  df<-df_0 %>% dplyr::select(-n)#to use map2 you need consistent df lengths
   d<-dplyr::bind_rows(d) %>% as.data.frame(.) %>% dplyr::mutate(CC=as.factor(CC),C=as.factor(C),I=as.factor(I),LineRegion=as.numeric(LineRegion),dataset=as.factor(dataset))
   d1<-d %>% dplyr::full_join(df,by=c("uniqueID","dataset","CC","C","I")) 
   d1<-d1%>% dplyr::mutate(LineRegion=ifelse(!is.na(LineRegion.y),LineRegion.y,LineRegion.x)) %>% dplyr::select(-LineRegion.x,-LineRegion.y)
@@ -730,18 +733,18 @@ results<-suppressWarnings(DLR(d_))#First guess at line regions
 results_t<-suppressWarnings(DLR(d_1))
 results_n<-suppressWarnings(DLR(DF))
 
-results<-lapply(results,function(x) dplyr::mutate(missing = ifelse(x$uniqueID %in% MID$Accession,"TRUE","FALSE")))
-results_t<-lapply(results_t,function(x) dplyr::mutate(missing = ifelse(x$uniqueID %in% MID$Accession,"TRUE","FALSE")))
-results_n<-lapply(results_n,function(x) dplyr::mutate(missing = ifelse(x$uniqueID %in% MID$Accession,"TRUE","FALSE")))
-
 # #remove protein channels with missing values
 # results<-results %>% lapply(function(x) na.omit(x))
 # results_t<-results_t %>% lapply(function(x) na.omit(x))
 # results_n<-results_n %>% lapply(function(x) na.omit(x))
 
-#reassign changepoints shared between line regions
-df_<-suppressWarnings(CP(results,d)) %>% dplyr::filter(dataset=="vehicle")
-df_1<-suppressWarnings(CP(results_t,d))%>% dplyr::filter(dataset=="treated")# 
+#reassign change points shared between line regions
+d<-DF
+df_<-lapply(d,function(x) x %>% dplyr::filter(dataset=="vehicle"))
+df_1<-lapply(d,function(x) x %>% dplyr::filter(dataset=="treated"))
+
+df_<-suppressWarnings(CP(results,df_))
+df_1<-suppressWarnings(CP(results_t,df_1))
 DFN<-suppressWarnings(CP(results_n,d))# 
 #remove results to save space 
 rm(results,results_t,results_n,d_,d_1,DF)#10
@@ -872,31 +875,127 @@ tlstat<-function(DF,df,df1,PI=FALSE){
                                    uniqueID=x$uniqueID[1]))
     
     
+
+    #Apply lax Rsq and negative slope filter to remove flat melt curves
+    mean1<-suppressWarnings(mean1 %>% purrr::keep(function(x) all(unlist(x$Rsq)>0.5)))
+    mean1_1<-suppressWarnings(mean1_1 %>% purrr::keep(function(x) all(unlist(x$Rsq)>0.5)))
+    mean3<-suppressWarnings(mean3 %>% purrr::keep(function(x) all(unlist(x$Rsq)>0.5)))
     
-    
-    
-    mean1<-lapply(mean1,function(x) x %>% dplyr::select(-data,-CI) %>% tidyr::unnest(Tm=Tm,slope=slope,intercept=intercept,rss=rss,Rsq=Rsq))
-    mean1_1<-lapply(mean1_1,function(x) x %>% dplyr::select(-data,-CI) %>% tidyr::unnest(Tm=Tm,slope=slope,intercept=intercept,rss=rss,Rsq=Rsq))
-    mean3<-lapply(mean3,function(x) x %>% dplyr::select(-data,-CI) %>% tidyr::unnest(Tm=Tm,slope=slope,intercept=intercept,rss=rss,Rsq=Rsq))
-    
+    mean1<-suppressWarnings(mean1 %>% purrr::keep(function(x) any(unlist(x$slope)<0)))
+    mean1_1<-suppressWarnings(mean1_1 %>% purrr::keep(function(x) any(unlist(x$slope)<0)))
+    mean3<-suppressWarnings(mean3 %>% purrr::keep(function(x) any(unlist(x$slope)<0)))
     #convert to df and split by uniqueID 
     mean1<-dplyr::bind_rows(mean1)
     mean1_1<-dplyr::bind_rows(mean1_1)
     mean3<-dplyr::bind_rows(mean3)
+    
     #obtain common uniqueIDs
     CID<-intersect(mean1$uniqueID,mean1_1$uniqueID)
     CID<-intersect(CID,mean3$uniqueID)
     #subset common uniqueIDs
-    mean1<-mean1 %>% as.data.frame(.) %>% subset(uniqueID %in% CID)
-    mean1_1<-mean1_1 %>% as.data.frame(.) %>% subset(uniqueID %in% CID)
-    mean3<-mean3 %>% as.data.frame(.) %>% subset(uniqueID %in% CID)
-    
-    #split by uniqueIDs
+    mean1<-mean1 %>% subset(uniqueID %in% CID)
+    mean1_1<-mean1_1  %>% subset(uniqueID %in% CID)
+    mean3<-mean3  %>% subset(uniqueID %in% CID)
+    #split into lists by uniqueID
     mean1<-mean1 %>% dplyr::group_split(uniqueID)
     mean1_1<-mean1_1 %>% dplyr::group_split(uniqueID)
     mean3<-mean3 %>% dplyr::group_split(uniqueID)
+    #Calculate rss0 and rss1 null vs alt
+    rss0<-lapply(mean3,function(x)data.frame(RSS = sum(as.numeric(x$rss))))
+    rss1<-purrr::map2(mean1,mean1_1,function(x,y)data.frame(RSS = sum(as.numeric(x$rss))+sum(as.numeric(y$rss)),
+                                                            Tm = y$Tm[[1]]-x$Tm[[1]]))
+    #params for null and alternative models
+    pN<-lapply(mean3,function(x)x %>% dplyr::summarise(pN = 4))
+    pA<-lapply(mean1_1,function(x)x %>% dplyr::summarise(pA = 8))
+    #sum residuals
+    n1<-purrr::map2(mean1,mean1_1,function(x,y) data.frame(n1 = as.numeric(nrow(dplyr::bind_rows(x$data))) + as.numeric(nrow(dplyr::bind_rows(y$data)))))
+    #degrees of freedom before
+    d1<-purrr::map2(pA,pN,function(x,y)data.frame(d1=x$pA-y$pN))
+    d2<-purrr::map2(n1,pA,function(x,y)data.frame(d2=x$n1-y$pA)) 
+    #delta RSS
+    rssDiff<-purrr::map2(rss0,rss1,function(x,y) x$RSS-y$RSS %>% data.frame(.))
+    #bind rows
+    rssDiff<-dplyr::bind_rows(rssDiff)$.
+    rss0<-dplyr::bind_rows(rss0)$RSS
+    rss1<-dplyr::bind_rows(rss1)$RSS
+    d2<-dplyr::bind_rows(d2)$d2
+    d1<-dplyr::bind_rows(d1)$d1
+    #F-test
+    Fvals<-(rssDiff/rss1)*(d2/d1)
+    #append results to data
+    ResF<-purrr::map2(mean1,Fvals,function(x,y) x %>% dplyr::mutate(Fvals=y))
+    ResF<-purrr::map2(ResF,rss0,function(x,y) x %>% dplyr::mutate(rss0=y))
+    ResF<-purrr::map2(ResF,rss1,function(x,y) x %>% dplyr::mutate(rss1=y))
+    ResF<-purrr::map2(ResF,rssDiff,function(x,y) x %>% dplyr::mutate(rssDiff=y))
+    ResF<-purrr::map2(ResF,d1,function(x,y) x %>% dplyr::mutate(d1=y))
+    ResF<-purrr::map2(ResF,d2,function(x,y) x %>% dplyr::mutate(d2=y))
     
-    results<-rlist::list.rbind(c(mean1,mean1_1,mean3)) %>% dplyr::group_split(uniqueID)
+    #convert to df
+    mean1<-dplyr::bind_rows(mean1)
+    ResF<-dplyr::bind_rows(ResF)
+    #convert results to list
+    testResults<-mean1 %>% dplyr::select(-slope,-data,-intercept,-LineRegion,-M1,-CI,-Tm,-rss,-Rsq,-AUC,-dataset)
+    testResults<-testResults%>% dplyr::left_join(ResF,by="uniqueID")
+
+    #p-val
+    testResults<-testResults %>%
+      dplyr::mutate(pV = 1-pf(testResults$Fvals,df1=testResults$d1,df2=testResults$d2))
+    testResults<-testResults %>% dplyr::mutate(pAdj = p.adjust(.$pV,method="BH"))
+
+    #V is zero, so it would not work as a scaling factor
+    ggplot(testResults)+
+      geom_density(aes(x=Fvals),fill = "steelblue",alpha = 0.5) + 
+      geom_line(aes(x=Fvals,y= df(Fvals,df1=4,df2=8)),color="darkred",size = 1.5) +
+      theme_bw() +
+      coord_cartesian(xlim=c(0,100))+
+      ggplot2::xlab("F-values")
+    #scale variables
+    M<-median(testResults$rssDiff,na.rm=TRUE)
+    V<-mad(testResults$rssDiff,na.rm=TRUE)
+    #alternative scaling factor sig0-sq
+    altScale<-0.5*V/M
+    #filter out negative delta rss
+    testResults<-testResults %>% dplyr::filter(rssDiff>0)
+    #effective degrees of freedom
+    ed1<-MASS::fitdistr(x=testResults$rssDiff, densfun = "chi-squared", start = list(df=1))[["estimate"]]
+    ed2<-MASS::fitdistr(x=testResults$rss1, densfun = "chi-squared", start = list(df=1))[["estimate"]]
+    #scale data
+    testScaled <-testResults %>% 
+      dplyr::mutate(rssDiff = .$rssDiff/altScale,
+                    rss1 =.$rss1/altScale,
+                    d1=ed1,
+                    d2=ed2)
+    #
+    #new F-test
+    testScaled<-testScaled %>% dplyr::mutate(Fvals=(rssDiff/rss1)*(d2/d1))
+    Fvals<-testScaled$Fvals
+    d1<-testScaled$d1
+    d2<-testScaled$d2
+   
+    #scaled values 
+    ggplot(testScaled)+
+      geom_density(aes(x=Fvals),fill = "steelblue",alpha = 0.5) + 
+      geom_line(aes(x=Fvals,y= df(Fvals,df1=d1,df2=d2)),color="darkred",size = 1.5) +
+      theme_bw() +
+      coord_cartesian(xlim=c(0,10))+
+      ggplot2::xlab("F-values")
+      #Define checked as filtered protein IDs
+    check<-testScaled$uniqueID
+    test<-testScaled %>% dplyr::filter(.$pAdj<0.01)
+    ggplot(test)+
+      geom_density(aes(x=Fvals),fill = "steelblue",alpha = 0.5) + 
+      geom_line(aes(x=Fvals,y= df(Fvals,df1=d1,df2=d2)),color="darkred",size = 1.5) +
+      theme_bw() +
+      coord_cartesian(xlim=c(0,10))+
+      ggplot2::xlab("F-values")
+    
+    mean1<-mean1 %>% dplyr::filter(mean1$uniqueID %in% test$uniqueID)
+    mean1_1<-dplyr::bind_rows(mean1_1)
+    mean1_1<-mean1_1 %>% dplyr::filter(mean1_1$uniqueID %in% test$uniqueID)
+    mean3<-dplyr::bind_rows(mean3)
+    mean3<-mean3 %>% dplyr::filter(mean3$uniqueID %in% test$uniqueID)
+    results<-dplyr::bind_rows(mean1,mean1_1,mean3) %>% dplyr::group_split(uniqueID)
+    
   } else if (isTRUE(PI)){
     mean1<-list()
     mean1[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),AUC = rep(0,1),dataset="treated",uniqueID=df1[[i]]$uniqueID[1],Tm=rep(0,1))
@@ -961,28 +1060,126 @@ tlstat<-function(DF,df,df1,PI=FALSE){
     
     
     
-    mean1<-lapply(mean1,function(x) x %>% dplyr::select(-data,-CI) %>% tidyr::unnest(Tm=Tm,slope=slope,intercept=intercept,rss=rss,Rsq=Rsq))
-    mean1_1<-lapply(mean1_1,function(x) x %>% dplyr::select(-data,-CI) %>% tidyr::unnest(Tm=Tm,slope=slope,intercept=intercept,rss=rss,Rsq=Rsq))
-    mean3<-lapply(mean3,function(x) x %>% dplyr::select(-data,-CI) %>% tidyr::unnest(Tm=Tm,slope=slope,intercept=intercept,rss=rss,Rsq=Rsq))
+    #Apply lax Rsq and negative slope filter to remove flat melt curves
+    mean1<-suppressWarnings(mean1 %>% purrr::keep(function(x) all(unlist(x$Rsq)>0.5)))
+    mean1_1<-suppressWarnings(mean1_1 %>% purrr::keep(function(x) all(unlist(x$Rsq)>0.5)))
+    mean3<-suppressWarnings(mean3 %>% purrr::keep(function(x) all(unlist(x$Rsq)>0.5)))
     
+    mean1<-suppressWarnings(mean1 %>% purrr::keep(function(x) any(unlist(x$slope)<0)))
+    mean1_1<-suppressWarnings(mean1_1 %>% purrr::keep(function(x) any(unlist(x$slope)<0)))
+    mean3<-suppressWarnings(mean3 %>% purrr::keep(function(x) any(unlist(x$slope)<0)))
     #convert to df and split by uniqueID 
     mean1<-dplyr::bind_rows(mean1)
     mean1_1<-dplyr::bind_rows(mean1_1)
     mean3<-dplyr::bind_rows(mean3)
+    
     #obtain common uniqueIDs
     CID<-intersect(mean1$uniqueID,mean1_1$uniqueID)
     CID<-intersect(CID,mean3$uniqueID)
     #subset common uniqueIDs
-    mean1<-mean1 %>% as.data.frame(.) %>% subset(uniqueID %in% CID)
-    mean1_1<-mean1_1 %>% as.data.frame(.) %>% subset(uniqueID %in% CID)
-    mean3<-mean3 %>% as.data.frame(.) %>% subset(uniqueID %in% CID)
-    
-    #split by uniqueIDs
+    mean1<-mean1 %>% subset(uniqueID %in% CID)
+    mean1_1<-mean1_1  %>% subset(uniqueID %in% CID)
+    mean3<-mean3  %>% subset(uniqueID %in% CID)
+    #split into lists by uniqueID
     mean1<-mean1 %>% dplyr::group_split(uniqueID)
     mean1_1<-mean1_1 %>% dplyr::group_split(uniqueID)
     mean3<-mean3 %>% dplyr::group_split(uniqueID)
+    #Calculate rss0 and rss1 null vs alt
+    rss0<-lapply(mean3,function(x)data.frame(RSS = sum(as.numeric(x$rss))))
+    rss1<-purrr::map2(mean1,mean1_1,function(x,y)data.frame(RSS = sum(as.numeric(x$rss))+sum(as.numeric(y$rss)),
+                                                            Tm = y$Tm[[1]]-x$Tm[[1]]))
+    #params for null and alternative models
+    pN<-lapply(mean3,function(x)x %>% dplyr::summarise(pN = 4))
+    pA<-lapply(mean1_1,function(x)x %>% dplyr::summarise(pA = 8))
+    #sum residuals
+    n1<-purrr::map2(mean1,mean1_1,function(x,y) data.frame(n1 = as.numeric(nrow(dplyr::bind_rows(x$data))) + as.numeric(nrow(dplyr::bind_rows(y$data)))))
+    #degrees of freedom before
+    d1<-purrr::map2(pA,pN,function(x,y)data.frame(d1=x$pA-y$pN))
+    d2<-purrr::map2(n1,pA,function(x,y)data.frame(d2=x$n1-y$pA)) 
+    #delta RSS
+    rssDiff<-purrr::map2(rss0,rss1,function(x,y) x$RSS-y$RSS %>% data.frame(.))
+    #bind rows
+    rssDiff<-dplyr::bind_rows(rssDiff)$.
+    rss0<-dplyr::bind_rows(rss0)$RSS
+    rss1<-dplyr::bind_rows(rss1)$RSS
+    d2<-dplyr::bind_rows(d2)$d2
+    d1<-dplyr::bind_rows(d1)$d1
+    #F-test
+    Fvals<-(rssDiff/rss1)*(d2/d1)
+    #append results to data
+    ResF<-purrr::map2(mean1,Fvals,function(x,y) x %>% dplyr::mutate(Fvals=y))
+    ResF<-purrr::map2(ResF,rss0,function(x,y) x %>% dplyr::mutate(rss0=y))
+    ResF<-purrr::map2(ResF,rss1,function(x,y) x %>% dplyr::mutate(rss1=y))
+    ResF<-purrr::map2(ResF,rssDiff,function(x,y) x %>% dplyr::mutate(rssDiff=y))
+    ResF<-purrr::map2(ResF,d1,function(x,y) x %>% dplyr::mutate(d1=y))
+    ResF<-purrr::map2(ResF,d2,function(x,y) x %>% dplyr::mutate(d2=y))
     
-    results<-rlist::list.rbind(c(mean1,mean1_1,mean3)) %>% dplyr::group_split(uniqueID)
+    #convert to df
+    mean1<-dplyr::bind_rows(mean1)
+    ResF<-dplyr::bind_rows(ResF)
+    #convert results to list
+    testResults<-mean1 %>% dplyr::select(-slope,-data,-intercept,-LineRegion,-M1,-CI,-Tm,-rss,-Rsq,-AUC,-dataset)
+    testResults<-testResults%>% dplyr::left_join(ResF,by="uniqueID")
+    
+    #p-val
+    testResults<-testResults %>%
+      dplyr::mutate(pV = 1-pf(testResults$Fvals,df1=testResults$d1,df2=testResults$d2))
+    testResults<-testResults %>% dplyr::mutate(pAdj = p.adjust(.$pV,method="BH"))
+    
+    #V is zero, so it would not work as a scaling factor
+    ggplot(testResults)+
+      geom_density(aes(x=Fvals),fill = "steelblue",alpha = 0.5) + 
+      geom_line(aes(x=Fvals,y= df(Fvals,df1=4,df2=8)),color="darkred",size = 1.5) +
+      theme_bw() +
+      coord_cartesian(xlim=c(0,100))+
+      ggplot2::xlab("F-values")
+    #scale variables
+    M<-median(testResults$rssDiff,na.rm=TRUE)
+    V<-mad(testResults$rssDiff,na.rm=TRUE)
+    #alternative scaling factor sig0-sq
+    altScale<-0.5*V/M
+    #filter out negative delta rss
+    testResults<-testResults %>% dplyr::filter(rssDiff>0)
+    #effective degrees of freedom
+    ed1<-MASS::fitdistr(x=testResults$rssDiff, densfun = "chi-squared", start = list(df=1))[["estimate"]]
+    ed2<-MASS::fitdistr(x=testResults$rss1, densfun = "chi-squared", start = list(df=1))[["estimate"]]
+    #scale data
+    testScaled <-testResults %>% 
+      dplyr::mutate(rssDiff = .$rssDiff/altScale,
+                    rss1 =.$rss1/altScale,
+                    d1=ed1,
+                    d2=ed2)
+    #
+    #new F-test
+    testScaled<-testScaled %>% dplyr::mutate(Fvals=(rssDiff/rss1)*(d2/d1))
+    Fvals<-testScaled$Fvals
+    d1<-testScaled$d1
+    d2<-testScaled$d2
+    
+    #scaled values 
+    ggplot(testScaled)+
+      geom_density(aes(x=Fvals),fill = "steelblue",alpha = 0.5) + 
+      geom_line(aes(x=Fvals,y= df(Fvals,df1=d1,df2=d2)),color="darkred",size = 1.5) +
+      theme_bw() +
+      coord_cartesian(xlim=c(0,10))+
+      ggplot2::xlab("F-values")
+    #Define checked as filtered protein IDs
+    check<-testScaled$uniqueID
+    test<-testScaled %>% dplyr::filter(.$pAdj<0.01)
+    ggplot(test)+
+      geom_density(aes(x=Fvals),fill = "steelblue",alpha = 0.5) + 
+      geom_line(aes(x=Fvals,y= df(Fvals,df1=d1,df2=d2)),color="darkred",size = 1.5) +
+      theme_bw() +
+      coord_cartesian(xlim=c(0,10))+
+      ggplot2::xlab("F-values")
+    
+    mean1<-mean1 %>% dplyr::filter(mean1$uniqueID %in% test$uniqueID)
+    mean1_1<-dplyr::bind_rows(mean1_1)
+    mean1_1<-mean1_1 %>% dplyr::filter(mean1_1$uniqueID %in% test$uniqueID)
+    mean3<-dplyr::bind_rows(mean3)
+    mean3<-mean3 %>% dplyr::filter(mean3$uniqueID %in% test$uniqueID)
+    results<-dplyr::bind_rows(mean1,mean1_1,mean3) %>% dplyr::group_split(uniqueID)
+    
   }
   return(results)
 }
@@ -1063,34 +1260,66 @@ spstat<-function(DF,df,df1,PI=FALSE){
                                                          uniqueID=x$uniqueID[1],
                                                          n = nrow(x)))
     
-    
-    #Calculate rss0 and rss1 null vs alt
-    rss0<-lapply(mean3,function(x)data.frame(RSS = x$rss))
-    rss1<-purrr::map2(mean1,mean1_1,function(x,y)data.frame(RSS = x$rss+y$rss,
-                                                            Tm = y$Tm-x$Tm))
-    #params for null and alternative models
-    pN<-lapply(mean3,function(x)x$df)
-    pA<-purrr::map2(mean1_1,mean1,function(x,y)x$df+y$df)
-    #data points alternative 
-    n1<-purrr::map2(mean1,mean1_1,function(x,y) x$n + y$n)
-    #degrees of freedom
-    d1<-purrr::map2(pA,pN,function(x,y)data.frame(x-y))
-    d2<-purrr::map2(n1,pA,function(x,y)data.frame(x-y)) 
-    #delta RSS
-    rssDiff<-purrr::map2(rss0,rss1,function(x,y) x$RSS-y$RSS %>% data.frame(.))
-    #bind rows
-    rssDiff<-dplyr::bind_rows(rssDiff)
-    rss0<-dplyr::bind_rows(rss0)
-    rss1<-dplyr::bind_rows(rss1)
-    d2<-dplyr::bind_rows(d2)
-    d1<-dplyr::bind_rows(d1)
-    #F-test
-    Fvals<-(rssDiff$./rss1$RSS)*(d2$x...y/d1$x...y)
-    #create a data frame with all results
-    ResF<-dplyr::bind_rows(mean1) %>% dplyr::select(uniqueID) %>%
-      dplyr::mutate(Fvals=Fvals,rss0=rss0$RSS,rss1=rss1$RSS,d1=d1$x...y,d2=d2$x...y,rssDiff=rssDiff$.)
-    ResF$Tm<-rss1$Tm
-    #convert to df and split by uniqueID 
+ #Fix degrees on freedom based on the median value
+ #calculate median of vehicle, treated and null df
+ mv<-median(dplyr::bind_rows(mean1)$df)
+ mt<-median(dplyr::bind_rows(mean1_1)$df) 
+ mn<-median(dplyr::bind_rows(mean3)$df)
+ #calculate df to fix
+ mdf<-mean(mv,mt,mn)
+ 
+ mean1<-list()
+ mean1[[1]]<-data.frame(spar=rep(0,1),Tm=rep(0,1),lambda=rep(0,1),df=rep(0,1),rss=rep(0,1),knots=rep(0,1),AUC = rep(0,1),dataset="vehicle",uniqueID=df[[i]]$uniqueID[1])
+ 
+ mean1<- lapply(df,function(x) x %>% dplyr::summarise(M1 = list(stats::smooth.spline(x=x$C,y=x$I,cv=FALSE,df=mdf)),
+                                                      spar=as.numeric(M1[[1]]$spar),
+                                                      Tm=with(x, stats::approx(x$I,x$C, xout=max(x$I, na.rm=TRUE)-0.5))$y,
+                                                      lambda=as.numeric(M1[[1]]$lambda),
+                                                      df =round(as.numeric(M1[[1]]$df),3),
+                                                      rss = as.numeric(M1[[1]]$pen.crit),
+                                                      knots = M1[[1]]$fit$nk,
+                                                      AUC = pracma::trapz(predict(M1[[1]]$fit)$x,predict(M1[[1]]$fit)$y),
+                                                      dataset="vehicle",
+                                                      uniqueID=x$uniqueID[1],
+                                                      n = nrow(x)))
+ 
+ 
+ #define linear models with outputs
+ 
+ mean1_1<-list()
+ mean1_1[[1]]<-data.frame(spar=rep(0,1),Tm=rep(0,1),lambda=rep(0,1),df=rep(0,1),rss=rep(0,1),knots=rep(0,1),AUC = rep(0,1),dataset="treated",uniqueID=df1[[i]]$uniqueID[1])
+ 
+ 
+ mean1_1<- lapply(df1,function(x) x %>% dplyr::summarise(M1 = list(stats::smooth.spline(x=x$C,y=x$I,cv=FALSE,df=mdf)),
+                                                         spar=as.numeric(M1[[1]]$spar),
+                                                         Tm=with(x, stats::approx(x$I,x$C, xout=max(x$I, na.rm=TRUE)-0.5))$y,
+                                                         lambda=as.numeric(M1[[1]]$lambda),
+                                                         df =round(as.numeric(M1[[1]]$df),3),
+                                                         rss = as.numeric(M1[[1]]$pen.crit),
+                                                         knots = M1[[1]]$fit$nk,
+                                                         AUC = pracma::trapz(predict(M1[[1]]$fit)$x,predict(M1[[1]]$fit)$y),
+                                                         dataset="treated",
+                                                         uniqueID=x$uniqueID[1],
+                                                         n = nrow(x)))
+ 
+ # null hypothesis
+ #null
+ mean3<-list()
+ mean3[[1]]<-data.frame(spar=rep(0,1),Tm=rep(0,1),lambda=rep(0,1),df=rep(0,1),rss=rep(0,1),knots=rep(0,1),AUC = rep(0,1),dataset="null",uniqueID=DF[[i]]$uniqueID[1])
+ 
+ 
+ mean3<- lapply(DF,function(x) x %>% dplyr::summarise(M1 = list(stats::smooth.spline(x=x$C,y=x$I,cv=FALSE,df=mdf)),
+                                                      spar=as.numeric(M1[[1]]$spar),
+                                                      Tm=with(x, stats::approx(x$I,x$C, xout=max(x$I, na.rm=TRUE)-0.5))$y,
+                                                      lambda=as.numeric(M1[[1]]$lambda),
+                                                      df =round(as.numeric(M1[[1]]$df),3),
+                                                      rss = as.numeric(M1[[1]]$pen.crit),
+                                                      knots = M1[[1]]$fit$nk,
+                                                      AUC = pracma::trapz(predict(M1[[1]]$fit)$x,predict(M1[[1]]$fit)$y),
+                                                      dataset="null",
+                                                      uniqueID=x$uniqueID[1],
+                                                      n = nrow(x)))
+ #convert to df and split by uniqueID 
     mean1<-dplyr::bind_rows(mean1)
     mean1_1<-dplyr::bind_rows(mean1_1)
     mean3<-dplyr::bind_rows(mean3)
@@ -1102,55 +1331,105 @@ spstat<-function(DF,df,df1,PI=FALSE){
     mean1<-mean1 %>% subset(uniqueID %in% CID)
     mean1_1<-mean1_1  %>% subset(uniqueID %in% CID)
     mean3<-mean3  %>% subset(uniqueID %in% CID)
+    #split into lists by uniqueID
+    mean1<-mean1 %>% dplyr::group_split(uniqueID)
+    mean1_1<-mean1_1 %>% dplyr::group_split(uniqueID)
+    mean3<-mean3 %>% dplyr::group_split(uniqueID)
+    #Calculate rss0 and rss1 null vs alt
+    rss0<-lapply(mean3,function(x)data.frame(RSS = sum(as.numeric(x$rss))))
+    rss1<-purrr::map2(mean1,mean1_1,function(x,y)data.frame(RSS = sum(as.numeric(x$rss))+sum(as.numeric(y$rss)),
+                                                            Tm = y$Tm[[1]]-x$Tm[[1]]))
+    #params for null and alternative models
+    pN<-lapply(mean3,function(x)x %>% dplyr::summarise(pN = x$df))
+    pA<-lapply(mean1_1,function(x)x %>% dplyr::summarise(pA = 2*(x$df)))
+    #data points
+    n1<-purrr::map2(mean1,mean1_1,function(x,y) data.frame(n1 = x$n + y$n))
+    #degrees of freedom before
+    d1<-purrr::map2(pA,pN,function(x,y)data.frame(d1=x$pA-y$pN))
+    d2<-purrr::map2(n1,pA,function(x,y)data.frame(d2=x$n1-y$pA)) 
+    #delta RSS
+    rssDiff<-purrr::map2(rss0,rss1,function(x,y) x$RSS-y$RSS %>% data.frame(.))
+    #bind rows
+    rssDiff<-dplyr::bind_rows(rssDiff)$.
+    
+    rss0<-dplyr::bind_rows(rss0)$RSS
+    rss1<-dplyr::bind_rows(rss1)$RSS
+    d2<-dplyr::bind_rows(d2)$d2
+    d1<-dplyr::bind_rows(d1)$d1
+    #F-test
+    Fvals<-(rssDiff/rss1)*(d2/d1)
+    #append results to data
+    ResF<-purrr::map2(mean1,Fvals,function(x,y) x %>% dplyr::mutate(Fvals=y))
+    ResF<-purrr::map2(ResF,rss0,function(x,y) x %>% dplyr::mutate(rss0=y))
+    ResF<-purrr::map2(ResF,rss1,function(x,y) x %>% dplyr::mutate(rss1=y))
+    ResF<-purrr::map2(ResF,rssDiff,function(x,y) x %>% dplyr::mutate(rssDiff=y))
+    ResF<-purrr::map2(ResF,d1,function(x,y) x %>% dplyr::mutate(d1=y))
+    ResF<-purrr::map2(ResF,d2,function(x,y) x %>% dplyr::mutate(d2=y))
+    
+    #convert to df
+    mean1<-dplyr::bind_rows(mean1)
+    ResF<-dplyr::bind_rows(ResF)
     #convert results to list
-    testResults<-mean1 %>%dplyr::select(-Tm) 
+    testResults<-mean1 %>% dplyr::select(-M1,-spar,-Tm,-lambda,-df,-rss,-knots,-AUC,-dataset,-AUC,-n)
     testResults<-testResults%>% dplyr::left_join(ResF,by="uniqueID")
-    
+
     #p-val
+
     testResults<-testResults %>%
-      dplyr::mutate(pV = 1-pf(.$Fvals,df1=.$d1,df2=.$d2))
+      dplyr::mutate(pV = as.numeric(1-pf(Fvals,df1=d1[1],df2=max(d2))))
     testResults<-testResults %>% dplyr::mutate(pAdj = p.adjust(.$pV,method="BH"))
-    
-    #rank by rssdiff and Tm value
+   
+    #V is zero, so it would not work as a scaling factor
+    ggplot(testResults)+
+      geom_density(aes(x=Fvals),fill = "steelblue",alpha = 0.5) + 
+      geom_line(aes(x=Fvals,y= df(Fvals,df1=d1,df2=d2)),color="darkred",size = 1.5) +
+      theme_bw() +
+      coord_cartesian(xlim=c(0,10))+
+      ggplot2::xlab("F-values")
     #scale variables
     M<-median(testResults$rssDiff,na.rm=TRUE)
     V<-mad(testResults$rssDiff,na.rm=TRUE)
-   #V is zero, so it would not work as a scaling factor
-    ggplot(testResults)+
-      geom_density(aes(x=testResults$Fvals),fill = "steelblue",alpha = 0.5) + 
-      geom_line(aes(x=Fvals,y= df(Fvals,df1=d1,df2=d2)),color="darkred",size = 1.5) +
-      theme_bw() +
-      coord_cartesian(xlim=c(0,100))+
-      ggplot2::xlab("F-values")
-    
     #alternative scaling factor sig0-sq
     altScale<-0.5*V/M
+    #filter out negative delta rss
+    testResults<-testResults %>% dplyr::filter(rssDiff>0)
+    #effective degrees of freedom
+    ed1<-MASS::fitdistr(x=testResults$rssDiff, densfun = "chi-squared", start = list(df=2))[["estimate"]]
+    ed2<-MASS::fitdistr(x=testResults$rss1, densfun = "chi-squared", start = list(df=2))[["estimate"]]
     #scale data
     testScaled <-testResults %>% 
       dplyr::mutate(rssDiff = .$rssDiff/altScale,
-                    rss1 =.$rss1/altScale)
+                    rss1 =.$rss1/altScale,
+                    d1=ed1,
+                    d2=ed2)
     #
     #new F-test
     testScaled<-testScaled %>% dplyr::mutate(Fvals=(rssDiff/rss1)*(d2/d1))
+    Fvals<-testScaled$Fvals
+    d1<-testScaled$d1
+    d2<-testScaled$d2
+    
     #scaled values 
     ggplot(testScaled)+
       geom_density(aes(x=Fvals),fill = "steelblue",alpha = 0.5) + 
       geom_line(aes(x=Fvals,y= df(Fvals,df1=d1,df2=d2)),color="darkred",size = 1.5) +
       theme_bw() +
-      coord_cartesian(xlim=c(0,100))+
+      coord_cartesian(xlim=c(0,10))+
       ggplot2::xlab("F-values")
     #Define checked as filtered protein IDs
     check<-testScaled$uniqueID
-    test<-testScaled %>% dplyr::filter(.$pAdj<0.01)
+    test<-testScaled %>% dplyr::filter(.$pV<0.10)
     ggplot(test)+
       geom_density(aes(x=Fvals),fill = "steelblue",alpha = 0.5) + 
       geom_line(aes(x=Fvals,y= df(Fvals,df1=d1,df2=d2)),color="darkred",size = 1.5) +
       theme_bw() +
-      coord_cartesian(xlim=c(0,100))+
+      coord_cartesian(xlim=c(0,10))+
       ggplot2::xlab("F-values")
     
     mean1<-mean1 %>% dplyr::filter(mean1$uniqueID %in% test$uniqueID)
+    mean1_1<-dplyr::bind_rows(mean1_1)
     mean1_1<-mean1_1 %>% dplyr::filter(mean1_1$uniqueID %in% test$uniqueID)
+    mean3<-dplyr::bind_rows(mean3)
     mean3<-mean3 %>% dplyr::filter(mean3$uniqueID %in% test$uniqueID)
     results<-dplyr::bind_rows(mean1,mean1_1,mean3) %>% dplyr::group_split(uniqueID)
     
@@ -1734,50 +2013,50 @@ computeRSS <- function(x,y,start = c(Pl = 0, a = 550, b=10),seed = NULL,
 # #GoF by RSS comparison for each protein
 # #RSS difference
 # 
-# computeRSSdiff <- function(x,y,treatment,maxAttempts = 100, repeatsIfNeg = 50){
-#   rssDiff <- -1
-#   repeats <- 0
-#   alwaysPermute <- FALSE
-#   
-#   start0 = start1 <- c(Pl=0,a=550,b=10)
-#   
-#   while((is.na(rssDiff) | rssDiff<0) & repeats <= repeatsIfNeg){
-#     
-#     nullResults <- computeRSS(x=x, y=y, start = start0, seed=repeats,
-#                               maxAttempts = maxAttempts,
-#                               alwaysPermute = alwaysPermute)
-#     
-#     altResults <- tibble(x,y,treatment) %>%
-#       group_by(treatment) %>%
-#       do({
-#         fit = computeRSS(x=.$x, y = .$y,start = start1, seed=repeats,
-#                          maxAttempts = maxAttempts,
-#                          alwaysPermute = alwaysPermute)
-#         
-#       }) %>% ungroup
-#     rss0 <- nullResults$rss
-#     rss1 <-sum(altResults$rss)#combined alternative RSS values
-#     rssDiff <- rss0-rss1#difference between null and combined alternative RSS values
-#     
-#     if(is.na(rssDiff) | rssDiff <0){
-#       repeats <- repeats +1
-#       alwaysPermute <- TRUE
-#       start1 <- c(Pl = nullResults[["Pl"]],a = nullResults[["a"]],b=nullResults[["b"]])
-#       
-#     }
-#   }
-#   
-#   n0 <-nullResults$fittedValues
-#   n1 <-sum(altResults$fittedValues)
-#   
-#   tm <- altResults %>%
-#     mutate(key = paste0("tm_",treatment)) %>%
-#     dplyr::select(key,tm) %>% spread(key,tm)
-#   
-#   out <- tibble(rss0,rss1,rssDiff,n0,n1,repeats) %>%
-#     cbind(tm)
-#   return(out)
-# }
+computeRSSdiff <- function(x,y,treatment,maxAttempts = 100, repeatsIfNeg = 50){
+  rssDiff <- -1
+  repeats <- 0
+  alwaysPermute <- FALSE
+
+  start0 = start1 <- c(Pl=0,a=550,b=10)
+
+  while((is.na(rssDiff) | rssDiff<0) & repeats <= repeatsIfNeg){
+
+    nullResults <- computeRSS(x=x, y=y, start = start0, seed=repeats,
+                              maxAttempts = maxAttempts,
+                              alwaysPermute = alwaysPermute)
+
+    altResults <- tibble(x,y,treatment) %>%
+      group_by(treatment) %>%
+      do({
+        fit = computeRSS(x=.$x, y = .$y,start = start1, seed=repeats,
+                         maxAttempts = maxAttempts,
+                         alwaysPermute = alwaysPermute)
+
+      }) %>% ungroup
+    rss0 <- nullResults$rss
+    rss1 <-sum(altResults$rss)#combined alternative RSS values
+    rssDiff <- rss0-rss1#difference between null and combined alternative RSS values
+
+    if(is.na(rssDiff) | rssDiff <0){
+      repeats <- repeats +1
+      alwaysPermute <- TRUE
+      start1 <- c(Pl = nullResults[["Pl"]],a = nullResults[["a"]],b=nullResults[["b"]])
+
+    }
+  }
+
+  n0 <-nullResults$fittedValues
+  n1 <-sum(altResults$fittedValues)
+
+  tm <- altResults %>%
+    mutate(key = paste0("tm_",treatment)) %>%
+    dplyr::select(key,tm) %>% spread(key,tm)
+
+  out <- tibble(rss0,rss1,rssDiff,n0,n1,repeats) %>%
+    cbind(tm)
+  return(out)
+}
 sigCI <- function(object, parm, level = 0.95, method = c("asymptotic", "profile"), ...)
 {
   method <- match.arg(method)
@@ -1871,7 +2150,8 @@ sigCI <- function(object, parm, level = 0.95, method = c("asymptotic", "profile"
     DFN<-lapply(DFN,function(x) x %>% dplyr::group_by(C) %>% dplyr::mutate(I = mean(I)))
     #sigmoidal fit for vehicle
     #remove non-sigmoidal behaving proteins
-    nlm1<-df_ %>% purrr::keep(function(x)!inherits(fitSingleSigmoid(x$C,x$I),'try-error')) #flag and omit non-sigmoidal data
+    nlm1<-df_ %>% purrr::keep(function(x)inherits(fitSingleSigmoid(x$C,x$I),'try-error')) #flag and omit non-sigmoidal data
+   
     #calculate fit for the subset of proteins with sigmoidal behavior
     nlm2<-lapply(nlm1,function(x)x %>% dplyr::mutate(fit = list(fitSingleSigmoid(x$C,x$I)))) #fit sigmoids
     
