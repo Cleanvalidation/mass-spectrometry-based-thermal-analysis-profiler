@@ -1,6 +1,8 @@
 
 
 
+
+
 #Reaname column name according to Diffrent version PSMs file:
 
 #main header names change code
@@ -14,12 +16,12 @@ Changecolname <- function(non_edited_PSMs){
 editedPSMsfile <- Changecolname(non_edited_PSMs)
 ############################################################
 #generate RUn IDS data frame:
-extract_data<-function(PSMs_clean){
+extract_data<-function(editedPSMsfile){
   #Annotation3<-data.frame(unique(PSMs_clean$Spectrum.File))
   
-  Annotation3<-data.frame(Run=(unique(PSMs_clean$Spectrum.File)))
+  Annotation3<-data.frame(Run=(unique(editedPSMsfile$Spectrum.File)))
   N1 <- readline(prompt="How many TMTchannel you used, answere with number of channel, for example 10 or 6 or 11... ?")
-  Annotation3 <- data.frame(Annotation3 =rep(Annotation3,N1))
+  #Annotation3 <- data.frame(Annotation3 =rep(Annotation3,N1))
  
   
   #Annotation3$Fraction=Annotation3$Annotation3
@@ -28,13 +30,13 @@ extract_data<-function(PSMs_clean){
 }
 
 # Call 
-Annotation3 <- extract_data(PSMs_clean)
+Annotation3 <- extract_data(editedPSMsfile)
 
 ###############################################################
 #finding pattern and unique Id for simplicity of user
 Pattern <- function (Annotation3){
-  pattern1 <-stri_match_first_regex(Annotation3$Fraction,"[:upper:][:digit:][:digit:][:punct:]|[:upper:][:digit:][:punct:]")[,1]
-  RunID <- str_split(Annotation3$Fraction,pattern1,simplify = TRUE)[,1]
+  pattern1<-stri_match_first_regex(Annotation3$Run,"[:upper:][:digit:][:digit:][:punct:]|[:upper:][:digit:][:punct:]")[,1]
+  RunID <- str_split(Annotation3$Run,pattern1,simplify = TRUE)[,1]
   #Annotation3<-data.frame(Annotation3)
   Annotation3$shortnames<- RunID 
   RunID_uniqe <- unique(RunID)
@@ -44,7 +46,7 @@ Pattern <- function (Annotation3){
   Fra_userinput<- vector() 
   for (i in 1:size_RunID) {
     print ( RunID_uniqe[i,1])
-    Fra_userinput[i]<-readline(prompt="what is your Fraction name assigned in PD, please spesify return value with numbers 1,2...,n")
+    Fra_userinput[i]<-readline(prompt="what is your Fraction name assigned in PD, please spesify return value with numbers 0,1,2...,n")
 
     #F1="DMSO_1"
     #F2="DMSO_2"
@@ -58,13 +60,24 @@ Pattern <- function (Annotation3){
   Annotation3 <-dplyr::left_join(Annotation3,Fra_userinput,by="shortnames")
   
   Annotation3 <- Annotation3 %>% dplyr::mutate(Pattern1=pattern1)
+  
+  
+  
+  #generate Bioreplicate column
+  Annotation3 <-Annotation3  %>% dplyr::mutate(BioReplicate=stri_match_first_regex(Annotation3$shortnames,"[:punct:][:digit:][:punct:]") )
+  Annotation3 <-Annotation3  %>% dplyr::mutate(BioReplicate=stri_match_first_regex(Annotation3$BioReplicate,"[:digit:]") )
  ###################################################################### 
   #need edit?
   TMT6=c("126","127","128","129","130","131")
   TMT10= c("126","127N","127C","128N","128C", "129N", "129C","130N", "130C", "131")
   TMT11=c("126","127N","127C","128N","128C", "129N", "129C","130N", "130C", "131","131c")
 
-  Annotation3<- Annotation3 %>% dplyr::group_split(shortnames,Pattern1) %>% lapply(.,function(x) x %>% dplyr::mutate(Channel=data.frame(Channel==TMT10))) 
+
+  #Annotation3 <- dplyr::bind_rows(Annotation3)
+  Annotation3 <- Annotation3[order(Annotation3[,"Pattern1"]),]
+  Annotation3<- Annotation3 %>% dplyr::group_split(shortnames,BioReplicate,Sampleid)
+  Annotation3<- lapply(Annotation3,function(x) x %>% dplyr::mutate(Fraction=row.names(.)))
+  Annotation3<-lapply(Annotation3,function(x) x %>% dplyr::mutate(Channel=data.frame(Channel==TMT10))) 
   ############################################################################################################################
   
 
@@ -116,12 +129,10 @@ N2<-NROW(unique(Annotation$Run))
 #generate condition column?
 Annotation3 <-Annotation3  %>% dplyr::mutate(Condition = ifelse(Channel == 126, "Norm",ifelse(Fraction == "F1" | Fraction == "F2",0,1)) )
 
-#generate Bioreplicate column
-Annotation3 <-Annotation3  %>% dplyr::mutate(BioReplicate=stri_match_first_regex(Annotation3$shortnames,"[:punct:][:digit:][:punct:]") )                                       
+                                       
 #########################################################################
 #clean data (it needs edit)
 nonID<-  Fra_userinput %>% filter_all(any_vars(. %in% "F0"))
 PSMsnew<-subset(editedPSMsfile, Spectrum.File==nonID)
-Annotationnew<-subset(Annotation3, Fraction==nonID)
-
+Annotationnew<-subset(Annotation3,Fraction==nonID)
 
