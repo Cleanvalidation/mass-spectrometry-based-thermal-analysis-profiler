@@ -1833,7 +1833,11 @@ his_sp<-function(Df1){
     facet_grid(~C)+
     geom_violin(na.rm=TRUE,show.legend="FALSE",color=NA)+theme_bw()+
     geom_boxplot(width=0.1) +
+<<<<<<< HEAD
     ggplot2::ylab("RSD%")+
+=======
+    ggplot2::ylab("log2(Intensity)")+
+>>>>>>> fa6d9faf09ad2f9975b2545946787dd1d82745af
     ggplot2::xlab("sample")+
     theme(axis.text.x = element_text(angle = 90))
 }
