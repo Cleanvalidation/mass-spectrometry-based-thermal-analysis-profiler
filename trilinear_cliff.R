@@ -1623,7 +1623,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
     ggplot2::geom_point(ggplot2::aes(x=C,y=I))+ ggplot2::ggtitle(paste(Df1$uniqueID[1],"null"))+
     ggplot2::geom_ribbon(data=Pred,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+ 
     ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ 
-    annotate("text", x=62, y=1,label=paste("RSS= ",round(sum(unlist(null$rss)),3)))
+    annotate("text", x=60, y=1,label=paste("RSS= ",round(sum(unlist(null$rss)),3)))
 
   
   DF_f<-df2 %>%subset(uniqueID == df1$uniqueID[i]) %>% dplyr::mutate(dataset=ifelse(CC==0,'vehicle','treated')) %>% subset(dataset=="vehicle")
@@ -1749,9 +1749,9 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
     PLR_P2<-PLR_P1+ggplot2::geom_point(Pred2, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +
       ggplot2::geom_ribbon(data=Pred2,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+
       ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::ggtitle(paste(Df1$uniqueID[1],"alternative"))+
-      ggplot2::annotate("text", x=62, y=1, label= paste("\u03A3","RSS= ",round(sum(unlist(Df1[stringr::str_detect(tolower(Df1$dataset), pattern = "vehicle"),'rss']))+
+      ggplot2::annotate("text", x=60, y=1, label= paste("\u03A3","RSS= ",round(sum(unlist(Df1[stringr::str_detect(tolower(Df1$dataset), pattern = "vehicle"),'rss']))+
                                                                                  sum(unlist(Df1[stringr::str_detect(tolower(Df1$dataset), pattern = "treated"),'rss'])),3)))+
-      ggplot2::annotate("text", x=62, y=0.9, label=  paste("\u0394", "AUC = ",AUCd))+ ggplot2::annotate("text", x=62, y=0.8, label= paste("\u0394","Tm = ",Tm_d,"\u00B0C"))
+      ggplot2::annotate("text", x=60, y=0.9, label=  paste("\u0394", "AUC = ",AUCd))+ ggplot2::annotate("text", x=60, y=0.8, label= paste("\u0394","Tm = ",Tm_d,"\u00B0C"))
     #bquote(Value~is~sigma~R^{2}==.(r2.value)))
     par(mfrow=c(2,2))
     print(PLR_P2)
@@ -1829,12 +1829,93 @@ res_sp<-spf(spresults,filters=FALSE)
 his_sp<-function(Df1){
   test<-dplyr::bind_rows(Df1)
   levels(test$dataset)<-rev(levels(test$dataset))
-  ggplot(test,aes(x=CV_pct,group=dataset,fill=dataset))+
+  ggplot(test,aes(y=CV_pct,x=dataset,fill=dataset,alpha=0.2))+
     facet_grid(~C)+
-    geom_histogram(position="identity",alpha=0.5)+theme_bw()+
-    ggplot2::xlab("RSD %")+
+    geom_violin(na.rm=TRUE,show.legend="FALSE",color=NA)+theme_bw()+
+    geom_boxplot(width=0.1) +
+    ggplot2::ylab("log2(Intensity)")+
+    ggplot2::xlab("sample")+
     theme(axis.text.x = element_text(angle = 90))
 }
+his_sp(res_sp[[3]])
+#plot global histograms for variability 
+his_int<-function(fdata,df_raw,df.samples,df.temps){#input df_raw
+  #get filtered data
+  fdata<-dplyr::bind_rows(fdata)
+  df.samples<-dplyr::rename(df.samples,"Dataset"="sample_name")
+  fdata<-fdata %>% dplyr::rename("Dataset"="sample_name")
+  fdata<-fdata %>% #rename sample_names
+    dplyr::left_join(df.samples,by="Dataset") %>% 
+    dplyr::select(-I)  #dataset.x is vehicle or treated 
+
+  #dataset is F1 column
+  #put equal column headers before joining
+  test<-df_raw %>% dplyr::rename("RunID"="sample") 
+  df.samples<-df.samples %>% dplyr::rename("RunID"="dataset")
+  
+  test<-test %>% dplyr::left_join(df.samples,by="RunID") 
+  #filter by sample_name
+  test<-test %>% dplyr::mutate(Dataset=str_replace(test$Dataset,"[:digit:]",""))
+  test<-test %>% dplyr::filter(Dataset %in% fdata$Dataset)
+  #add temperature values
+  test<-test %>% 
+    dplyr::left_join(df.temps,by="temp_ref") %>% dplyr::rename("C"="temperature","I"="value")
+  fdata$dataset<-as.factor(fdata$dataset)
+  fdata<-test %>% dplyr::full_join(fdata,by=c("Accession"="uniqueID","C"="C","Dataset"="Dataset","RunID"="RunID"))
+  d<-max(nchar(unique(fdata$Dataset)))
+  fdata<-fdata %>% dplyr::mutate(dataset = ifelse(nchar(.$Dataset)<d,"vehicle","treated"))
+  
+  fdata$logI<-log(fdata$I,base=exp(2))
+  fdata$dataset<-as.factor(fdata$dataset)
+  levels(fdata$dataset)<-rev(levels(fdata$dataset))
+  ggplot(fdata,aes(y=I,x=dataset,fill=dataset))+
+    facet_grid(~C)+
+    geom_violin(na.rm=TRUE,show.legend="FALSE",color=NA)+theme_bw()+
+    geom_boxplot(width=0.1) +
+    ggplot2::ylab("log2(Intensity)")+
+    ggplot2::xlab("sample")+
+    theme(axis.text.x = element_text(angle = 90))
+}
+his_int(res_sp[[3]],df_raw,df.samples,df.temps)
+#plot global histograms for variability 
+viol_int<-function(fdata,df_raw,df.samples,df.temps){#input df_raw
+  #get filtered data
+  fdata<-dplyr::bind_rows(fdata)
+  df.samples<-dplyr::rename(df.samples,"Dataset"="sample_name")
+  fdata<-fdata %>% dplyr::rename("Dataset"="sample_name")
+  fdata<-fdata %>% #rename sample_names
+    dplyr::left_join(df.samples,by="Dataset") %>% 
+    dplyr::select(-I)  #dataset.x is vehicle or treated 
+  
+  #dataset is F1 column
+  #put equal column headers before joining
+  test<-df_raw %>% dplyr::rename("RunID"="sample") 
+  df.samples<-df.samples %>% dplyr::rename("RunID"="dataset")
+  
+  test<-test %>% dplyr::left_join(df.samples,by="RunID") 
+  #filter by sample_name
+  test<-test %>% dplyr::mutate(Dataset=str_replace(test$Dataset,"[:digit:]",""))
+  test<-test %>% dplyr::filter(Dataset %in% fdata$Dataset)
+  #add temperature values
+  test<-test %>% 
+    dplyr::left_join(df.temps,by="temp_ref") %>% dplyr::rename("C"="temperature","I"="value")
+  fdata$dataset<-as.factor(fdata$dataset)
+  fdata<-test %>% dplyr::full_join(fdata,by=c("Accession"="uniqueID","C"="C","Dataset"="Dataset","RunID"="RunID"))
+  d<-max(nchar(unique(fdata$Dataset)))
+  fdata<-fdata %>% dplyr::mutate(dataset = ifelse(nchar(.$Dataset)<d,"vehicle","treated"))
+  
+  fdata$logI<-log(fdata$I,base=exp(2))
+  fdata$dataset<-as.factor(fdata$dataset)
+  levels(fdata$dataset)<-rev(levels(fdata$dataset))
+  ggplot(fdata,aes(y=logI,x=dataset,fill=dataset,alpha=0.2))+
+    facet_grid(~C)+
+    geom_violin(na.rm=TRUE,show.legend="FALSE",color=NA)+theme_bw()+
+    geom_boxplot(width=0.1) +
+    ggplot2::ylab("log2(Intensity)")+
+    ggplot2::xlab("sample")+
+    theme(axis.text.x = element_text(angle = 90))
+}
+his_int(res_sp[[3]],df_raw,df.samples,df.temps)
 # #filter bootstrapped data
 # BSvar <- BSvar %>% keep(function(x) x$uniqueID[1] %in% df1)
 # BSvar1<- BSvar1%>% keep(function(x) x$uniqueID[1] %in% df1)
@@ -2309,7 +2390,7 @@ sigCI <- function(object, parm, level = 0.95, method = c("asymptotic", "profile"
       ggplot2::geom_ribbon(Pred1,mapping=ggplot2::aes(ymin = LOW, ymax = HI ,fill=dataset), alpha = 0.2 ) +
       ggplot2::labs(y = "Relative Solubility",
                     x = "Temperature (\u00B0C)")+
-      ggplot2::annotate("text", x=62, y=0.9, label=  paste("\u0394", "AUC = ",Pred$AUC[1]))+ggplot2::annotate("text", x=62, y=0.8, label= paste("\u0394","Tm = ",Pred$Tm[1],"\u00B0C"))
+      ggplot2::annotate("text", x=60, y=0.9, label=  paste("\u0394", "AUC = ",Pred$AUC[1]))+ggplot2::annotate("text", x=60, y=0.8, label= paste("\u0394","Tm = ",Pred$Tm[1],"\u00B0C"))
     
     P1<- P +ggplot2::geom_point(Pred,mapping=ggplot2::aes(x=C,y=I,color = dataset))+
       ggplot2::geom_ribbon(Pred,mapping=ggplot2::aes(ymin = LOW, ymax = HI ,fill=dataset), alpha = 0.2 ) 
