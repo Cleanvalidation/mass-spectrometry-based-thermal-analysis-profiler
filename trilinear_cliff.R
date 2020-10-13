@@ -590,7 +590,7 @@ d<-df_norm %>% dplyr::ungroup(.)#get unique data
 df.samples<-df.samples %>% dplyr::rename("dataset"="sample_id")
 d<-d %>% dplyr::left_join(df.samples,by="dataset")
 #remove 67 temp
-d<-d %>% dplyr::filter(C<67)
+#d<-d %>% dplyr::filter(C<67)
 #create dataset column
 CFAIMSPHI <- d %>%
   dplyr::mutate(Dataset = .$sample_name)
@@ -1838,45 +1838,19 @@ his_sp<-function(Df1){
     theme(axis.text.x = element_text(angle = 90))
 }
 his_sp(res_sp[[3]])
-#plot global histograms for variability 
-his_int<-function(fdata,df_raw,df.samples,df.temps){#input df_raw
-  #get filtered data
-  fdata<-dplyr::bind_rows(fdata)
-  df.samples<-dplyr::rename(df.samples,"Dataset"="sample_name")
-  fdata<-fdata %>% dplyr::rename("Dataset"="sample_name")
-  fdata<-fdata %>% #rename sample_names
-    dplyr::left_join(df.samples,by="Dataset") %>% 
-    dplyr::select(-I)  #dataset.x is vehicle or treated 
-
-  #dataset is F1 column
-  #put equal column headers before joining
-  test<-df_raw %>% dplyr::rename("RunID"="sample") 
-  df.samples<-df.samples %>% dplyr::rename("RunID"="dataset")
-  
-  test<-test %>% dplyr::left_join(df.samples,by="RunID") 
-  #filter by sample_name
-  test<-test %>% dplyr::mutate(Dataset=str_replace(test$Dataset,"[:digit:]",""))
-  test<-test %>% dplyr::filter(Dataset %in% fdata$Dataset)
-  #add temperature values
-  test<-test %>% 
-    dplyr::left_join(df.temps,by="temp_ref") %>% dplyr::rename("C"="temperature","I"="value")
-  fdata$dataset<-as.factor(fdata$dataset)
-  fdata<-test %>% dplyr::full_join(fdata,by=c("Accession"="uniqueID","C"="C","Dataset"="Dataset","RunID"="RunID"))
-  d<-max(nchar(unique(fdata$Dataset)))
-  fdata<-fdata %>% dplyr::mutate(dataset = ifelse(nchar(.$Dataset)<d,"vehicle","treated"))
-  
-  fdata$logI<-log(fdata$I,base=exp(2))
-  fdata$dataset<-as.factor(fdata$dataset)
-  levels(fdata$dataset)<-rev(levels(fdata$dataset))
-  ggplot(fdata,aes(y=I,x=dataset,fill=dataset))+
-    facet_grid(~C)+
+#plot global violin plots for Rsquared splines
+rsq<-function(Df1){#input df_raw
+  Df1<-lapply(Df1,function(x) x %>% dplyr::mutate(rsq = summary(x$M1[[1]])$r.sq))
+  test<-dplyr::bind_rows(Df1)
+  levels(test$dataset)<-rev(levels(test$dataset))
+  ggplot(test,aes(y=rsq,x=dataset,fill=dataset,alpha=0.2))+
     geom_violin(na.rm=TRUE,show.legend="FALSE",color=NA)+theme_bw()+
     geom_boxplot(width=0.1) +
-    ggplot2::ylab("log2(Intensity)")+
+    ggplot2::ylab("R^2 splines")+
     ggplot2::xlab("sample")+
     theme(axis.text.x = element_text(angle = 90))
 }
-his_int(res_sp[[3]],df_raw,df.samples,df.temps)
+rsq(res_sp[[3]])
 #plot global histograms for variability 
 viol_int<-function(fdata,df_raw,df.samples,df.temps){#input df_raw
   #get filtered data
@@ -2061,7 +2035,8 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE,alpha){
       
     }else if ( pred1$AUC[1]< -5){
       pred1$AUC<-pracma::trapz(pred$lwrP)-pracma::trapz(pred1$uprP)#AUC diff in destabilized CI
-    }else{
+   
+       }else{
       pred1$AUC<-pracma::trapz(pred1$fit)-pracma::trapz(pred$fit) #AUC diff in fit
     }
     pred1$Tm<-stats::approx(pred1$fit,pred1$C,0.5)$y-stats::approx(pred$fit,pred$C,0.5)$y# Tm difference (+ stabilized)
