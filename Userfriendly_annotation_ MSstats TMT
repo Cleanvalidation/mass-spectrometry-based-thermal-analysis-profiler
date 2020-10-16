@@ -1,8 +1,6 @@
 
 
 
-
-
 #Reaname column name according to Diffrent version PSMs file:
 
 #main header names change code
@@ -74,10 +72,17 @@ Pattern <- function (Annotation3){
 
 
   #Annotation3 <- dplyr::bind_rows(Annotation3)
-  Annotation3 <- Annotation3[order(Annotation3[,"Pattern1"]),]
-  Annotation3<- Annotation3 %>% dplyr::group_split(shortnames,BioReplicate,Sampleid)
-  Annotation3<- lapply(Annotation3,function(x) x %>% dplyr::mutate(Fraction=row.names(.)))
-  Annotation3<-lapply(Annotation3,function(x) x %>% dplyr::mutate(Channel=data.frame(Channel==TMT10))) 
+  Annotation3.a <- Annotation3[order(Annotation3[,"Pattern1"]),]
+  Annotation3.a<- Annotation3.a  %>% dplyr::group_split(shortnames,BioReplicate)
+  Annotation3.a<- dplyr::bind_rows(Annotation3.a)
+  
+  Annotation3.a <- rep(Annotation3.a,10)
+
+  
+  Annotation3.a <- lapply(Annotation3.a ,function(x) x %>% dplyr::mutate(Fraction=row.names(.)))
+
+  
+  Annotation3.a <-lapply(Annotation3.a ,function(x) x %>% dplyr::mutate(Channel=data.frame(Channel==TMT10))) 
   ############################################################################################################################
   
 
@@ -135,4 +140,5 @@ Annotation3 <-Annotation3  %>% dplyr::mutate(Condition = ifelse(Channel == 126, 
 nonID<-  Fra_userinput %>% filter_all(any_vars(. %in% "F0"))
 PSMsnew<-subset(editedPSMsfile, Spectrum.File==nonID)
 Annotationnew<-subset(Annotation3,Fraction==nonID)
+
 
