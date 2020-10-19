@@ -97,6 +97,7 @@ Annotation3 <- suppressWarnings(Pattern(editPSMs))
   #repeat fractions 10 times because all fractions were labeled with TMT
   Annotation3<-lapply(Annotation3,function(x) x[rep(seq_len(nrow(x)), each = 10), ]) 
   #now group and label TMT
+  Annotation3<-lapply(Annotation3,function(x) x %>% dplyr::mutate(Channel=rep(TMT10,nrow(x)/length(TMT10))))
   
   ###################################################################
   #Generating the Data frame consist of Annotation file columns
