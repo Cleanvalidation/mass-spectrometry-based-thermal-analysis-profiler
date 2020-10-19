@@ -1,9 +1,6 @@
-
-
-
-
-
-#Reaname column name according to Diffrent version PSMs file:
+#import data
+PSMs <- read.delim("~/CS7290/PSMs.txt", stringsAsFactors=TRUE)
+#Reaname column name according to Diffrent version #PSMs file:
 
 #main header names change code
 Changecolname <- function(non_edited_PSMs){
