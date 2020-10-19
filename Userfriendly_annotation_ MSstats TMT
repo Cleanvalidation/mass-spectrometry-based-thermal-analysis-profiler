@@ -1,6 +1,8 @@
 
 
 
+
+
 #Reaname column name according to Diffrent version PSMs file:
 
 #main header names change code
@@ -74,11 +76,12 @@ Pattern <- function (Annotation3){
   #Annotation3 <- dplyr::bind_rows(Annotation3)
   Annotation3.a <- Annotation3[order(Annotation3[,"Pattern1"]),]
   Annotation3.a<- Annotation3.a  %>% dplyr::group_split(shortnames,BioReplicate)
-  Annotation3.a<- dplyr::bind_rows(Annotation3.a)
-  
-  Annotation3.a <- rep(Annotation3.a,10)
+
 
   
+  Annotation3.a <- lapply(Annotation3.a ,function(x) x %>% rep((seq_len(nrow(Annotation3.a[[1]]))),each = 10))
+
+
   Annotation3.a <- lapply(Annotation3.a ,function(x) x %>% dplyr::mutate(Fraction=row.names(.)))
 
   
