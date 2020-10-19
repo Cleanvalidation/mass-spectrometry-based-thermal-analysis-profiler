@@ -2173,11 +2173,11 @@ fitSingleSigmoid <- function(x , y, start =c(Pl=0, a = 550, b = 10))
           algorithm = "port",
           lower = c(0.0,1e-5,1e-5),
           upper = c(1.5,15000,250),
-          control = nls.control(maxiter = 50)),
+          control = nls.control(maxiter = 20)),
       silent = TRUE)
 }
 repeatFits <- function(x,y, start= c(Pl = 0, a = 550, b=10),
-                       seed = NULL, alwaysPermute = FALSE, maxAttempts = 50){
+                       seed = NULL, alwaysPermute = FALSE, maxAttempts = 20){
   i <-0
   doFit <- TRUE
   doVaryPars <-alwaysPermute
@@ -2196,7 +2196,7 @@ repeatFits <- function(x,y, start= c(Pl = 0, a = 550, b=10),
 }
 
 computeRSS <- function(x,y,start = c(Pl = 0, a = 550, b=10),seed = NULL,
-                       alwaysPermute = FALSE,maxAttempts = 50){
+                       alwaysPermute = FALSE,maxAttempts = 20){
   #start model fitting
   fit <- repeatFits(x=x, y=y,start=start,seed=seed,alwaysPermute=alwaysPermute,maxAttempts = maxAttempts)
   if(!inherits(fit,"try-error")){
@@ -2223,7 +2223,7 @@ computeRSS <- function(x,y,start = c(Pl = 0, a = 550, b=10),seed = NULL,
 # #GoF by RSS comparison for each protein
 # #RSS difference
 # 
-computeRSSdiff <- function(x,y,treatment,maxAttempts = 100, repeatsIfNeg = 50){
+computeRSSdiff <- function(x,y,treatment,maxAttempts = 20, repeatsIfNeg = 50){
   rssDiff <- -1
   repeats <- 0
   alwaysPermute <- FALSE
@@ -2363,7 +2363,7 @@ sigfit<-function(res[[2]],res_sp[[2]],i){
     nlm1<-df_ %>% purrr::keep(function(x)!inherits(fitSingleSigmoid(x$C,x$I),'try-error')) #flag and omit non-sigmoidal data
    
     #calculate fit for the subset of proteins with sigmoidal behavior
-    nlm2<-lapply(nlm1,function(x)x %>% dplyr::mutate(fit = list(fitSingleSigmoid(x$C,x$I)))) #fit sigmoids
+    nlm2<-lapply(nlm1,function(x)x %>% dplyr::mutate(fit = list(try(fitSingleSigmoid(x$C,x$I))))) #fit sigmoids
     
     #remove proteins with a plateau value of zero 
     CT<-nlm2 %>% purrr::keep(function(x) !coef(x$fit[[1]])[[1]]==0)#find values where Pl = 0 
@@ -2381,13 +2381,14 @@ sigfit<-function(res[[2]],res_sp[[2]],i){
     result<-purrr::map2(result[1:length(Tm)],Tm,function(x,y)cbind(x,data.frame(y))%>% dplyr::rename("Tm"="y"))
     #append AUC
     Pred<-purrr::map2(result[1:length(Tm)],AUC[1:length(Tm),],function(x,y)cbind(x,data.frame(y))%>% dplyr::rename("AUC"="y"))
+    
     #append RSS
     Pred<-purrr::map(Pred,function(x) x %>% dplyr::mutate(RSS=deviance(x$fit[[1]])))
     
     #sigmoidal fit for treated
     nlm1<-df_1 %>% purrr::keep(function(x)!inherits(fitSingleSigmoid(x$C,x$I),'try-error')) #flag and omit non-sigmoidal data
     
-    nlm2<-lapply(nlm1,function(x)x %>% dplyr::mutate(fit = list(fitSingleSigmoid(x$C,x$I)))) #fit sigmoids
+    nlm2<-lapply(nlm1,function(x)x %>% dplyr::mutate(fit = list(try(fitSingleSigmoid(x$C,x$I))))) #fit sigmoids
     CT<-nlm2 %>% purrr::keep(function(x) !coef(x$fit[[1]])[[1]]==0)#find values where Pl = 0 
    
     dfc <- purrr::map(CT,function(x) try(nlstools::confint2(x$fit[[1]],level=0.95)))#collect predicted values
