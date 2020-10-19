@@ -41,23 +41,35 @@ editPSMs <- Changecolname(PSMs)
 
 ###############################################################
 #Partition file names to generate other columns
-Pattern <- function (editedPSMsfile){
-  Annotation3<-data.frame(Run=(unique(editedPSMsfile$Spectrum.File)))
+Pattern <- function (editedPSMsfile,TMT_n=10){
   
+  ###################################################################### 
+  #get all possible TMT channels
+  TMT6<- data.frame(TMT=c("126","127","128","129","130","131"))
+  TMT10<- data.frame(TMT = c("126","127N","127C","128N","128C", "129N", "129C","130N", "130C", "131"))
+  TMT11<- data.frame(TMT = c("126","127N","127C","128N","128C", "129N", "129C","130N", "130C", "131N","131C"))
+  #allocate space for the data
+  TMT<-data.frame(TMT=rep(as.character(NA),TMT_n))
+  #get user input to assign TMT channels
+  TMT<-ifelse(TMT_n==10,TMT %>% dplyr::mutate(TMT=TMT10$TMT),ifelse(TMT_n==11,TMT %>% dplyr::mutate(TMT=TMT11$TMT),TMT %>% dplyr::mutate(TMT=TMT6$TMT)))
+  TMT<-data.frame(TMT=TMT[[1]])
+  #Allocate memory in a data frame
+  Annotation3<-data.frame(Run = NA,shortnames=NA,Mixture=NA,TechRepMixure=NA,BioReplicate=NA,Pattern1=NA,Channel=NA)
+  #start filling out columns
+  Annotation3<-data.frame(Run = unique(editedPSMsfile$Spectrum.File))
+  pattern1<-stri_match_first_regex(Annotation3$Run,"[:upper:][:digit:][:digit:][:punct:]|[:upper:][:digit:][:punct:]")[,1]
   RunID <- str_split(Annotation3$Run,pattern1,simplify = TRUE)[,1]
-  #Annotation3<-data.frame(Annotation3)
   Annotation3$shortnames<- RunID 
   
   #check number of times data appears per run ID
   check<-Annotation3 %>% dplyr::group_by(shortnames) %>% dplyr::mutate(N = dplyr::n())
-  check<-check %>% dplyr::filter(N>1) 
-#filter out group sizes of 1
+  check<-check %>% dplyr::filter(N>1) #filter out group sizes of 1
+
   Annotation3<-Annotation3 %>% subset(shortnames %in% unique(check$shortnames))
   pattern1<-stri_match_first_regex(Annotation3$Run,"[:upper:][:digit:][:digit:][:punct:]|[:upper:][:digit:][:punct:]")[,1]
   ##########
   RunID_uniqe <- unique(Annotation3$shortnames)
   RunID_uniqe <-data.frame(shortnames=RunID_uniqe )
-  names(RunID_uniqe )<-"shortnames"
   size_RunID <-nrow(RunID_uniqe)
   
   Fra_UI<- vector() 
@@ -77,17 +89,7 @@ Pattern <- function (editedPSMsfile){
   #generate Bioreplicate column
   Annotation3 <-Annotation3  %>% dplyr::mutate(BioReplicate=stri_match_first_regex(Annotation3$shortnames,"[:punct:][:digit:][:punct:]") )
   Annotation3 <-Annotation3  %>% dplyr::mutate(BioReplicate=stri_match_first_regex(Annotation3$BioReplicate,"[:digit:]") ) 
-  Annotation3
-}
-Annotation3 <- suppressWarnings(Pattern(editPSMs))  
 
-
-  ###################################################################### 
-  #need edit?
-  TMT6=c("126","127","128","129","130","131")
-  TMT10= c("126","127N","127C","128N","128C", "129N", "129C","130N", "130C", "131")
-  TMT11=c("126","127N","127C","128N","128C", "129N", "129C","130N", "130C", "131","131c")
- 
   #order fractions
   Annotation3 <- Annotation3[order(Annotation3[,"Pattern1"]),]
   #split
@@ -98,24 +100,19 @@ Annotation3 <- suppressWarnings(Pattern(editPSMs))
   Annotation3<-lapply(Annotation3,function(x) x[rep(seq_len(nrow(x)), each = 10), ]) 
   #now group and label TMT
   Annotation3<-lapply(Annotation3,function(x) x %>% dplyr::mutate(Channel=rep(TMT10,nrow(x)/length(TMT10))))
-  
-  ###################################################################
-  #Generating the Data frame consist of Annotation file columns
-  Annotation3$Mixture <- ""
-  Annotation3$TechRepMixture <- ""
-  #Annotation3$Channel <- ""
-  Annotation3$BioReplicate <- ""
-  Annotation3$Condition<- "" 
-  
-  
-  
-  
   #generate Mixture information
-  Annotation3<-Annotation3 %>% dplyr::mutate (Mixture="Empty")
+  Annotation3<-lapply(Annotation3,function(x) x %>% dplyr::mutate (Mixture="Empty"))
   
-  #generate Techrepmicture information
-  Annotation3<- Annotation3 %>% dplyr::mutate (TechRepMixture=1)
-  
+  #generate Techrepmixture information
+  Annotation3<- lapply(Annotation3,function(x) x %>% dplyr::mutate (TechRepMixture=1))
+
+  return(Annotation3)
+}
+Annotation3 <- Pattern(editPSMs,10)
+
+
+ 
+
   #rearrange column Run for easier generating the channel's column
   Annotation3 <- Annotation3[order(Annotation3[,1]),]
   
@@ -134,9 +131,7 @@ Annotation3 <- suppressWarnings(Pattern(editPSMs))
   TMT10= c("126","127N","127C","128N","128C", "129N", "129C","130N", "130C", "131")
   TMT11=c("126","127N","127C","128N","128C", "129N", "129C","130N", "130C", "131","131c")
   N2<-NROW(unique(Annotation$Run))
-  #Annotation <-Annotation %>% dplyr::mutate (Channel = rep(TMT10,N2))
-  
-  
+
   #generate condition column?
   Annotation3 <-Annotation3  %>% dplyr::mutate(Condition = ifelse(Channel == 126, "Norm",ifelse(Fraction == "F1" | Fraction == "F2",0,1)) )
   
