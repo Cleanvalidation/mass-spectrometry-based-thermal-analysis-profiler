@@ -600,15 +600,15 @@ CFAIMSPHI<-str_replace(d$sample_name,"[:digit:]","")
 #Set unique names as dataset for plots
 d$Dataset<-CFAIMSPHI
 #
-d<-d %>% dplyr::filter(Dataset == "CNOFAIMSPHI"| Dataset=="CNOFAIMS")
+d<-d %>% dplyr::filter(Dataset == "NCNOFAIMSPHI"| Dataset=="NCNOFAIMS")
 #d$CC<-ifelse(d$dataset=="F4" | d$dataset=="F5",0,1)
 #study the effect of FAIMS with
-d$dataset<-ifelse(stringr::str_detect(tolower(d$Dataset),'cnofaimsphi')=="TRUE" ,"vehicle","treated")
+d$dataset<-ifelse(stringr::str_detect(tolower(d$Dataset),'ncnofaimsphi')=="TRUE" ,"treated","vehicle")
 
 #d$dataset<-ifelse(stringr::str_detect(tolower(d$sample_name),'cnofaimsphi')=="TRUE" | stringr::str_detect(tolower(d$sample_name),'ncnofaims')=="TRUE","vehicle","treated")
 #d$dataset<-ifelse(d$dataset=="F4" | d$dataset=="F5","vehicle","treated")#dataset is defined by PD sample definition
 #study the effect of FAIMS as the dataset
-d$CC<-ifelse(stringr::str_detect(tolower(d$sample_name),'cnofaimsphi')=="TRUE" ,1,0)
+d$CC<-ifelse(stringr::str_detect(tolower(d$sample_name),'ncnofaimsphi')=="TRUE" ,1,0)
 
 DF<-d %>% dplyr::group_split(uniqueID) #split null dataset only by protein ID
 d_<-d %>% dplyr::filter(CC == 0) %>% dplyr::group_split(uniqueID,dataset) #split vehicle dataset
@@ -1298,28 +1298,28 @@ spstat<-function(DF,df,df1,PI=FALSE,Ftest=TRUE){
   df1<-df1 %>% dplyr::group_split(uniqueID) 
   #remove NA vaues
   DF<-lapply(DF,function(x)na.omit(x))
-  df<-df %>% dplyr::group_split(uniqueID) 
-  df1<-df1 %>% dplyr::group_split(uniqueID) 
+  df<-lapply(df,function(x)na.omit(x))
+  df1<-lapply(df1,function(x)na.omit(x))
   if(!isTRUE(PI)){
     
     #alternative spline fit method : Generalized Additive Models
     #fit penalized splines
     m <- lapply(df,function(x)x %>% dplyr::mutate(M1 = list(try(mgcv::gam(x$I ~ s(x$C,k=5), data = x , method = "REML")))))
-    m<-m %>% purrr::keep(function(x)any(class(x$M1[[1]])=='gam'))
+    m<-m %>% purrr::keep(function(x)any(class(dplyr::first(x$M1))=="gam"))
     #check significance and refit data with more k 
     m<-lapply(m,function(x)x %>% dplyr::mutate(k_ = .$M1[[1]]$rank,
                                                sum = list(summary(.$M1[[1]])),
-                                               Tm=with(x, stats::approx(x$I,x$C, xout=max(x$I, na.rm=TRUE)-0.5))$y,
+                                               Tm=ifelse(any(class(dplyr::first(.$M1[[1]]))=="gam"),try(with(x, stats::approx(x$I,x$C, xout=max(x$I, na.rm=TRUE)-0.5))$y),NA),
                                                rss=deviance(.$M1[[1]]),
                                                CV_pct = .$CV_pct,
                                                AUC = pracma::trapz(.$M1[[1]]$fit)))
     #m<-lapply(m,function(x) x %>% dplyr::mutate(sig = ifelse(sum[[1]]$p.pv[[1]]<0.05,list(mgcv::gam(I ~ s(C,k=k_[[1]]-1), data = x , method = "REML")),"ns")))
     m1 <- lapply(df1,function(x)x %>% dplyr::mutate(M1 = list(try(mgcv::gam(I ~ s(C,k=5), data = x , method = "REML")))))
-    m1<-m1 %>% purrr::keep(function(x)any(class(x$M1[[1]])=='gam'))
+    m1<-m1 %>% purrr::keep(function(x)any(class(dplyr::first(x$M1))=="gam"))
     #check significance and refit data with more k 
     m1<-lapply(df1,function(x)x %>% dplyr::mutate(k_ = .$M1[[1]]$rank,
                                                   sum = list(summary(.$M1[[1]])),
-                                                  Tm=with(x, stats::approx(x$I,x$C, xout=max(x$I, na.rm=TRUE)-0.5))$y,
+                                                  Tm=ifelse(any(class(dplyr::first(.$M1[[1]]))=="gam"),try(with(x, stats::approx(x$I,x$C, xout=max(x$I, na.rm=TRUE)-0.5))$y),NA),
                                                   rss=deviance(.$M1[[1]]),
                                                   CV_pct = .$CV_pct,
                                                   AUC = pracma::trapz(.$M1[[1]]$fit)))
@@ -1327,11 +1327,11 @@ spstat<-function(DF,df,df1,PI=FALSE,Ftest=TRUE){
     
     
     mn<- lapply(DF,function(x)x %>% dplyr::mutate(M1 = list(try(mgcv::gam(I ~ s(C,k=5), data =x, method = "REML")))))
-    mn<-mn %>% purrr::keep(function(x)any(class(x$M1[[1]])=='gam'))
+    mn<-mn %>% purrr::keep(function(x)any(class(dplyr::first(x$M1))=="gam"))
     #check significance and refit data with more k 
     mn<-lapply(mn,function(x)x %>% dplyr::mutate(k_ = .$M1[[1]]$rank,
                                                  sum = list(summary(.$M1[[1]])),
-                                                 Tm=with(x, stats::approx(x$I,x$C, xout=max(x$I, na.rm=TRUE)-0.5))$y,
+                                                 Tm=ifelse(any(class(dplyr::first(.$M1[[1]]))=="gam"),try(with(x, stats::approx(x$I,x$C, xout=max(x$I, na.rm=TRUE)-0.5))$y),NA),
                                                  rss=deviance(.$M1[[1]]),
                                                  CV_pct=.$CV_pct,
                                                  AUC = pracma::trapz(.$M1[[1]]$fit)))
@@ -1887,9 +1887,37 @@ rsq<-function(Df1,MD=FALSE){#input df_raw
   
 }
 rsq(res_sp[[3]],MD=TRUE)
+
+#plot global violin plots for Rsquared splines
+AUC_V<-function(Df1,MD=FALSE){#input df_raw
+  test<-dplyr::bind_rows(Df1)
+  
+  if(MD==TRUE){
+    test$Dataset<-as.factor(test$Dataset)
+    levels(test$Dataset)<-rev(levels(test$Dataset))
+    ggplot(test,aes(y=AUC,x=Dataset,fill=Dataset,alpha=0.2))+
+      geom_violin(na.rm=TRUE,show.legend="FALSE",color=NA)+theme_bw()+
+      geom_boxplot(width=0.1) +
+      ggplot2::ylab("AUC splines")+
+      ggplot2::xlab("sample")+
+      theme(axis.text.x = element_text(angle = 90))
+  }else{
+    test$dataset<-as.factor(test$dataset)
+    levels(test$dataset)<-rev(levels(test$dataset))
+    ggplot(test,aes(y=AUC,x=dataset,fill=dataset,alpha=0.2))+
+      geom_violin(na.rm=TRUE,show.legend="FALSE",color=NA)+theme_bw()+
+      geom_boxplot(width=0.1) +
+      ggplot2::ylab("AUC splines")+
+      ggplot2::xlab("sample")+
+      theme(axis.text.x = element_text(angle = 90))
+  }
+  
+}
+AUC_V(res_sp[[3]],MD=TRUE)
 #plot global histograms for variability 
 viol_int<-function(fdata,df_raw,df.samples,df.temps,MD=FALSE){#input df_raw
   #get filtered data
+
   fdata<-dplyr::bind_rows(fdata)
   df.samples<-dplyr::rename(df.samples,"Dataset"="sample_name")
   #fdata<-fdata %>% dplyr::rename("Dataset"="sample_name")
@@ -1909,8 +1937,9 @@ viol_int<-function(fdata,df_raw,df.samples,df.temps,MD=FALSE){#input df_raw
   #add temperature values
   test<-test %>% 
     dplyr::left_join(df.temps,by="temp_ref") %>% dplyr::rename("C"="temperature","I"="value")
+  fdata<-fdata %>% dplyr::rename("dataset"="dataset.x")
   fdata$dataset<-as.factor(fdata$dataset)
-  fdata<-test %>% dplyr::full_join(fdata,by=c("Accession"="uniqueID","C"="C","Dataset"="Dataset","RunID"="RunID"))
+  fdata<-test %>% dplyr::full_join(fdata,by=c("Accession"="uniqueID","C"="C","Dataset"="Dataset"))
   # d<-max(nchar(unique(fdata$Dataset)))
   # fdata<-fdata %>% dplyr::mutate(dataset = ifelse(nchar(.$Dataset)<d,"vehicle","treated"))
   # 
@@ -1931,7 +1960,7 @@ viol_int<-function(fdata,df_raw,df.samples,df.temps,MD=FALSE){#input df_raw
     fdata$dataset<-as.factor(fdata$dataset)
     levels(fdata$dataset)<-rev(levels(fdata$dataset))
     ggplot(fdata,aes(y=logI,x=dataset,fill=dataset,alpha=0.2))+
-      facet_grid(~C)+
+      facet_grid(~C,~temp_ref)+
       geom_violin(na.rm=TRUE,show.legend="FALSE",color=NA)+theme_bw()+
       geom_boxplot(width=0.1) +
       ggplot2::ylab("log2(Intensity)")+
@@ -1955,7 +1984,8 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE,alpha){
   null<-data.frame()
   i<-i
   #rename columns 
-  df2<-df2 %>% dplyr::rename("missing"="missing.x","sample_name"="sample_name.x","n"="n.x") %>% dplyr::select(-n.y)
+  df2<-df2 %>% dplyr::mutate(missing=df2$missing.x,sample_name=df2$sample_name.x)
+  df2<-df2 %>% dplyr::rename("n"="n.x") %>% dplyr::select(-n.y)
   #set C and I as numeric
   df2$C<-as.numeric(as.vector(df2$C))
   df2$I<-as.numeric(as.vector(df2$I))
@@ -2283,7 +2313,7 @@ sigCI <- function(object, parm, level = 0.95, method = c("asymptotic", "profile"
   switch(method, asymptotic = asCI(object, parm, level), profile = asProf(object, parm, level))
 }
 
-  sigfit<-function(res[[2]],res_sp[[2]],i){
+sigfit<-function(res[[2]],res_sp[[2]],i){
     df_<-DFN
     df_1<-DFN
     DFN<-DFN
@@ -2330,7 +2360,7 @@ sigCI <- function(object, parm, level = 0.95, method = c("asymptotic", "profile"
     DFN<-lapply(DFN,function(x) x %>% dplyr::group_by(C) %>% dplyr::mutate(I = mean(I)))
     #sigmoidal fit for vehicle
     #remove non-sigmoidal behaving proteins
-    nlm1<-df_ %>% purrr::keep(function(x)inherits(fitSingleSigmoid(x$C,x$I),'try-error')) #flag and omit non-sigmoidal data
+    nlm1<-df_ %>% purrr::keep(function(x)!inherits(fitSingleSigmoid(x$C,x$I),'try-error')) #flag and omit non-sigmoidal data
    
     #calculate fit for the subset of proteins with sigmoidal behavior
     nlm2<-lapply(nlm1,function(x)x %>% dplyr::mutate(fit = list(fitSingleSigmoid(x$C,x$I)))) #fit sigmoids
@@ -2376,7 +2406,7 @@ sigCI <- function(object, parm, level = 0.95, method = c("asymptotic", "profile"
     Pred1<-purrr::map(Pred1,function(x) x %>% dplyr::mutate(RSS=deviance(x$fit[[1]])))
 
     #find common IDs between vehicle and treated with converging models
-    ID<-dplyr::bind_rows(result)$uniqueID %>% unique(.)
+    ID<-dplyr::bind_rows(result)$uniqueID 
     names(ID)<-"uniqueID"
     ID1<-dplyr::bind_rows(result1)$uniqueID %>% unique(.)
     names(ID1)<-"uniqueID"
