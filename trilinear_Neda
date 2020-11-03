@@ -39,14 +39,14 @@ theme_set(theme_bw())
 #' @export
 #' 
 read_cetsa <- function(f){
-
-      df.raw <- readxl::read_excel(f)
-      df <- df.raw%>%
-        dplyr::select(Accession, tidyselect::starts_with('Abundance')) %>%
-        tidyr::gather('id', 'value', -Accession) %>%
-        dplyr::mutate(sample = dplyr::mutate(sample = stringr::str_extract(id, '(?<=Abundance: ).*(?=:)'), 
-                      temp_ref = stringr::str_extract(id, '([:digit:][:digit:][:digit:]+[N|C]?)')))
- df
+  
+  df.raw <- readxl::read_excel(f)
+  df <- df.raw%>%
+    dplyr::select(Accession, tidyselect::starts_with('Abundance')) %>%
+    tidyr::gather('id', 'value', -Accession) %>%
+    dplyr::mutate(sample = stringr::str_extract(id, '(?<=Abundance: ).*(?=:)'), 
+                           temp_ref = stringr::str_extract(id, '([:digit:][:digit:][:digit:]+[N|C]?)'))
+                  df
 }
 
 #' Clean data
