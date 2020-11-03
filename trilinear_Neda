@@ -598,7 +598,45 @@ d_1$LineRegion<-1
 DF<-DF %>%  dplyr::group_split(uniqueID) 
 d_<-d_ %>% dplyr::group_split(uniqueID,dataset) 
 d_1<-d_1 %>% dplyr::group_split(uniqueID,dataset) 
+###################################################
+#MSstats TMT normalized data rearrenging to prepare use in next steps:
+#fisrt define your normalized output excel file as "finaltest_new"
+finaltest_new <- yourfile
 
+#rename Protein column to Accession like cetsa data
+x1 <- finaltest_new %>% dplyr::rename(Protein,Accession=Protein)
+
+#generate I column by renaming Abundance column 
+x1 <- x1 %>% dplyr::rename(Abundance,I=Abundance)
+
+#generate Fraction(named RUN) column according to condition and bioReplicate column 
+x1<- x1 %>% dplyr::mutate(Run=ifelse(Condition==0 & BioReplicate==1,"F1",ifelse(Condition==0 & BioReplicate==2,"F2",ifelse(Condition==1 & BioReplicate==1,"F3","F4"))))
+
+#Generate sample_name according to Fraction(named Run)
+x1<- x1 %>% dplyr::mutate(sample_name=ifelse(Run== "F1" ,"DMSO_1",ifelse(Run=="F2","DMSO_2",ifelse(Run=="F3","655_1","655_2"))))
+
+#generate dataset column according to Fraction(named Run)
+x1<- x1 %>% dplyr::mutate(dataset=ifelse(Run== "F1" | Run=="F2","vehicle","tretaed"))
+
+#rename channel column to temp_ref 
+x1 <- x1 %>% dplyr::rename(Channel,temp_ref=Channel)
+
+#add column temperature from file df.temp and rename it to C
+x1 <- df.temps %>% dplyr::left_join(x1,by="temp_ref")
+x1 <- x1 %>% dplyr::rename(temperature,C=temperature)
+
+#rename Condition column to CC
+x1 <- x1 %>% dplyr::rename(Condition,CC=Condition)
+
+#generate Dataset column according to sample_name
+x1<-x1 %>% dplyr::mutate(Dataset=(str_split_fixed(x2$sample_name,"_",2)))
+#x2<- x2 %>% dplyr::mutate(Dataset=(stri_match_first_regex(x2$sample_name,"[:digit:]")))
+
+#generate missing column according to I column
+x1<-x1 %>% dplyr::mutate(missing=ifelse(is.na(I),TRUE,FALSE))
+
+# select needed  column data 
+DF.msstat<- x1 %>% dplyr::select(Accession,dataset,C,I,sample_name,CC,missing,Dataset)
 ################################
 DLR<-function(d){
   #preallocate final result as a list
