@@ -45,10 +45,9 @@ read_cetsa <- function(f){
         dplyr::select(Accession, tidyselect::starts_with('Abundance')) %>%
         tidyr::gather('id', 'value', -Accession) %>%
         dplyr::mutate(sample = dplyr::mutate(sample = stringr::str_extract(id, '(?<=Abundance: ).*(?=:)'), 
-                      temp_ref = stringr::str_extract(id, '([:digit:][:digit:][:digit:]+[N|C]?)'))
+                      temp_ref = stringr::str_extract(id, '([:digit:][:digit:][:digit:]+[N|C]?)')))
  df
 }
-
 
 #' Clean data
 #'
