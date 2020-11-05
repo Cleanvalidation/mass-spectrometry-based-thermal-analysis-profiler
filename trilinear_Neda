@@ -530,7 +530,6 @@ find_pat = function(pat, x)
 
 ##################################
 
-# #prepare a list of proteins
 setwd("~/CS7290-/internal data")
 
 #rename to the folder where your PSM file is located
@@ -545,7 +544,7 @@ missing<-sum(is.na(df_raw$value))
 #annotate protein data with missing values
 MID<-df_raw[is.na(df_raw$value),]
 #flag missing values in data
-df_raw<-df_raw %>%  dplyr::mutate(missing = Accession %in% MID$Accession,"TRUE","FALSE")
+df_raw<-df_raw %>%  dplyr::mutate(missing = ifelse(Accession %in% MID$Accession,"TRUE","FALSE"))
 #assign TMT channel and temperature data
 df_clean <- clean_cetsa(df_raw, temperatures = df.temps, samples = df.samples)#assigns temperature and replicate values
 df_norm <- normalize_cetsa(df_clean, df.temps$temperature) #normalizes according to Franken et. al. without R-squared filter
@@ -580,8 +579,8 @@ DF<-dplyr::bind_rows(DF)
 d_<-dplyr::bind_rows(d_)
 d_1<-dplyr::bind_rows(d_1)#1 
 #make sure uniqueIDs are present for treated and vehicle
-CID<-intersect(DF$uniqueID,d_$uniqueID)
-CID<-intersect(CID,d_1$uniqueID)
+CID<-intersect(d_1$uniqueID,d_$uniqueID)
+CID<-intersect(CID,DF$uniqueID)
 DF<-DF %>% subset(.$uniqueID %in% CID)
 DF$LineRegion<-1
 d_<-d_%>% subset(.$uniqueID %in% CID)
@@ -644,7 +643,6 @@ dm_1$LineRegion<-1
 DFm<-DFm %>%  dplyr::group_split(uniqueID) 
 dm_<-dm_ %>% dplyr::group_split(uniqueID,dataset) 
 dm_1<-dm_1 %>% dplyr::group_split(uniqueID,dataset)
-################################
 ################################
 DLR<-function(d){
   #preallocate final result as a list
