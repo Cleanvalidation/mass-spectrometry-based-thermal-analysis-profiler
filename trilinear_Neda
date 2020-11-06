@@ -1454,7 +1454,7 @@ tlresults<-list()
 tlresults_PI<-list()
 #confidence intervals
 tlresults<-tlstat(DFN,df_,df_1,PI=TRUE)#place null, vehicle and treated lists with no prediction intervals
-tlf<-function(tlresults,DFN,APfilt=TRUE,PF=TRUE){
+tlf<-function(tlresults,DFN,APfilt=FALSE,PF=TRUE){
   ##Apply Filters
   #####################
   if(isTRUE(APfilt)){
@@ -1542,12 +1542,14 @@ tlf<-function(tlresults,DFN,APfilt=TRUE,PF=TRUE){
     
     #order by RSS differences while keeping original rownames for index
     #create an external data frame for stabilized proteins
-    Df1<-Dsum %>% dplyr::left_join(tlresults,by=c("uniqueID","dataset"))
-    Df1<-Df1%>% dplyr::group_split(uniqueID)
+    Df1<-Dsum %>% dplyr::left_join(tlresults,by=c("uniqueID")) %>% dplyr::rename("dataset"="dataset.y") %>% dplyr::select(-dataset.x)
+    Df1<-Df1 %>% dplyr::group_split(uniqueID)
+
     
   }
   
   df1<-list()
+  
   #get uniqueID and dataset for stable proteins with decreasing RSS differences
   df1<-lapply(Df1,function(x) x %>% dplyr::select(uniqueID,dataset) %>% head(.,1))
   df1<-data.frame(dplyr::bind_rows(df1))
