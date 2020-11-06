@@ -530,6 +530,7 @@ find_pat = function(pat, x)
 
 ##################################
 
+# #prepare a list of proteins
 setwd("~/CS7290-/internal data")
 
 #rename to the folder where your PSM file is located
@@ -764,8 +765,6 @@ DLR<-function(d){
   df_0<-df_0 %>% dplyr::group_split(uniqueID)
   return(df_0)
 }
-
-
 #this function takes original data with replicates as an input
 CP<-function(df_0,d){ #df_0 is the result data frame and d is the orginal data with replicates
   df_0<-lapply(df_0, function(x) x %>% dplyr::select(-missing,-CI))
@@ -810,33 +809,25 @@ CP<-function(df_0,d){ #df_0 is the result data frame and d is the orginal data w
   
   return(dap)
 }
-
 #preallocate list
 results<-vector(mode = "list", length(d_))
 results_t<-vector(mode = "list",length(d_1))
 results_n<-vector(mode = "list",length(DF))
-
 results<-suppressWarnings(DLR(d_))#First guess at line regions
 results_t<-suppressWarnings(DLR(d_1))
 results_n<-suppressWarnings(DLR(DF))
-
 #reassign change points shared between line regions
 d<-DF
 df_<-lapply(d,function(x) x %>% dplyr::filter(dataset=="vehicle"))
 df_1<-lapply(d,function(x) x %>% dplyr::filter(dataset=="treated"))
-
 df_<-suppressWarnings(CP(results,df_))
 df_1<-suppressWarnings(CP(results_t,df_1))
 DFN<-suppressWarnings(CP(results_n,d))# 
 #remove results to save space 
-rm(results,results_t,results_n,d_,d_1,DF)#10
-
-
-
+#rm(results,results_t,results_n,d_,d_1,DF)#10
 df_<-lapply(df_ ,function(x)x[order(x$C),])
 df_1<-lapply(df_1,function(x)x[order(x$C),])
 DFN<-lapply(DFN,function(x)x[order(x$C),])
-
 df_<-purrr::map2(df_,seq(df_),function(x,y)x %>% dplyr::mutate(N=y))
 df_1<-purrr::map2(df_1,seq(df_1),function(x,y)x %>% dplyr::mutate(N=y))
 DFN<-purrr::map2(DFN,seq(DFN),function(x,y)x %>% dplyr::mutate(N=y))
@@ -1236,8 +1227,6 @@ tlstat<-function(DF,df,df1,PI=FALSE){
   }
   return(results)
 }
-
-
 spstat<-function(DF,df,df1,PI=FALSE,Ftest=TRUE){
   
   df<-df %>% purrr::keep(function(x) is.data.frame(x))
@@ -1465,7 +1454,6 @@ tlresults<-list()
 tlresults_PI<-list()
 #confidence intervals
 tlresults<-tlstat(DFN,df_,df_1,PI=TRUE)#place null, vehicle and treated lists with no prediction intervals
-
 tlf<-function(tlresults,DFN,APfilt=TRUE,PF=TRUE){
   ##Apply Filters
   #####################
@@ -1554,8 +1542,8 @@ tlf<-function(tlresults,DFN,APfilt=TRUE,PF=TRUE){
     
     #order by RSS differences while keeping original rownames for index
     #create an external data frame for stabilized proteins
-    Df1<-Dsum %>% dplyr::left_join(tlresults,by="uniqueID")
-    Df1<-dplyr::group_split(uniqueID)
+    Df1<-Dsum %>% dplyr::left_join(tlresults,by=c("uniqueID","dataset"))
+    Df1<-Df1%>% dplyr::group_split(uniqueID)
     
   }
   
@@ -1579,7 +1567,7 @@ tlf<-function(tlresults,DFN,APfilt=TRUE,PF=TRUE){
   return(list(df1,df2,Df1))
 }
 #return filtered lists
-res<-tlf(tlresults,DFN,APfilt=FALSE,PF=FALSE)
+res<-tlf(tlresults,DFN,APfilt=FALSE,PF=TRUE)
 tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
   null<-data.frame()
   i<-i
@@ -1762,7 +1750,6 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
   }
 }
 i=1
-
 plotTL<-tlCI(i,res[[1]],res[[2]],res[[3]],overlay=TRUE)
 #df1 <- only IDs in order desc(stability)
 #df2<-original data in order  
@@ -1771,9 +1758,7 @@ plotTL<-tlCI(i,res[[1]],res[[2]],res[[3]],overlay=TRUE)
 #get spline results
 spresults<-list()
 spresults_PI<-list()
-
 spresults<-spstat(DFN,df_,df_1,PI=FALSE,Ftest=FALSE)
-
 spf<-function(spresults,filters = TRUE){
   #spresults<-spresults %>% dplyr::select(-sample_name.y,-Dataset.y) %>% dplyr::rename("Dataset"="Dataset.x","sample_name"="sample_name.x")
   spresults1<-spresults
@@ -1825,7 +1810,6 @@ spf<-function(spresults,filters = TRUE){
   return(ret)
 }
 res_sp<-spf(spresults,filters=FALSE)
-
 rmvn <- function(n, mu, sig) { ## MVN random deviates
   L <- mroot(sig)
   m <- ncol(L)
@@ -2009,13 +1993,11 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE,alpha){
   
   print(plot)  
 }
-
 #generate 95%CI for splines
 Pred<-spCI(i,res_sp[[1]],res_sp[[2]],res_sp[[3]],overlay=TRUE,alpha=0.05)
 ##################################################
 #Sigmoidal function with confidence intervals
 ###################################################
-
 fitSingleSigmoid <- function(x , y, start =c(Pl=0, a = 550, b = 10))
 {
   try(nls(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl,
@@ -2046,7 +2028,6 @@ repeatFits <- function(x,y, start= c(Pl = 0, a = 550, b=10),
   }
   return(m)
 }
-
 computeRSS <- function(x,y,start = c(Pl = 0, a = 550, b=10),seed = NULL,
                        alwaysPermute = FALSE,maxAttempts = 20){
   #start model fitting
@@ -2164,7 +2145,6 @@ sigCI <- function(object, parm, level = 0.95, method = c("asymptotic", "profile"
   
   switch(method, asymptotic = asCI(object, parm, level), profile = asProf(object, parm, level))
 }
-
 sigfit<-function(DFN,i,MD=TRUE){
   
   df_<-DFN
@@ -2363,7 +2343,6 @@ sigfit<-function(DFN,i,MD=TRUE){
   return(dplyr::bind_rows(Pred,Pred1))
 }
 PlSig<-sigfit(DFN,i,MD=TRUE)
-
 #needs work
 VennMet<-function(res,res_sp,MID){
   #Venn Creation
@@ -2392,5 +2371,3 @@ VennMet<-function(res,res_sp,MID){
   draw.single.venn(22, category = "Dog People", lty = "blank", fill = "cornflower blue", 
                    alpha = 0.5)
 }
-
-        
