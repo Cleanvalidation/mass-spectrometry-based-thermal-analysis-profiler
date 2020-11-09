@@ -70,8 +70,8 @@ Pattern <- function (editedPSMsfile,TMT_n=10){
     #F3="655_1"
     #F4="655_2"
   }
-  Fra_UI <-  data.frame(shortnames=RunID_uniqe,Sampleid=(do.call(paste0, expand.grid(factor(c('F'),levels = c('F')),Fra_UI))))
-
+  Fra_UI <-  data.frame(shortnames=RunID_uniqe,Fraction=(do.call(paste0, expand.grid(factor(c('F'),levels = c('F')),Fra_UI))))
+  
   Annotation3 <-dplyr::left_join(Annotation3,Fra_UI,by="shortnames")
   Annotation3 <- Annotation3 %>% dplyr::mutate(Pattern1=pattern1)
   
@@ -82,33 +82,34 @@ Pattern <- function (editedPSMsfile,TMT_n=10){
   #order fractions
   Annotation3 <- Annotation3[order(Annotation3[,"Pattern1"]),]
   #split
-  Annotation3<- Annotation3 %>% dplyr::group_split(shortnames,BioReplicate,Sampleid)
+  Annotation3<- Annotation3 %>% dplyr::group_split(shortnames,BioReplicate,Fraction)
   #add fractions
-  Annotation3<- lapply(Annotation3,function(x) x %>% dplyr::mutate(Fraction=row.names(.)))
+  Annotation3<- lapply(Annotation3,function(x) x %>% dplyr::mutate(samplefractions=row.names(.)))
   #repeat fractions 10 times because all fractions were labeled with TMT
   Annotation3<-lapply(Annotation3,function(x) x[rep(seq_len(nrow(x)), each = 10), ]) 
   #now group and label TMT
   Annotation3<-lapply(Annotation3,function(x) x %>% dplyr::mutate(Channel=rep(TMT10,nrow(x)/length(TMT10))))
-  #generate Mixture information
-  Annotation3<-lapply(Annotation3,function(x) x %>% dplyr::mutate (Mixture="Empty"))
+ 
   
   #generate Techrepmixture information
   Annotation3<- lapply(Annotation3,function(x) x %>% dplyr::mutate (TechRepMixture=1))
   #generate Conditioninformation
-  Annotation3 <-lapply(Annotation3,function(x) x  %>% dplyr::mutate(Condition = ifelse(Channel == "126", "Norm",ifelse(Sampleid=="F1"|Sampleid=="F2",0,1))))
+  Annotation3 <-lapply(Annotation3,function(x) x  %>% dplyr::mutate(Condition = ifelse(Channel == "126", "Norm",ifelse(Fraction=="F1"|Fraction=="F2",0,1))))
+  #generate Mixture information
+  Annotation3<-lapply(Annotation3,function(x) x %>% dplyr::mutate (Mixture=Condition))
   #generate  final table
   Annotation3<-do.call(rbind.data.frame, Annotation3)
   return(Annotation3)
 }
 #call function
-Annotation3 <- Pattern(editPSMs,10)
+Annotation<- Pattern(editPSMs,10)
 
-PSMsnew<-subset(editPSMs, Spectrum.File!="cpQEX190924_A549_DMSO_1_A10_eFT_30K_22min.raw")
+editPSMs<-subset(editPSMs, Spectrum.File!="cpQEX190924_A549_DMSO_1_A10_eFT_30K_22min.raw")
 ########################################
 #Masstats TMT
 Norm_input<- PDtoMSstatsTMTFormat(
-  PSMsnew,
-  Annotation3,
+  editPSMs,
+  Annotation,
   which.proteinid = "Protein.Accessions",
   useNumProteinsColumn = TRUE,
   useUniquePeptide = TRUE,
@@ -118,7 +119,7 @@ Norm_input<- PDtoMSstatsTMTFormat(
   summaryforMultipleRows = sum
 )
 
-finaltest_Global<-proteinSummarization(
+finalNorm<-proteinSummarization(
   Norm_input,
   method = "msstats",
   global_norm = TRUE,
@@ -150,4 +151,4 @@ plot_Norm<-dataProcessPlotsTMT(
   address = ""
 )
 
-write_xlsx (finaltest,"C:\\Users\\karin\\Documents\\R\\MSstat\\MSstats_userfriendly_annotationfilecode\\finaltest.xlsx") 
+#write_xlsx (finaltest,"C:\\Users\\karin\\Documents\\R\\MSstat\\MSstats_userfriendly_annotationfilecode\\finaltest.xlsx") 
