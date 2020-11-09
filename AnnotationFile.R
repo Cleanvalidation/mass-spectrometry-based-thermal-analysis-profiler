@@ -1,24 +1,7 @@
-#import packages
-library(minpack.lm)
-library(rlist)
-library(data.table)
-library(knitr)
-library(ggthemes)
-library(gridExtra)
-library(grid)
-library(readxl)
-library(nls2)
-library(stats)
-library(ggplot2)
-library(pkgcond)
-library(rlist)
-library(pracma)
-library(fs)
 library(tidyverse)
-library(splines)
-library(mgcv)
-library(purrr)
-library(nlstools)
+library("writexl")
+library(dplyr)
+library(MSstatsTMT)
 library(stringr)
 library(stringi)
 theme_set(theme_bw())
@@ -36,7 +19,7 @@ Changecolname <- function(non_edited_PSMs){
     dplyr::rename_all(list(~make.names(.)))
   editedPSMsfile
 }
-editPSMs <- Changecolname(PSMs)
+editPSMs <- Changecolname(non_edited_PSMs)
 ####
 
 ###############################################################
@@ -56,7 +39,7 @@ Pattern <- function (editedPSMsfile,TMT_n=10){
   #Allocate memory in a data frame
   Annotation3<-data.frame(Run = NA,shortnames=NA,Mixture=NA,TechRepMixure=NA,BioReplicate=NA,Pattern1=NA,Channel=NA)
   #start filling out columns
-  Annotation3<-data.frame(Run = unique(editedPSMsfile$Spectrum.File))
+  Annotation3<-data.frame(Run = unique(editPSMs$Spectrum.File))
   pattern1<-stri_match_first_regex(Annotation3$Run,"[:upper:][:digit:][:digit:][:punct:]|[:upper:][:digit:][:punct:]")[,1]
   RunID <- str_split(Annotation3$Run,pattern1,simplify = TRUE)[,1]
   Annotation3$shortnames<- RunID 
@@ -64,7 +47,7 @@ Pattern <- function (editedPSMsfile,TMT_n=10){
   #check number of times data appears per run ID
   check<-Annotation3 %>% dplyr::group_by(shortnames) %>% dplyr::mutate(N = dplyr::n())
   check<-check %>% dplyr::filter(N>1) #filter out group sizes of 1
-
+  
   Annotation3<-Annotation3 %>% subset(shortnames %in% unique(check$shortnames))
   pattern1<-stri_match_first_regex(Annotation3$Run,"[:upper:][:digit:][:digit:][:punct:]|[:upper:][:digit:][:punct:]")[,1]
   ##########
@@ -82,64 +65,86 @@ Pattern <- function (editedPSMsfile,TMT_n=10){
     #F3="655_1"
     #F4="655_2"
   }
-  Fra_UI <-  data.frame(shortnames=RunID_uniqe,Sampleid=(do.call(paste0, expand.grid(factor(c('F'),levels = c('F')),Fra_UI))))
+  Fra_UI <-  data.frame(shortnames=RunID_uniqe,Fraction=(do.call(paste0, expand.grid(factor(c('F'),levels = c('F')),Fra_UI))))
+  
   Annotation3 <-dplyr::left_join(Annotation3,Fra_UI,by="shortnames")
   Annotation3 <- Annotation3 %>% dplyr::mutate(Pattern1=pattern1)
   
   #generate Bioreplicate column
   Annotation3 <-Annotation3  %>% dplyr::mutate(BioReplicate=stri_match_first_regex(Annotation3$shortnames,"[:punct:][:digit:][:punct:]") )
   Annotation3 <-Annotation3  %>% dplyr::mutate(BioReplicate=stri_match_first_regex(Annotation3$BioReplicate,"[:digit:]") ) 
-
+  
   #order fractions
   Annotation3 <- Annotation3[order(Annotation3[,"Pattern1"]),]
   #split
-  Annotation3<- Annotation3 %>% dplyr::group_split(shortnames,BioReplicate,Sampleid)
+  Annotation3<- Annotation3 %>% dplyr::group_split(shortnames,BioReplicate,Fraction)
   #add fractions
-  Annotation3<- lapply(Annotation3,function(x) x %>% dplyr::mutate(Fraction=row.names(.)))
+  Annotation3<- lapply(Annotation3,function(x) x %>% dplyr::mutate(samplefractions=row.names(.)))
   #repeat fractions 10 times because all fractions were labeled with TMT
   Annotation3<-lapply(Annotation3,function(x) x[rep(seq_len(nrow(x)), each = 10), ]) 
   #now group and label TMT
   Annotation3<-lapply(Annotation3,function(x) x %>% dplyr::mutate(Channel=rep(TMT10,nrow(x)/length(TMT10))))
-  #generate Mixture information
-  Annotation3<-lapply(Annotation3,function(x) x %>% dplyr::mutate (Mixture="Empty"))
+ 
   
   #generate Techrepmixture information
   Annotation3<- lapply(Annotation3,function(x) x %>% dplyr::mutate (TechRepMixture=1))
-
+  #generate Conditioninformation
+  Annotation3 <-lapply(Annotation3,function(x) x  %>% dplyr::mutate(Condition = ifelse(Channel == "126", "Norm",ifelse(Fraction=="F1"|Fraction=="F2",0,1))))
+  #generate Mixture information
+  Annotation3<-lapply(Annotation3,function(x) x %>% dplyr::mutate (Mixture=Condition))
+  #generate  final table
+  Annotation3<-do.call(rbind.data.frame, Annotation3)
   return(Annotation3)
 }
-Annotation3 <- Pattern(editPSMs,10)
+#call function
+Annotation<- Pattern(editPSMs,10)
 
+editPSMs<-subset(editPSMs, Spectrum.File!="cpQEX190924_A549_DMSO_1_A10_eFT_30K_22min.raw")
+########################################
+#Masstats TMT
+Norm_input<- PDtoMSstatsTMTFormat(
+  editPSMs,
+  Annotation,
+  which.proteinid = "Protein.Accessions",
+  useNumProteinsColumn = TRUE,
+  useUniquePeptide = TRUE,
+  rmPSM_withMissing_withinRun = TRUE,
+  rmPSM_withfewMea_withinRun = TRUE,
+  rmProtein_with1Feature = FALSE,
+  summaryforMultipleRows = sum
+)
 
- 
+finalNorm<-proteinSummarization(
+  Norm_input,
+  method = "msstats",
+  global_norm = TRUE,
+  reference_norm = TRUE,
+  remove_norm_channel = TRUE,
+  remove_empty_channel = TRUE,
+  MBimpute = TRUE,
+  maxQuantileforCensored = NULL
+)
 
-  #rearrange column Run for easier generating the channel's column
-  Annotation3 <- Annotation3[order(Annotation3[,1]),]
-  
-  #generate  TMT10channel(it needs edit)
-  if(N==10){
-    TMT=TMT10
-  }else(N==6){
-    TMT=TMT6
-  }
-  
-  TMT=ifelse(N==6,TMT6,TMT11)
-  TMT=ifelse(N==10,c("126","127N","127C","128N","128C", "129N", "129C","130N", "130C", "131"), ifelse(N==6,TMT6,c("126","127N","127C","128N","128C", "129N", "129C","130N", "130C", "131","131c")))  
-  
-  
-  TMT6=data.frame("126","127","128","129","130","131")
-  TMT10= c("126","127N","127C","128N","128C", "129N", "129C","130N", "130C", "131")
-  TMT11=c("126","127N","127C","128N","128C", "129N", "129C","130N", "130C", "131","131c")
-  N2<-NROW(unique(Annotation$Run))
+plot_Norm<-dataProcessPlotsTMT(
+  data.peptide=Norm_input,
+  data.summarization=finaltest,
+  type='QCPlot',
+  ylimUp = FALSE,
+  ylimDown = FALSE,
+  x.axis.size = 10,
+  y.axis.size = 10,
+  text.size = 4,
+  text.angle = 90,
+  legend.size = 7,
+  dot.size.profile = 2,
+  ncol.guide = 5,
+  width = 10,
+  height = 10,
+  which.Protein = "all",
+  originalPlot = TRUE,
+  summaryPlot = TRUE,
+  address = ""
+)
 
-  #generate condition column?
-  Annotation3 <-Annotation3  %>% dplyr::mutate(Condition = ifelse(Channel == 126, "Norm",ifelse(Fraction == "F1" | Fraction == "F2",0,1)) )
-  
-  
-  #########################################################################
-  #clean data (it needs edit)
-  nonID<-  Fra_userinput %>% filter_all(any_vars(. %in% "F0"))
-  PSMsnew<-subset(editedPSMsfile, Spectrum.File==nonID)
-  Annotationnew<-subset(Annotation3,Fraction==nonID)
-  
+#write_xlsx (finaltest,"C:\\Users\\karin\\Documents\\R\\MSstat\\MSstats_userfriendly_annotationfilecode\\finaltest.xlsx") 
   
