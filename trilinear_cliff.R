@@ -67,19 +67,32 @@ theme_set(theme_bw())
 #' @importFrom stringr stringr::str_extract
 #' @export
 #' 
-read_cetsa <- function(f,PSM=FALSE){
+read_cetsa <- function(f,PSM=FALSE,Batch=TRUE){
   #if the input is peptides, f is a list and PSM = TRUE otherwise f is a data frame and PSM = false
   if (isTRUE(PSM)){
     file.list<-f
     i=1
-    df<-list()
+    
     for ( i in seq(file.list)){
+      df<-list()
       df.raw <- readxl::read_excel(file.list[i])
       df[[i]] <- df.raw%>%
-        dplyr::select(Accession, tidyselect::starts_with('Abundance')) %>%
-        tidyr::gather('id', 'value', -Accession) %>%
+        dplyr::select(names(df.raw)[stringr::str_detect(names(df.raw),'Master')],
+                      tidyselect::starts_with('Abundance')|tidyselect::starts_with('1'),
+                      tidyselect::starts_with('Annotated'),
+                      tidyselect::starts_with('Isolation'),
+                      tidyselect::starts_with('Ion'),
+                      tidyselect::starts_with('Charge'),
+                      tidyselect::starts_with('XCorr')) %>%
+        dplyr::rename("Accession"="Master Protein Accessions") 
+      
+      names(df[[i]])<-names(df[[i]]) %>% 
+        stringr::str_replace_all(" ","_")
+      
+      df[[i]]<-df[[i]]<-df[[i]]%>% 
+        gather('Accession','value',names(df[[i]])[str_detect(names(df[[i]]),'1')]) %>% 
         dplyr::mutate(sample_id = as.factor(paste("F",as.character(i),sep="")),
-                      temp_ref = stringr::str_extract(id, '([:digit:][:digit:][:digit:]+[N|C]?)'))
+                      temp_ref = stringr::str_extract(Accession, '([:digit:][:digit:][:digit:]+[N|C]?)'))
       
       
     }
@@ -91,6 +104,15 @@ read_cetsa <- function(f,PSM=FALSE){
       tidyr::gather('id', 'value', -Accession,description) %>%
       dplyr::mutate(sample = stringr::str_extract(id, '(?<=Abundance: ).*(?=:)')) %>%
       dplyr::mutate(temp_ref = stringr::str_extract(id, '([:digit:][:digit:][:digit:]+[N|C]?)'))
+    df
+  }
+  if (!isTRUE(Batch)){
+    df.raw <- readxl::read_excel(file.list[i])
+    df[[i]] <- df.raw %>% 
+      dplyr::select(Accession, tidyselect::starts_with('Abundance')) %>%
+      tidyr::gather('id', 'value', -Accession,description) %>%
+      dplyr::mutate(sample_id = as.factor(paste("F",as.character(i),sep="")),
+                    temp_ref = stringr::str_extract(Accession, '([:digit:][:digit:][:digit:]+[N|C]?)'))
     df
   }
 }
@@ -113,12 +135,19 @@ read_cetsa <- function(f,PSM=FALSE){
 #' @import dplyr
 #'
 #' @export
-clean_cetsa <- function(df, temperatures = NULL, samples = NULL,carrier=FALSE) {
+clean_cetsa <- function(df, temperatures = NULL, samples = NULL,carrier=FALSE,PSM=FALSE) {
   samples$sample_id<-as.factor(samples$sample_id)
   samples$sample_name<-as.factor(samples$sample_name)
   if (isTRUE(carrier)){
-  r<-df %>% dplyr::filter(!temp_ref=="131C")%>% dplyr::mutate(rank=dplyr::ntile(value,3)) 
-  df<-df %>% dplyr::full_join(r, by= c("Accession","id","value","sample_id","temp_ref","missing"))
+    r<-df %>% dplyr::filter(!temp_ref=="131C")%>% dplyr::mutate(rank=dplyr::ntile(value,3)) 
+    if (isTRUE(PSM)){
+      df<-df %>% dplyr::full_join(r, by= c("Accession","Isolation_Interference_in_Percent","value","sample_id","temp_ref","Charge","XCorr","Ions_Matched","Ion_Inject_Time_in_ms","Annotated_Sequence"))
+      
+    }else{
+      df<-df %>% dplyr::full_join(r, by= c("Accession","id","value","sample_id","temp_ref","missing"))
+      
+    }
+    
   }else{
     df<-df %>% dplyr::mutate(rank=dplyr::ntile(value,3))
   }
@@ -135,20 +164,19 @@ clean_cetsa <- function(df, temperatures = NULL, samples = NULL,carrier=FALSE) {
     df <- df %>%
       dplyr::rename(temperature = temp_ref)
   }
-  if (any(is.null(df$value))){
+  if (any(is.na(df$value))){
     df<-df %>% dplyr::rename("sample"="sample_id")
     df<-df %>% dplyr::group_split(Accession, sample) 
     df<-lapply(df,function(x) x%>% dplyr::mutate(missing=sum(is.na(.$value))))
     df<-dplyr::bind_rows(df)
   }
-  df<-df %>% dplyr::rename("sample"="sample_id")
   
   df <- df %>%
     dplyr::select(Accession, sample, temperature,value,missing,rank,sample_name) %>%
     dplyr::filter(!is.na(temperature),!is.na(value)) %>%
     dplyr::group_split(Accession,sample) 
   df<-lapply(df,function(x) x%>%
-    dplyr::mutate(value = .$value /.$ value[temperature == min(.$temperature)]) %>% unique(.))
+               dplyr::mutate(value = .$value /.$ value[temperature == min(.$temperature)]) %>% unique(.))
   df<-dplyr::bind_rows(df)
   return(df)
 }
@@ -599,8 +627,29 @@ find_pat = function(pat, x)
 }  
 
 ##################################
+#READ PSM FILES
+f<-"~/Cliff_MD/Old data"
+#read new data
+setwd(f)
 
-# #prepare a list of proteins
+file.list <- list.files(pattern='*.xlsx')
+s1 <- str_replace(file.list, ".xlsx","")#remove Excel extension
+s1 <- str_replace_all(s1, "-","")#remove punct
+s1<-str_replace_all(s1,"[:upper:][:digit:][:digit:][:digit:]","")
+s1<-str_split(s1,"[:digit:][:digit:][:digit:][:digit:]",simplify=TRUE)
+s1<-s1[,ncol(s1)]
+s1<-str_replace_all(s1,"[:digit:][:digit:]","")
+samples <- do.call(paste0, expand.grid(factor(c('F'),levels = c('F')),1:length(s1)))
+df.samples <- data.frame(sample_id = samples, sample_name = as.factor(s1))
+#check that sample_names match to file list
+chk<-mapply(grepl, s1, file.list)
+df_raw <- read_cetsa(file.list,PSM=TRUE,Batch=TRUE)
+
+
+
+##################################
+
+# #READ PROTEIN DATA not processed in batch
 setwd("~/CS7290-/internal data")
 
 samples <- do.call(paste0, expand.grid(factor(c('F'),levels = c('F')),1:24))
@@ -642,7 +691,7 @@ samples <- do.call(paste0, expand.grid(factor(c('F'),levels = c('F')),1:length(s
 df.samples <- data.frame(sample_id = samples, sample_name = as.factor(s1))
 #check that sample_names match to file list
 chk<-mapply(grepl, s1, file.list)
-df_raw <- read_cetsa(file.list,PSM=TRUE)
+df_raw <- read_cetsa(file.list,PSM=TRUE,Batch = FALSE)
 
 
 #record missing values
@@ -652,7 +701,7 @@ MID<-df_raw[is.na(df_raw$value),]
 #flag missing values in data
 df_raw<-df_raw %>%  dplyr::mutate(missing = ifelse(is.na(value),1,0))
 #assign TMT channel and temperature data
-df_clean <- clean_cetsa(df_raw, temperatures = df.temps, samples = df.samples,carrier=TRUE)#assigns temperature and replicate values
+df_clean <- clean_cetsa(df_raw, temperatures = df.temps, samples = df.samples,carrier=TRUE,PSM=TRUE)#assigns temperature and replicate values
 
 
 
