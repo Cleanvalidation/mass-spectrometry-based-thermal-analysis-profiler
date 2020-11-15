@@ -531,10 +531,10 @@ find_pat = function(pat, x)
 ##################################
 
 # #prepare a list of proteins
-setwd("~/CS7290-/internal data")
+#setwd("~/CS7290-/internal data")
 
 #rename to the folder where your PSM file is located
-f<-"~/R/curvefitting project/proteins_new.xlsx"
+f<-"~/R/curvefitting_by_msstats/curvefitting_by_msstats/finalNorm.Xlsx"
 
 samples <- do.call(paste0, expand.grid(factor(c('F'),levels = c('F')),1:24))
 df.temps <- data.frame(temp_ref = c('126', '127N', '127C', '128N', '128C', '129N','129C', '130N', '130C', '131'), temperature = c(37, 41, 44, 47, 50, 53, 56, 59, 63, 67), stringsAsFactors = FALSE)
@@ -595,17 +595,21 @@ d_1<-d_1 %>% dplyr::group_split(uniqueID,dataset)
 ###################################################
 #MSstats TMT normalized data rearrenging to prepare use in next steps:
 #fisrt define your normalized output excel file as "finaltest_new"
-finaltest_new <- yourfile
+finaltest_new <-finalNorm
+#creat tabel of information
+samples <- do.call(paste0, expand.grid(factor(c('F'),levels = c('F')),1:24))
+df.temps <- data.frame(temp_ref = c('126', '127N', '127C', '128N', '128C', '129N','129C', '130N', '130C', '131'), temperature = c(37, 41, 44, 47, 50, 53, 56, 59, 63, 67), stringsAsFactors = FALSE)
+df.samples <- data.frame(sample_id = samples, sample_name = c('DMSO_1','DMSO_2', '655_1','655_2'), stringsAsFactors = FALSE)
 #rename Protein column to Accession like cetsa data
 x1 <- finaltest_new %>% dplyr::rename(Protein,Accession=Protein)
 #generate I column by renaming Abundance column 
 x1 <- x1 %>% dplyr::rename(Abundance,I=Abundance)
 #generate Fraction(named RUN) column according to condition and bioReplicate column 
-x1<- x1 %>% dplyr::mutate(Run=ifelse(Condition==0 & BioReplicate==1,"F1",ifelse(Condition==0 & BioReplicate==2,"F2",ifelse(Condition==1 & BioReplicate==1,"F3","F4"))))
+x1<- x1 %>% dplyr::mutate(Run=ifelse(Condition==0 & TechRepMixture==1,"F1",ifelse(Condition==0 & TechRepMixture==2,"F2",ifelse(Condition==1 & TechRepMixture==1,"F3","F4"))))
 #Generate sample_name according to Fraction(named Run)
 x1<- x1 %>% dplyr::mutate(sample_name=ifelse(Run== "F1" ,"DMSO_1",ifelse(Run=="F2","DMSO_2",ifelse(Run=="F3","655_1","655_2"))))
 #generate dataset column according to Fraction(named Run)
-x1<- x1 %>% dplyr::mutate(dataset=ifelse(Run== "F1" | Run=="F2","vehicle","tretaed"))
+x1<- x1 %>% dplyr::mutate(dataset=ifelse(Run== "F1" | Run=="F2","vehicle","treated"))
 #rename channel column to temp_ref 
 x1 <- x1 %>% dplyr::rename(Channel,temp_ref=Channel)
 #add column temperature from file df.temp and rename it to C
@@ -617,33 +621,33 @@ x1 <- x1 %>% dplyr::rename(Accession,uniqueID=Accession)
 x1 <- x1 %>% dplyr::rename(Condition,CC=Condition)
 #generate Dataset column according to sample_name
 x1<-x1 %>% dplyr::mutate(Dataset=(str_split_fixed(x1$sample_name,"_",2)))
-xname<- as.data.frame(str_split_fixed(d$sample_name,"_",2))#create dataset column
+xname<- as.data.frame(str_split_fixed(x1$sample_name,"_",2))#create dataset column
 x1 <-x1 %>% dplyr::mutate(Dataset = xname[,1])
 #x2<- x2 %>% dplyr::mutate(Dataset=(stri_match_first_regex(x2$sample_name,"[:digit:]")))
 #generate missing column according to I column
 x1<-x1 %>% dplyr::mutate(missing=ifelse(is.na(I),TRUE,FALSE))
 # select needed  column data 
-x1<- x1 %>% dplyr::select(Accession,dataset,C,I,sample_name,CC,missing,Dataset)
-DFm<-x1 %>% dplyr::group_split(uniqueID) #split null dataset only by protein ID
-dm_<-d %>% dplyr::filter(CC == 0) %>% dplyr::group_split(uniqueID,dataset) #split vehicle dataset
-dm_1<-d %>% dplyr::filter(CC > 0) %>% dplyr::group_split(uniqueID,dataset) #split treated dataset
+x1<- x1 %>% dplyr::select(uniqueID,dataset,C,I,sample_name,CC,missing,Dataset)
+DF<-x1 %>% dplyr::group_split(uniqueID) #split null dataset only by protein ID
+d_<-x1 %>% dplyr::filter(CC == 0) %>% dplyr::group_split(uniqueID,dataset) #split vehicle dataset
+d_1<-x1 %>% dplyr::filter(CC > 0) %>% dplyr::group_split(uniqueID,dataset) #split treated dataset
 #convert to data frame for uniqueID presence
-DFm<-dplyr::bind_rows(DFm)
-dm_<-dplyr::bind_rows(dm_)
-dm_1<-dplyr::bind_rows(dm_1)#1 
+DF<-dplyr::bind_rows(DF)
+d_<-dplyr::bind_rows(d_)
+d_1<-dplyr::bind_rows(d_1)#1 
 #make sure uniqueIDs are present for treated and vehicle
-CIDm<-intersect(dm_1$uniqueID,dm_$uniqueID)
-CIDm<-intersect(CIDm,DFm$uniqueID)
-DFm<-DFm %>% subset(.$uniqueID %in% CIDm)
-DFm$LineRegion<-1
-dm_<-dm_%>% subset(.$uniqueID %in% CIDm)
-dm_$LineRegion<-1
-dm_1<-dm_1%>% subset(.$uniqueID %in% CIDm)
-dm_1$LineRegion<-1
+CID<-intersect(d_1$uniqueID,d_$uniqueID)
+CID<-intersect(CID,DF$uniqueID)
+DF<-DF %>% subset(.$uniqueID %in% CID)
+DF$LineRegion<-1
+d_<-d_%>% subset(.$uniqueID %in% CID)
+d_$LineRegion<-1
+d_1<-d_1%>% subset(.$uniqueID %in% CID)
+d_1$LineRegion<-1
 #split dataset into equal-sized lists
-DFm<-DFm %>%  dplyr::group_split(uniqueID) 
-dm_<-dm_ %>% dplyr::group_split(uniqueID,dataset) 
-dm_1<-dm_1 %>% dplyr::group_split(uniqueID,dataset)
+DF<-DF %>%  dplyr::group_split(uniqueID) 
+d_<-d_ %>% dplyr::group_split(uniqueID,dataset) 
+d_1<-d_1 %>% dplyr::group_split(uniqueID,dataset)
 ################################
 DLR<-function(d){
   #preallocate final result as a list
@@ -1454,7 +1458,7 @@ tlresults<-list()
 tlresults_PI<-list()
 #confidence intervals
 tlresults<-tlstat(DFN,df_,df_1,PI=TRUE)#place null, vehicle and treated lists with no prediction intervals
-tlf<-function(tlresults,DFN,APfilt=FALSE,PF=TRUE){
+tlf<-function(tlresults,DFN,APfilt=FALSE,PF=FALSE){
   ##Apply Filters
   #####################
   if(isTRUE(APfilt)){
@@ -1544,12 +1548,9 @@ tlf<-function(tlresults,DFN,APfilt=FALSE,PF=TRUE){
     #create an external data frame for stabilized proteins
     Df1<-Dsum %>% dplyr::left_join(tlresults,by=c("uniqueID")) %>% dplyr::rename("dataset"="dataset.y") %>% dplyr::select(-dataset.x)
     Df1<-Df1 %>% dplyr::group_split(uniqueID)
-
-    
   }
   
   df1<-list()
-  
   #get uniqueID and dataset for stable proteins with decreasing RSS differences
   df1<-lapply(Df1,function(x) x %>% dplyr::select(uniqueID,dataset) %>% head(.,1))
   df1<-data.frame(dplyr::bind_rows(df1))
@@ -1569,7 +1570,7 @@ tlf<-function(tlresults,DFN,APfilt=FALSE,PF=TRUE){
   return(list(df1,df2,Df1))
 }
 #return filtered lists
-res<-tlf(tlresults,DFN,APfilt=FALSE,PF=TRUE)
+res<-tlf(tlresults,DFN,APfilt=FALSE,PF=FALSE)
 tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
   null<-data.frame()
   i<-i
