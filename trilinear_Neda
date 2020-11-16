@@ -868,7 +868,7 @@ tlstat<-function(DF,df,df1,PI=FALSE){
                      dplyr::group_nest(LineRegion,uniqueID) %>%
                      dplyr::mutate(M1=purrr::map(data,function(x){stats::lm(x$I ~ x$C)}),
                                    CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
-                                   Tm=with(x, stats::approx(x$I,x$C, xout=(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))/0.5))$y,
+                                   Tm=with(x, stats::approx(x$I,x$C, xout=(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))*0.5))$y,
                                    slope=purrr::map(M1,function(x){as.numeric(coef(x)[2])}),
                                    intercept=purrr::map(M1,function(x){as.numeric(coef(x)[1])}),
                                    rss=purrr::map(M1,function(x){deviance(x)}),
@@ -887,7 +887,7 @@ tlstat<-function(DF,df,df1,PI=FALSE){
                        dplyr::group_nest(LineRegion,uniqueID) %>% 
                        dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
                                      CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
-                                     Tm=with(x, stats::approx(x$I,x$C, xout=(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))/0.5))$y,
+                                     Tm=with(x, stats::approx(x$I,x$C, xout=(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))*0.5))$y,
                                      slope=map(M1,function(x){as.numeric(coef(x)[2])}),
                                      intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
                                      rss=map(M1,function(x){deviance(x)}),
@@ -909,7 +909,7 @@ tlstat<-function(DF,df,df1,PI=FALSE){
                      dplyr::group_nest(LineRegion,uniqueID) %>% 
                      dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
                                    CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
-                                   Tm=with(x, stats::approx( x$I,x$C, xout=(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))/0.5))$y,
+                                   Tm=with(x, stats::approx( x$I,x$C, xout=(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))*0.5))$y,
                                    slope=map(M1,function(x){as.numeric(coef(x)[2])}),
                                    intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
                                    rss=map(M1,function(x){deviance(x)}),
@@ -1050,7 +1050,7 @@ tlstat<-function(DF,df,df1,PI=FALSE){
                      dplyr::group_nest(LineRegion,uniqueID) %>%
                      dplyr::mutate(M1=purrr::map(data,function(x){stats::lm(x$I ~ x$C)}),
                                    CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
-                                   Tm=with(x, stats::approx(x$I,x$C, xout=(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))/0.5))$y,
+                                   Tm=with(x, stats::approx(x$I,x$C, xout=(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))*0.5))$y,
                                    slope=purrr::map(M1,function(x){as.numeric(coef(x)[2])}),
                                    intercept=purrr::map(M1,function(x){as.numeric(coef(x)[1])}),
                                    rss=map(M1,function(x){deviance(x)}),
@@ -1070,7 +1070,7 @@ tlstat<-function(DF,df,df1,PI=FALSE){
                        dplyr::group_nest(LineRegion,uniqueID) %>% 
                        dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
                                      CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
-                                     Tm=with(x, stats::approx(x$I,x$C, xout=(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))/0.5))$y,
+                                     Tm=with(x, stats::approx(x$I,x$C, xout=(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))*0.5))$y,
                                      slope=map(M1,function(x){as.numeric(coef(x)[2])}),
                                      intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
                                      rss=map(M1,function(x){deviance(x)}),
@@ -1093,7 +1093,7 @@ tlstat<-function(DF,df,df1,PI=FALSE){
                      dplyr::group_nest(LineRegion,uniqueID) %>% 
                      dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
                                    CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
-                                   Tm=with(x, stats::approx( x$I,x$C, xout=(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))/0.5))$y,
+                                   Tm=with(x, stats::approx( x$I,x$C, xout=(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))*0.5))$y,
                                    slope=map(M1,function(x){as.numeric(coef(x)[2])}),
                                    intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
                                    rss=map(M1,function(x){deviance(x)}),
@@ -1287,7 +1287,7 @@ spstat<-function(DF,df,df1,PI=FALSE,Ftest=TRUE){
     #check significance and refit data with more k 
     m<-lapply(m,function(x)x %>% dplyr::mutate(k_ = .$M1[[1]]$rank,
                                                sum = list(summary(.$M1[[1]])),
-                                               Tm=ifelse(any(class(dplyr::first(.$M1[[1]]))=="gam"),try(with(x, stats::approx(x$I,x$C, xout=(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))/0.5))$y),NA),
+                                               Tm=ifelse(any(class(dplyr::first(.$M1[[1]]))=="gam"),try(with(x, stats::approx(x$I,x$C, xout=(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))*0.5))$y),NA),
                                                rss=deviance(.$M1[[1]]),
                                                CV_pct = .$CV_pct,
                                                AUC = pracma::trapz(.$M1[[1]]$fit),
@@ -1298,7 +1298,7 @@ spstat<-function(DF,df,df1,PI=FALSE,Ftest=TRUE){
     #check significance and refit data with more k 
     m1<-lapply(m1,function(x)x %>% dplyr::mutate(k_ = .$M1[[1]]$rank,
                                                  sum = list(summary(.$M1[[1]])),
-                                                 Tm=ifelse(any(class(dplyr::first(.$M1[[1]]))=="gam"),try(with(x, stats::approx(x$I,x$C, xout=(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))/0.5))$y),NA),
+                                                 Tm=ifelse(any(class(dplyr::first(.$M1[[1]]))=="gam"),try(with(x, stats::approx(x$I,x$C, xout=(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))*0.5))$y),NA),
                                                  rss=deviance(.$M1[[1]]),
                                                  CV_pct = .$CV_pct,
                                                  AUC = pracma::trapz(.$M1[[1]]$fit),
@@ -1311,7 +1311,7 @@ spstat<-function(DF,df,df1,PI=FALSE,Ftest=TRUE){
     #check significance and refit data with more k 
     mn<-lapply(mn,function(x)x %>% dplyr::mutate(k_ = .$M1[[1]]$rank,
                                                  sum = list(summary(.$M1[[1]])),
-                                                 Tm=ifelse(any(class(dplyr::first(.$M1[[1]]))=="gam"),try(with(x, stats::approx(x$I,x$C, xout=(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))/0.5))$y),NA),
+                                                 Tm=ifelse(any(class(dplyr::first(.$M1[[1]]))=="gam"),try(with(x, stats::approx(x$I,x$C, xout=(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))*0.5))$y),NA),
                                                  rss=deviance(.$M1[[1]]),
                                                  CV_pct=.$CV_pct,
                                                  AUC = pracma::trapz(.$M1[[1]]$fit),
@@ -2235,7 +2235,7 @@ sigfit<-function(DFN,i,MD=TRUE){
                                                                                nV=length(predict(x$fit[[1]]))))#get lower CI
   
   AUC<-purrr::map(result,function(x)pracma::trapz(x$C,x$I))
-  Tm<- lapply(result,function(x) try(stats::approx(x$I,x$C,0.5)$y[1]))
+  Tm<- lapply(result,function(x) try(stats::approx(x$I,x$C,xout=(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))*0.5))$y[1]))
   TM<- Tm %>% purrr::keep(function(x) !inherits(x,'try-error'))
   #append Tm 
   ###result<-purrr::map2(result,Tm,function(x,y)x %>% dplyr::mutate(Tm=y))
@@ -2262,7 +2262,7 @@ sigfit<-function(DFN,i,MD=TRUE){
                                                                                  HI = list(((1-.$Pl1[1])/(1+exp(.$b1[1]-(.$a1[1]/.$C))))+.$Pl1[1]),
                                                                                  nV=length(predict(x$fit[[1]]))))#get lower CI
   AUC<-purrr::map(result1,function(x)pracma::trapz(x$C,x$I))
-  Tm<- lapply(result1,function(x) try(stats::approx(x$I,x$C,xout=(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))/0.5))$y[1]))
+  Tm<- lapply(result1,function(x) try(stats::approx(x$I,x$C,xout=(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))*0.5))$y[1]))
   TM<- Tm %>% purrr::keep(function(x) !inherits(x,'try-error'))
   #append Tm 
   ###result1<-purrr::map2(result1,Tm,function(x,y)x %>% dplyr::mutate(Tm=y))
