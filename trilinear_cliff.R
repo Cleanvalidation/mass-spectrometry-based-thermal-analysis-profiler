@@ -68,13 +68,15 @@ theme_set(theme_bw())
 #' @export
 #' 
 read_cetsa <- function(f,PSM=FALSE,Batch=TRUE){
+  file.list<-f
+  i=1
   #if the input is peptides, f is a list and PSM = TRUE otherwise f is a data frame and PSM = false
   if (isTRUE(PSM)){
     file.list<-f
-    i=1
-    
     for ( i in seq(file.list)){
       df<-list()
+      df1<-list()
+      
       df.raw <- readxl::read_excel(file.list[i])
       df[[i]] <- df.raw%>%
         dplyr::select(names(df.raw)[stringr::str_detect(names(df.raw),'Master')],
@@ -83,38 +85,60 @@ read_cetsa <- function(f,PSM=FALSE,Batch=TRUE){
                       tidyselect::starts_with('Isolation'),
                       tidyselect::starts_with('Ion'),
                       tidyselect::starts_with('Charge'),
-                      tidyselect::starts_with('XCorr')) %>%
+                      tidyselect::starts_with('XCorr'),
+                      tidyselect::starts_with('Delta')) %>%
         dplyr::rename("Accession"="Master Protein Accessions") 
       
       names(df[[i]])<-names(df[[i]]) %>% 
         stringr::str_replace_all(" ","_")
       
-      df[[i]]<-df[[i]]<-df[[i]]%>% 
-        gather('Accession','value',names(df[[i]])[str_detect(names(df[[i]]),'1')]) %>% 
-        dplyr::mutate(sample_id = as.factor(paste("F",as.character(i),sep="")),
-                      temp_ref = stringr::str_extract(Accession, '([:digit:][:digit:][:digit:]+[N|C]?)'))
+      df1[[i]]<-df[[i]]%>% 
+        gather('Accession','value',names(df[[i]])[str_detect(names(df[[i]]),'1')],na.rm=FALSE) %>% 
+        dplyr::mutate(Accession=Accession,
+                      sample_id = as.factor(paste("F",as.character(i),sep="")),
+                      temp_ref = stringr::str_extract(Accession, '([:digit:][:digit:][:digit:]+[N|C]?)'),
+                      missing=ifelse(is.na(value),1,0))
       
+      df<-dplyr::bind_rows(df) %>% dplyr::select(Annotated_Sequence,Accession)
+      df1<-dplyr::bind_rows(df1)
+      df1<-df1 %>% dplyr::left_join(df,by="Annotated_Sequence")%>%
+        dplyr::rename("Accession"="Accession.y") %>% 
+        dplyr::select(-Accession.x)
       
+      return(df1)
     }
-    return(dplyr::bind_rows(df))
   }else{
+    if(!isTRUE(Batch)){
+      i=1
+      file.list<-f
+      df<-vector("list",length(file.list))
+
+      for( i in seq(file.list)){
+        df.raw <- readxl::read_excel(file.list[i])
+        
+        df[[i]] <- df.raw %>% 
+          dplyr::select(Accession, tidyselect::starts_with('Abundance')) %>%
+          tidyr::gather('id', 'value', -Accession) %>%
+          dplyr::mutate(sample_id = as.factor(paste("F",as.character(i),sep="")),
+                        temp_ref = stringr::str_extract(id, '([:digit:][:digit:][:digit:]+[N|C]?)'),
+                        missing=ifelse(is.na(value),1,0))
+        
+      }
+      return(dplyr::bind_rows(df))
+      
+      
+    }else{
     df.raw <- readxl::read_excel(f)
     df <- df.raw%>%
       dplyr::select(Accession, tidyselect::starts_with('Abundance')) %>%
       tidyr::gather('id', 'value', -Accession,description) %>%
       dplyr::mutate(sample = stringr::str_extract(id, '(?<=Abundance: ).*(?=:)')) %>%
-      dplyr::mutate(temp_ref = stringr::str_extract(id, '([:digit:][:digit:][:digit:]+[N|C]?)'))
+      dplyr::mutate(temp_ref = stringr::str_extract(id, '([:digit:][:digit:][:digit:]+[N|C]?)'),
+                    missing=ifelse(is.na(value),1,0))
     df
+    }
   }
-  if (!isTRUE(Batch)){
-    df.raw <- readxl::read_excel(file.list[i])
-    df[[i]] <- df.raw %>% 
-      dplyr::select(Accession, tidyselect::starts_with('Abundance')) %>%
-      tidyr::gather('id', 'value', -Accession,description) %>%
-      dplyr::mutate(sample_id = as.factor(paste("F",as.character(i),sep="")),
-                    temp_ref = stringr::str_extract(Accession, '([:digit:][:digit:][:digit:]+[N|C]?)'))
-    df
-  }
+
 }
 
 
@@ -170,7 +194,17 @@ clean_cetsa <- function(df, temperatures = NULL, samples = NULL,carrier=FALSE,PS
     df<-lapply(df,function(x) x%>% dplyr::mutate(missing=sum(is.na(.$value))))
     df<-dplyr::bind_rows(df)
   }
-  
+  r<-df %>% dplyr::filter(!temp_ref=="131C")%>% dplyr::mutate(rank=dplyr::ntile(value,3)) 
+  if (isTRUE(PSM)){
+    
+    df <- df %>%
+      dplyr::select(Annotated_Sequence,Accession,sample, temperature,value,Isolation_Interference_in_Percent,Ions_Matched,Ion_Inject_Time_in_ms,Charge, missing,rank,sample_name) %>%
+      dplyr::filter(!is.na(temperature),!is.na(value)) %>%
+      dplyr::group_split(Accession,Annotated_Sequence,sample) 
+    df<-lapply(df,function(x) x%>%
+                 dplyr::mutate(value = .$value /.$ value[temperature == min(.$temperature)]) %>% unique(.))
+    df<-dplyr::bind_rows(df)
+  }else{
   df <- df %>%
     dplyr::select(Accession, sample, temperature,value,missing,rank,sample_name) %>%
     dplyr::filter(!is.na(temperature),!is.na(value)) %>%
@@ -178,6 +212,7 @@ clean_cetsa <- function(df, temperatures = NULL, samples = NULL,carrier=FALSE,PS
   df<-lapply(df,function(x) x%>%
                dplyr::mutate(value = .$value /.$ value[temperature == min(.$temperature)]) %>% unique(.))
   df<-dplyr::bind_rows(df)
+  }
   return(df)
 }
 
@@ -207,7 +242,7 @@ clean_cetsa <- function(df, temperatures = NULL, samples = NULL,carrier=FALSE,PS
 #' @import tidyr
 #' @import nls2
 #' @export
-normalize_cetsa <- function(df, temperatures) {
+normalize_cetsa <- function(df, temperatures,PSM=FALSE) {
   temperatures <- sort(temperatures)
   df$Accession<-as.factor(df$Accession)
  
@@ -644,6 +679,8 @@ df.samples <- data.frame(sample_id = samples, sample_name = as.factor(s1))
 #check that sample_names match to file list
 chk<-mapply(grepl, s1, file.list)
 df_raw <- read_cetsa(file.list,PSM=TRUE,Batch=TRUE)
+#assign TMT channel and temperature data
+df_clean <- clean_cetsa(df_raw, temperatures = df.temps, samples = df.samples,carrier=TRUE,PSM=TRUE)#assigns temperature and replicate values
 
 
 
@@ -691,33 +728,63 @@ samples <- do.call(paste0, expand.grid(factor(c('F'),levels = c('F')),1:length(s
 df.samples <- data.frame(sample_id = samples, sample_name = as.factor(s1))
 #check that sample_names match to file list
 chk<-mapply(grepl, s1, file.list)
-df_raw <- read_cetsa(file.list,PSM=TRUE,Batch = FALSE)
+df_raw <- read_cetsa(file.list,PSM=FALSE,Batch = FALSE)
 
 
 #record missing values
 missing<-sum(is.na(df_raw$value))
 #annotate protein data with missing values
 MID<-df_raw[is.na(df_raw$value),]
-#flag missing values in data
-df_raw<-df_raw %>%  dplyr::mutate(missing = ifelse(is.na(value),1,0))
+
 #assign TMT channel and temperature data
-df_clean <- clean_cetsa(df_raw, temperatures = df.temps, samples = df.samples,carrier=TRUE,PSM=TRUE)#assigns temperature and replicate values
 
-
-
+df_clean <- clean_cetsa(df_raw, temperatures = df.temps, samples = df.samples,carrier=TRUE,PSM=FALSE)#assigns temperature and replicate values
 df_norm <- normalize_cetsa(df_clean, df.temps$temperature) #normalizes according to Franken et. al. without R-squared filter
 df_norm <- df_norm %>% dplyr::select(-value,-correction)
 
 #plot the targets to check values
-PLN<-ggplot2::ggplot(df_norm %>% dplyr::filter(Accession=="Q02750"), ggplot2::aes(x = temperature,y = norm_value,color=sample_name)) +
+df_carrier<-df_norm %>% dplyr::mutate(carrier=ifelse(str_detect(df_norm$sample_name,"NOcarrier"),"- Carrier","+ Carrier"),
+                                      FAIMS = ifelse(str_detect(df_norm$sample_name,"NO_FAIMS"),"- FAIMS","+ FAIMS"),
+                                      Phi = ifelse(str_detect(df_norm$sample_name,"PhiSDM"),"- PhiSDM","+ PhiSDM"))
+
+PLN<-ggplot2::ggplot(df_carrier %>% dplyr::filter(Accession=="Q02750"), ggplot2::aes(x = temperature,y = norm_value,color=sample_name)) +
+facet_wrap(~carrier)+
 ggplot2::geom_point(ggplot2::aes(x=temperature,y=norm_value))+ ggplot2::ggtitle(paste("Q02750"))+
-ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ylim(0,2)
+ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ylim(0,2)+ ggplot2::scale_fill_brewer(palette = "Dark2")
 
 print(PLN)
 
-PLN<-ggplot2::ggplot(df_norm %>% dplyr::filter(Accession=="P36507"), ggplot2::aes(x = temperature,y = norm_value,color=sample_name)) +
+PLN<-ggplot2::ggplot(df_carrier %>% dplyr::filter(Accession=="P36507"), ggplot2::aes(x = temperature,y = norm_value,color=sample_name)) +
+  facet_wrap(~carrier)+
 ggplot2::geom_point(ggplot2::aes(x=temperature,y=norm_value))+ ggplot2::ggtitle(paste("P36507"))+
 ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ylim(0,2)
+
+print(PLN)
+############Effect of FAIMS
+PLN<-ggplot2::ggplot(df_carrier %>% dplyr::filter(Accession=="P36507"), ggplot2::aes(x = temperature,y = norm_value,color=sample_name)) +
+  facet_wrap(~FAIMS)+
+  ggplot2::geom_point(ggplot2::aes(x=temperature,y=norm_value))+ ggplot2::ggtitle(paste("P36507"))+
+  ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ylim(0,2)
+
+print(PLN)
+
+PLN<-ggplot2::ggplot(df_carrier %>% dplyr::filter(Accession=="Q02750"), ggplot2::aes(x = temperature,y = norm_value,color=sample_name)) +
+  facet_wrap(~FAIMS)+
+  ggplot2::geom_point(ggplot2::aes(x=temperature,y=norm_value))+ ggplot2::ggtitle(paste("Q02750"))+
+  ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ylim(0,2)+ ggplot2::scale_fill_brewer(palette = "Dark2")
+
+print(PLN)
+##########Effect of Phi
+PLN<-ggplot2::ggplot(df_carrier %>% dplyr::filter(Accession=="Q02750"), ggplot2::aes(x = temperature,y = norm_value,color=sample_name)) +
+  facet_wrap(~Phi)+
+  ggplot2::geom_point(ggplot2::aes(x=temperature,y=norm_value))+ ggplot2::ggtitle(paste("Q02750"))+
+  ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ylim(0,2)+ ggplot2::scale_fill_brewer(palette = "Dark2")
+
+print(PLN)
+PLN<-ggplot2::ggplot(df_carrier %>% dplyr::filter(Accession=="P36507"), ggplot2::aes(x = temperature,y = norm_value,color=sample_name)) +
+  facet_wrap(~Phi)+
+  ggplot2::geom_point(ggplot2::aes(x=temperature,y=norm_value))+ ggplot2::ggtitle(paste("P36507"))+
+  ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ylim(0,2)
 
 print(PLN)
 ################
@@ -741,7 +808,7 @@ upMV <- function(df_) {
   d$sample_name<-as.factor(d$sample_name)
   d$missing<-as.integer(d$missing)
   d<-d %>% dplyr::filter(missing==1)
-   #%>% dplyr::group_split(sample_name)
+   
   d1<-d %>% dplyr::select(-value,-id,-temp_ref)
   d<-spread(d1,temperature,missing,fill=FALSE)
   
@@ -926,42 +993,48 @@ print(PLN)
 
 #######
 #rename columns
-df_norm <- df_norm %>% dplyr::rename(dataset = "sample")
-colnames(df_norm)<-c("uniqueID","dataset","C","missing","rank","sample_name","I")# uniqueID is protein accession, dataset is sample from PD output,C is temperature, I is intensity
+df_norm <- df_norm %>% dplyr::rename("dataset" = "sample","uniqueID"="Accession","C"="temperature","I"="norm_value")
 
 d<-df_norm %>% dplyr::ungroup(.)#get unique data
+
+
+##############################
+
+##############################deal with conditions
 #d$CC<-ifelse(d$dataset=="F4" | d$dataset=="F5",0,1)#concentration values are defined in uM
 #Cliff append names
 df.samples<-df.samples %>% dplyr::rename("dataset"="sample_id")
-d<-d %>% dplyr::left_join(df.samples,by="dataset")
+d<-d %>% dplyr::left_join(df.samples,by=c("dataset","sample_name"))
+
+
 #remove 67 temp
-#d<-d %>% dplyr::filter(C<67)
+d<-d %>% dplyr::filter(C<68)
+sn<-unique(d$sample_name)[c(6,8)]
+d<-d %>% dplyr::filter(sample_name %in%sn)
 
 #create dataset column
-CFAIMSPHI <- d %>%
-  dplyr::mutate(Dataset = .$sample_name)
-
-
-CFAIMSPHI<-str_replace(d$sample_name,"[:digit:]","")
+CFAIMSPHI <- d %>% dplyr::rename("Dataset"="sample_name")
 #Set unique names as dataset for plots
-d$Dataset<-CFAIMSPHI
+d$Dataset<-CFAIMSPHI$Dataset
+
 #
-d<-d %>% dplyr::filter(Dataset == "CNOFAIMSPHI"| Dataset=="CNOFAIMS")
+#d<-d %>% dplyr::filter(Dataset == "CNOFAIMSPHI"| Dataset=="CNOFAIMS")
 #d$CC<-ifelse(d$dataset=="F4" | d$dataset=="F5",0,1)
 #study the effect of FAIMS with
-d$dataset<-ifelse(stringr::str_detect(tolower(d$Dataset),'cnofaimsphi')=="TRUE" ,"treated","vehicle")
+d$dataset<-ifelse(stringr::str_detect(tolower(d$Dataset),'noc')=="TRUE" ,"vehicle","treated")
+
+#d$dataset<-ifelse(stringr::str_detect(tolower(d$Dataset),'cnofaimsphi')=="TRUE" ,"treated","vehicle")
 
 #d$dataset<-ifelse(stringr::str_detect(tolower(d$sample_name),'cfaimsphi')=="TRUE" | stringr::str_detect(tolower(d$sample_name),'ncnofaims')=="TRUE","vehicle","treated")
 #d$dataset<-ifelse(d$dataset=="F4" | d$dataset=="F5","vehicle","treated")#dataset is defined by PD sample definition
 #study the effect of FAIMS as the dataset
-d$CC<-ifelse(stringr::str_detect(tolower(d$sample_name),'cnofaimsphi')=="TRUE" ,1,0)
+d$CC<-ifelse(stringr::str_detect(tolower(d$sample_name),'noc')=="TRUE" ,0,1)
 
 DF<-d %>% dplyr::group_split(uniqueID) #split null dataset only by protein ID
 d_<-d %>% dplyr::filter(CC == 0) %>% dplyr::group_split(uniqueID,dataset) #split vehicle dataset
 d_1<-d %>% dplyr::filter(CC > 0) %>% dplyr::group_split(uniqueID,dataset) #split treated dataset
 
-#remove values where the lowest temperature has rank 3 (highest intensity)
-DF<-DF %>% purrr::keep(function(x) any(x$rank==3))
+
 # #keep data with less than 2 missing values
 # DF<-DF %>% purrr::keep(function(x) length(unique(x$C))>=9)#keep values with at least 9 temperature channels (TMT10)
 # d_<-d_ %>% purrr::keep(function(x) length(unique(x$C))>=9)
@@ -1062,6 +1135,8 @@ simNA<-function(df_norm,df.samples,pct = 0.1){
 
 test<-simNA(df_norm,df.samples,0.1)
 saveRDS(test,'NAdata10.R')
+
+
 DF<-test[[1]]
 d_<-test[[2]]
 d_1<-test[[3]]
@@ -2285,27 +2360,49 @@ spf<-function(spresults,filters = TRUE){
 }
 res_sp<-spf(spresults,filters=FALSE)
 
+#save spline data
+label<-as.character(unique(res_sp[[3]][[1]]$Dataset))
+label<-paste(label,sep=" ",collapse="vs")
+saveRDS(res_sp,paste(label))
+
 #plot global histograms for variability 
 his_sp<-function(Df1,df.temps,MD=FALSE){
-  test<-dplyr::bind_rows(Df1)%>% dplyr::select(Dataset,CV_pct,dataset,C) %>% unique(.)
-  test<-test %>% dplyr::rename("temperature"="C")
-  test<-test %>% dplyr::left_join(df.temps,by="temperature")
-  test<-test %>% dplyr::rename("C"="temperature")
+  if(any(names(dplyr::bind_rows(Df1))=="sample_name.x")){
+    test<-dplyr::bind_rows(Df1) %>% dplyr::rename("sample_name"=ifelse(any(names(.)=="sample_name.x"),"sample_name.x","sample_name.y"))
+    test<-test%>% dplyr::select(Dataset,CV_pct,dataset,C,sample_name) %>% unique(.)
+    test<-test %>% dplyr::rename("temperature"="C")
+    test<-test %>% dplyr::left_join(df.temps,by="temperature")
+    
+    
+    test<-test %>% dplyr::mutate(carrier=ifelse(str_detect(test$sample_name,"NOcarrier"),"+ Carrier","- Carrier"),
+                                 FAIMS = ifelse(str_detect(test$sample_name,"NO_FAIMS"),"+ FAIMS","- FAIMS"),
+                                 Phi = ifelse(str_detect(test$sample_name,"PhiSDM"),"+ PhiSDM","- PhiSDM"))
+  }else{
+    test<-test%>% dplyr::select(Dataset,CV_pct,dataset,C) %>% unique(.)
+    test<-test %>% dplyr::rename("temperature"="C")
+    test<-test %>% dplyr::left_join(df.temps,by="temperature")
+  }
+  
+  
+  test<-test %>% dplyr::mutate(carrier=ifelse(str_detect(test$sample_name,"NOcarrier"),"+ Carrier","- Carrier"),
+                                 FAIMS = ifelse(str_detect(test$sample_name,"NO_FAIMS"),"+ FAIMS","- FAIMS"),
+                                 Phi = ifelse(str_detect(test$sample_name,"PhiSDM"),"+ PhiSDM","- PhiSDM"))
+  
   if(isTRUE(MD)){
     test$Dataset<-as.factor(test$Dataset)
     levels(test$Dataset)<-rev(levels(test$Dataset))
-  ggplot(test,aes(y=CV_pct,x=Dataset,fill=Dataset,alpha=0.2))+
-    facet_grid(~C)+
-    geom_violin(na.rm=TRUE,show.legend="FALSE",color=NA)+theme_bw()+
-    geom_boxplot(width=0.1) +
-    ggplot2::ylab("RSD%")+
-    ggplot2::xlab("sample")+
-    theme(axis.text.x = element_text(angle = 90))
+    ggplot(test,aes(y=CV_pct,x=Dataset,fill=Dataset,alpha=0.2))+
+      facet_grid(c(~temperature,~carrier),scales="free_x")+
+      geom_violin(na.rm=TRUE,show.legend="FALSE",color=NA)+theme_bw()+
+      geom_boxplot(width=0.1) +
+      ggplot2::ylab("RSD%")+
+      ggplot2::xlab("sample")+
+      theme(axis.text.x = element_text(angle = 90))
   }else{  
     test$dataset<-as.factor(test$dataset)
     levels(test$dataset)<-rev(levels(test$dataset))
-  ggplot(test,aes(y=CV_pct,x=dataset,fill=dataset,alpha=0.2))+
-    facet_grid(~temp_ref)+
+    ggplot(test,aes(y=CV_pct,x=dataset,fill=dataset,alpha=0.2))+
+    facet_grid(~temperature)+
     geom_violin(na.rm=TRUE,show.legend="FALSE",color=NA)+theme_bw()+
     geom_boxplot(width=0.1) +
     ggplot2::ylab("RSD%")+
@@ -2326,7 +2423,7 @@ rsq<-function(Df1,MD=FALSE){#input df_raw
   ggplot(test,aes(y=rsq,x=Dataset,fill=Dataset,alpha=0.2))+
     geom_violin(na.rm=TRUE,show.legend="FALSE",color=NA)+theme_bw()+
     geom_boxplot(width=0.1) +
-    ggplot2::ylab("R^2 splines")+
+    labs(y = expression ("R"^2~"Splines"))+
     ggplot2::xlab("sample")+
     theme(axis.text.x = element_text(angle = 90))
   }else{
@@ -2335,7 +2432,7 @@ rsq<-function(Df1,MD=FALSE){#input df_raw
     ggplot(test,aes(y=rsq,x=dataset,fill=dataset,alpha=0.2))+
       geom_violin(na.rm=TRUE,show.legend="FALSE",color=NA)+theme_bw()+
       geom_boxplot(width=0.1) +
-      ggplot2::ylab("R^2 splines")+
+      labs(y = expression ("R"^2~"Splines"))+
       ggplot2::xlab("sample")+
       theme(axis.text.x = element_text(angle = 90))
   }
@@ -2359,7 +2456,7 @@ AUC_V<-function(Df1,MD=FALSE){#input df_raw
       ggplot2::ylab("AUC splines")+
       ggplot2::xlab("sample")+
       theme(axis.text.x = element_text(angle = 90))+
-      ggplot2::ylim(0,100)
+      ggplot2::ylim(0,50)
   }else{
     test$dataset<-as.factor(test$dataset)
     levels(test$dataset)<-rev(levels(test$dataset))
@@ -2369,56 +2466,43 @@ AUC_V<-function(Df1,MD=FALSE){#input df_raw
       ggplot2::ylab("AUC splines")+
       ggplot2::xlab("sample")+
       theme(axis.text.x = element_text(angle = 90))+
-      ggplot2::ylim(0,100) 
+      ggplot2::ylim(0,50) 
   }
   
 }
 AUC_V(res_sp[[3]],MD=TRUE)
  #plot global histograms for variability 
 viol_int<-function(fdata,df_raw,df.samples,df.temps,MD=FALSE){#input df_raw
-  #get filtered data 
+  #get original data and join samples and temp reference
+  df_raw<-df_raw %>% dplyr::left_join(df.temps,by="temp_ref")
+  df_raw<-df_raw %>% dplyr::left_join(df.samples,by='sample_id')
+  test<-df_raw %>% dplyr::rename("uniqueID"="Accession","C"="temperature","RunID"="id")
+  #fix names to match original
+  fdata<-dplyr::bind_rows(fdata) %>% dplyr::rename("sample_name"="sample_name.x","rank"="rank.x") %>% dplyr::select(-rank.y)
+  #left join
+  fdata<-fdata %>% dplyr::left_join(test,by=c("uniqueID","sample_name","C"))
   
-  fdata<-dplyr::bind_rows(fdata) 
-  df.samples<-dplyr::rename(df.samples,"Dataset"="sample_name")
-  #fdata<-fdata %>% dplyr::rename("Dataset"="sample_name")
-  fdata<-fdata %>% #rename sample_names
-    dplyr::left_join(df.samples,by="Dataset") %>% 
-    dplyr::select(-I)  #dataset.x is vehicle or treated 
   
-  #dataset is F1 column
-  #put equal column headers before joining
-  test<-df_raw %>% dplyr::rename("RunID"="sample") 
-  df.samples<-df.samples %>% dplyr::rename("RunID"="dataset")
+  fdata$logI<-log(fdata$value,base=exp(2))
   
-  test<-test %>% dplyr::left_join(df.samples,by="RunID") 
-  #filter by sample_name
-  test<-test %>% dplyr::mutate(Dataset=str_replace(test$Dataset,"[:digit:]",""))
-  test<-test %>% dplyr::filter(Dataset %in% fdata$Dataset)
-  #add temperature values
-  test<-test %>% 
-    dplyr::full_join(df.temps,by="temp_ref") %>% dplyr::rename("C"="temperature","I"="value")
-  fdata<-fdata %>% dplyr::rename("dataset"="dataset.x")
-  fdata$dataset<-as.factor(fdata$dataset)
-  fdata<-test %>% dplyr::full_join(fdata,by=c("Accession"="uniqueID","C"="C","Dataset"="Dataset"))
-  # d<-max(nchar(unique(fdata$Dataset)))
-  # fdata<-fdata %>% dplyr::mutate(dataset = ifelse(nchar(.$Dataset)<d,"vehicle","treated"))
-  # 
-  fdata$logI<-log(fdata$I,base=exp(2))
-  
-  fdata<-fdata %>% dplyr::select(Dataset,C,temp_ref,I,dataset,logI)
+  fdata<-fdata %>% dplyr::select(sample_name,C,temp_ref,I,dataset,logI)
   fdata$temp_ref<-as.factor(fdata$temp_ref)
   fdata$C<-as.factor(fdata$C)
+  fdata<-fdata %>% dplyr::mutate(carrier=ifelse(str_detect(fdata$sample_name,"NOcarrier"),"+ Carrier","- Carrier"),
+                               FAIMS = ifelse(str_detect(fdata$sample_name,"NO_FAIMS"),"+ FAIMS","- FAIMS"),
+                               Phi = ifelse(str_detect(fdata$sample_name,"PhiSDM"),"+ PhiSDM","- PhiSDM"))
+  
   if(isTRUE(MD)){
-  fdata$Dataset<-as.factor(fdata$Dataset)
-  levels(fdata$Dataset)<-rev(levels(fdata$Dataset))
-  ggplot(fdata,aes(y=logI,x=Dataset,fill=Dataset,alpha=0.2))+
-    facet_grid(~C)+
-    geom_violin(na.rm=TRUE,show.legend="FALSE",color=NA)+theme_bw()+
-    geom_boxplot(width=0.1) +
-    ggplot2::ylab("log2(Intensity)")+
-    ggplot2::xlab("sample")+
-    theme(axis.text.x = element_text(angle = 90))+
-    ggplot2::ylim(3,11) 
+    fdata$sample_name<-as.factor(fdata$sample_name)
+    levels(fdata$sample_name)<-rev(levels(fdata$sample_name))
+    ggplot(fdata,aes(y=logI,x=sample_name,fill=sample_name,alpha=0.2))+
+      facet_grid(c(~C,~carrier),scales="free_x")+
+      geom_violin(na.rm=TRUE,show.legend="FALSE",color=NA)+theme_bw()+
+      geom_boxplot(width=0.1) +
+      ylab(expression(paste("lo",g[2]," Intensity")))+
+      ggplot2::xlab("sample")+
+      theme(axis.text.x = element_text(angle = 90))+
+      ggplot2::ylim(3,11) 
   }else{
     fdata$dataset<-as.factor(fdata$dataset)
     levels(fdata$dataset)<-rev(levels(fdata$dataset))
@@ -2426,13 +2510,56 @@ viol_int<-function(fdata,df_raw,df.samples,df.temps,MD=FALSE){#input df_raw
       facet_grid(~C)+
       geom_violin(na.rm=TRUE,show.legend="FALSE",color=NA)+theme_bw()+
       geom_boxplot(width=0.1) +
-      ggplot2::ylab("log2(Intensity)")+
+      ylab(expression(paste("lo",g[2]," Intensity")))+
       ggplot2::xlab("sample")+
       theme(axis.text.x = element_text(angle = 90))+
       ggplot2::ylim(3,11)
   }
 }
 viol_int(res_sp[[3]],df_raw,df.samples,df.temps,MD=TRUE)
+
+gen_CI<-function(fdata,df_raw,df.samples,df.temps,MD=FALSE){#input df_raw
+  #get original data and join samples and temp reference
+  df_raw<-df_raw %>% dplyr::left_join(df.temps,by="temp_ref")
+  df_raw<-df_raw %>% dplyr::left_join(df.samples,by='sample_id')
+  test<-df_raw %>% dplyr::rename("uniqueID"="Accession","C"="temperature","RunID"="id")
+  #fix names to match original
+  fdata<-dplyr::bind_rows(fdata) %>% dplyr::rename("sample_name"="sample_name.x","rank"="rank.x") %>% dplyr::select(-rank.y)
+  #left join
+  fdata<-fdata %>% dplyr::left_join(test,by=c("uniqueID","sample_name","C"))
+  
+  
+  fdata$logI<-log(fdata$value,base=exp(2))
+  
+  fdata<-fdata %>% dplyr::select(sample_name,C,temp_ref,I,dataset,logI)
+  fdata$temp_ref<-as.factor(fdata$temp_ref)
+  fdata$C<-as.factor(fdata$C)
+  fdata<-fdata %>% dplyr::mutate(carrier=ifelse(str_detect(fdata$sample_name,"NOcarrier"),"+ Carrier","- Carrier"),
+                                 FAIMS = ifelse(str_detect(fdata$sample_name,"NO_FAIMS"),"+ FAIMS","- FAIMS"),
+                                 Phi = ifelse(str_detect(fdata$sample_name,"PhiSDM"),"+ PhiSDM","- PhiSDM"))
+  
+  if(isTRUE(MD)){
+    fdata$sample_name<-as.factor(fdata$sample_name)
+    levels(fdata$sample_name)<-rev(levels(fdata$sample_name))
+    ggplot(fdata,aes(y=I,x=C,fill=sample_name))+
+      facet_grid(c(~carrier,~FAIMS))+
+      geom_jitter(mapping=aes(y=I,x=C,color=sample_name,alpha=0.8))+
+      
+      ylab("Relative Intensity")+
+      ggplot2::xlab("Temperature (\u00B0C)")+
+      ggplot2::ylim(0,2) 
+  }else{
+    fdata$dataset<-as.factor(fdata$dataset)
+    levels(fdata$dataset)<-rev(levels(fdata$dataset))
+    ggplot(fdata,aes(y=logI,x=dataset,fill=dataset))+
+      facet_grid(c(~carrier,~FAIMS))+
+      geom_jitter(mapping=aes(y=I,x=C,color=dataset,alpha=0.8))+
+      ylab("Relative Intensity")+
+      ggplot2::xlab("Temperature (\u00B0C)")+
+      ggplot2::ylim(0,2)
+  }
+}
+gen_CI(res_sp[[3]],df_raw,df.samples,df.temps,MD=TRUE)
 # #filter bootstrapped data
 # BSvar <- BSvar %>% keep(function(x) x$uniqueID[1] %in% df1)
 # BSvar1<- BSvar1%>% keep(function(x) x$uniqueID[1] %in% df1)
