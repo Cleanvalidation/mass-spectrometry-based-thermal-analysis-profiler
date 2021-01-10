@@ -21,6 +21,8 @@ library(nlstools)
 library(stringr)
 library(stringi)
 library(mice)
+library(DBI)
+library(furrr)
 
 theme_set(theme_bw())
 
@@ -78,21 +80,23 @@ read_cetsa <- function(f,PSM=FALSE,Batch=TRUE){
         
       }else{
         i<-1
-        file.list(f)
+        file.list<-f
         df2<-list()
         df2<-data.frame()
         df<-data.frame()
         df<- readxl::read_excel(file.list[i])
+        
         df2<- df %>% 
           dplyr::select(Accession,tidyselect::starts_with('Abundance'),-tidyselect::contains('Grouped')) %>% 
           tidyr::gather('id', 'value', -Accession) %>%
           dplyr::mutate(sample_id = ifelse(!is.na(str_extract(id, str_c('F',"[:digit:][:digit:]"))),str_extract(id, str_c('F',"[:digit:][:digit:]")),stringr::str_extract_all(id,str_c('F','[:digit:]'))),
                         temp_ref = stringr::str_extract_all(id,find),
                         missing=ifelse(is.na(value),1,0))
-        df2<-df2 %>% dplyr::group_split(Accession,sample_id)
-        df2<-purrr::map(df2,function(x) x %>% 
-                          tidyr::unnest(cols = c(sample_id, temp_ref) %>% 
-                                          dplyr::mutate(missing_pct=100*sum(is.na(value))/length(value))))
+        df2<-df2 %>% 
+          tidyr::unnest(cols = c(sample_id, temp_ref))
+        df2<-df2 %>% dplyr::group_split(Accession,sample_id) 
+        plan(sequential)
+        df2<-furrr::future_map(df2,function(x){ x %>%  dplyr::mutate(missing_pct=100*sum(is.na(value))/length(value))})
         df2<-dplyr::bind_rows(df2)
         
       }
@@ -116,8 +120,9 @@ read_cetsa <- function(f,PSM=FALSE,Batch=TRUE){
     df_raw_D_R<-df2 %>% dplyr::filter(temp_ref=="126") %>% dplyr::mutate(rank=dplyr::ntile(value,3))%>% dplyr::select(sample_id,Accession,rank)
     df2<-df2 %>% dplyr::left_join(df_raw_D_R,by=c('sample_id','Accession'))
     df2<-df2 %>% dplyr::group_split(Accession,sample_id)
-    df2<-purrr::map(df2,function(x) x %>% 
-                      dplyr::mutate(missing_pct=100*sum(is.na(value))/length(value)))
+    plan(sequential)
+    df2<-furrr::future_map(df2,function(x){ x %>%  dplyr::mutate(missing_pct=100*sum(is.na(value))/length(value))})
+    df2<-dplyr::bind_rows(df2)
     df2<-dplyr::bind_rows(df2)
     
   }
@@ -148,16 +153,19 @@ read_cetsa <- function(f,PSM=FALSE,Batch=TRUE){
           dplyr::mutate(sample_id = as.factor(paste("F",as.character(i),sep="")),
                         temp_ref = stringr::str_extract_all(id,find),
                         missing=ifelse(is.na(value),1,0))
-        
-        df<-dplyr::bind_rows(df)
-        df_raw_D_R<-df %>% dplyr::filter(temp_ref=="126") %>% dplyr::mutate(rank=dplyr::ntile(value,3))%>% dplyr::select(sample_id,Accession,rank)
-        df<-df %>% dplyr::left_join(df_raw_D_R,by=c('sample_id','Accession'))
-        df<-df %>% dplyr::group_split(Accession,sample_id)
-        df<-purrr::map(df,function(x) x %>% 
-                         dplyr::mutate(missing_pct=100*sum(is.na(value))/length(value)))
-        
-        return(dplyr::bind_rows(df))
       }
+      df<-dplyr::bind_rows(df)
+      df<-df %>% 
+        tidyr::unnest(cols = c(sample_id, temp_ref))
+      df_raw_D_R<-df %>% dplyr::filter(temp_ref=="126") %>% dplyr::mutate(rank=dplyr::ntile(value,3))%>% dplyr::select(sample_id,Accession,rank)
+      df<-df %>% dplyr::left_join(df_raw_D_R,by=c('sample_id','Accession'))
+      df<-df %>% dplyr::group_split(Accession,sample_id)
+      plan(sequential)
+      df<-furrr::future_map(df,function(x){ x %>%  dplyr::mutate(missing_pct=100*sum(is.na(value))/length(value))})
+      df<-dplyr::bind_rows(df)
+      
+      return(df)
+      
     }
     return(dplyr::bind_rows(df))
     
@@ -378,7 +386,6 @@ stats_cetsa <- function(df, plateau_temps = c(37,40,64,67)) {
   df <- cbind(df, slope_start=df.responses$slopeStart, slope_end=df.responses$slopeEnd)
   return(as.tibble(df))
 }
-
 
 #' tag CETSA curves
 #'
@@ -679,6 +686,175 @@ find_pat = function(pat, x)
   return(ff(pat, x) - length(pat))
 }  
 
+################################
+DLR<-function(d){
+  #preallocate final result as a list
+  df_n<-vector(mode = "list", length(d))
+  df_n[[1]]<-data.frame()
+  df1<-df_n
+  df2<-df1
+  df3<-df1
+  df_1<-df_n
+  df0<-df_n
+  df_0<-df_n
+  
+  d<-lapply(d,function(x) x %>% dplyr::mutate(I=as.numeric(I)))
+  df_1<-furrr::future_map(d, function(x) {x %>%
+      dplyr::group_by(C) %>%
+      dplyr::mutate(I=mean(I,na.rm=TRUE)) %>% 
+      dplyr::ungroup(.)
+    
+  })
+  #rank intensity values using 3 regions,  rename column as LineRegion
+  LR<-furrr::future_map(df_1, function(x) {dplyr::ntile(dplyr::desc(x$I),3)%>%
+      as.data.frame(.) %>% dplyr::rename("LineRegion"=".")})
+  df_1<-furrr::future_map(df_1,function(x){x %>% dplyr::select(-LineRegion)})#remove Line Region column from one dataset before merging
+  
+  #Add LR to the list
+  df_1<-furrr::future_map2(df_1,LR, function(x,y) {c(x,y) %>% as.data.frame(.)})
+  df_1 <-furrr::future_map(df_1,function(x){x %>% dplyr::mutate(C = C,I=I,CC=as.factor(CC))})
+  
+  #separate by Line Regions
+  df1<-furrr::future_map(df_1,function(x){x %>% dplyr::filter(LineRegion==1) %>% as.data.frame(.)})
+  df2<-furrr::future_map(df_1,function(x){x %>% dplyr::filter(LineRegion==2) %>% as.data.frame(.)})
+  df3<-furrr::future_map(df_1,function(x){x %>% dplyr::filter(LineRegion==3) %>% as.data.frame(.)})
+  
+  #preallocate model data per line region
+  LM1<-list(NA)
+  LM2<-list(NA)
+  LM3<-list(NA)
+  df1<-furrr::future_map(df1,function(x) x[order(x$C),])
+  df2<-furrr::future_map(df2,function(x) x[order(x$C),])
+  df3<-furrr::future_map(df3,function(x) x[order(x$C),])
+  # #Flag NA values
+  df1<-furrr::future_map(df1,function(x) x %>% dplyr::mutate(missing=is.na(x$I)))
+  df2<-furrr::future_map(df2,function(x) x %>% dplyr::mutate(missing=is.na(x$I)))
+  df3<-furrr::future_map(df3,function(x) x %>% dplyr::mutate(missing=is.na(x$I)))
+  # #remove NA values
+  df1<-furrr::future_map(df1,function(x) x %>% dplyr::filter(!is.na(x$I)))
+  df2<-furrr::future_map(df2,function(x) x %>% dplyr::filter(!is.na(x$I)))
+  df3<-furrr::future_map(df3,function(x) x %>% dplyr::filter(!is.na(x$I)))
+  # #remove empty rows for proteins
+  df1<-df1 %>% purrr::keep(function(x) as.logical(nrow(x)>0))
+  df2<-df2 %>% purrr::keep(function(x) as.logical(nrow(x)>0))
+  df3<-df3 %>% purrr::keep(function(x) as.logical(nrow(x)>0))
+  #get common uniqueIDs
+  d1<-dplyr::intersect(dplyr::bind_rows(df1)$uniqueID,dplyr::bind_rows(df2)$uniqueID)
+  CID<-dplyr::intersect(d1,dplyr::bind_rows(df3)$uniqueID)
+  #keep common uniqueIDs
+  
+  df1<-df1 %>% purrr::keep(function(x) x$uniqueID[1] %in% CID)
+  df2<-df2 %>% purrr::keep(function(x) x$uniqueID[1] %in% CID)
+  df3<-df3 %>% purrr::keep(function(x) x$uniqueID[1] %in% CID)
+  #find fitted curves L3<-purrr::map(df3,function(x) tryCatch(lm(formula = I~C,data = x ,na.action=na.omit), error = function(e){NA}))
+  L1<-furrr::future_map(df1,function(x) tryCatch(lm(formula = I~C,data = x ,na.action='na.omit'), error = function(e){NA}))
+  LM1<-furrr::future_map2(df1,L1,function(x,y) x %>% purrr::keep(function(x) any(!is.na(y))))
+  
+  L2<-furrr::future_map(df2,function(x) tryCatch(lm(formula = I~C,data = x ,na.action='na.omit'), error = function(e){NA}))
+  LM2<-furrr::future_map2(df2,L2,function(x,y) x %>% purrr::keep(function(x) any(!is.na(y))))
+  
+  L3<-furrr::future_map2(df3,seq(df3),function(x,y) tryCatch(lm(formula = I~C,data = x ,na.action='na.omit'),error=function(e)print(y)))
+  LM3<-furrr::future_map2(df3,L3,function(x,y) x %>% purrr::keep(function(x) any(!is.na(y))))
+  
+  #linear fit per line region
+  LM1<-furrr::future_map2(df1,L1,function(x,y)x %>% dplyr::mutate(M1 = list(y)))
+  LM2<-furrr::future_map2(df2,L2,function(x,y)x %>% dplyr::mutate(M1 = list(y)))
+  LM3<-furrr::future_map2(df3,L3,function(x,y)x %>% dplyr::mutate(M1 = list(y)))
+  
+  
+  #fitted curves
+  x1<-furrr::future_map(LM1, function(x) try(ifelse(class(x$M1[[1]])=="lm",TRUE,NA)))
+  x2<-furrr::future_map(LM2, function(x) try(ifelse(class(x$M1[[1]])=="lm",TRUE,NA)))
+  x3<-furrr::future_map(LM3, function(x) try(ifelse(class(x$M1[[1]])=="lm",TRUE,NA)))
+  
+  #fit per line region with confidence intervals
+  fit1<-furrr::future_map(LM1,function(x)x %>% dplyr::mutate(LM1= list(try(predict(x$M1[[1]],se.fit = TRUE)))))
+  fit2<-furrr::future_map(LM2,function(x)x %>% dplyr::mutate(LM1= list(try(predict(x$M1[[1]],se.fit = TRUE)))))
+  fit3<-furrr::future_map(LM3,function(x)x %>% dplyr::mutate(LM1= list(try(predict(x$M1[[1]],se.fit = TRUE)))))
+  
+  #keep last value for CI 
+  fit1 <- furrr::future_map(fit1,function(x) x %>% dplyr::mutate(CI=try(tail(x$LM1[[1]]$se.fit,1))))
+  fit2 <- furrr::future_map(fit2,function(x) x %>% dplyr::mutate(CI=try(tail(x$LM1[[1]]$se.fit,1))))
+  fit3 <- furrr::future_map(fit3,function(x) x %>% dplyr::mutate(CI=try(tail(x$LM1[[1]]$se.fit,1))))
+  
+  #append # of fitted curves to original data (columns must have the same rows for map2)
+  df1<-furrr::future_map2(df1,x1,function(x,y)x %>% dplyr::mutate(fitn=y))
+  df2<-furrr::future_map2(df2,x2,function(x,y)x %>% dplyr::mutate(fitn=y))
+  df3<-furrr::future_map2(df3,x3,function(x,y)x %>% dplyr::mutate(fitn=y))
+  
+  #append # of fitted curves to original data (columns must have the same rows for map2)
+  df1<-furrr::future_map2(df1,fit1,function(x,y)x %>% dplyr::mutate(CI=y$CI))
+  df2<-furrr::future_map2(df2,fit2,function(x,y)x %>% dplyr::mutate(CI=y$CI))
+  df3<-furrr::future_map2(df3,fit3,function(x,y)x %>% dplyr::mutate(CI=y$CI))
+  
+  #Reassign line Regions if intensity falls within previous Line Region's CI
+  
+  df2<-furrr::future_map2(df1,df2,function(x,y)y %>%
+                            dplyr::mutate(LineRegion=ifelse(any(y$I<tail(x$I-x$CI,1)),2,1))) 
+  
+  df3<-furrr::future_map2(df2,df3,function(x,y)y %>% 
+                            dplyr::mutate(LineRegion=ifelse(any(y$I<tail(x$I-x$CI,1)),3,2))) 
+  
+  df1<-df1 %>% dplyr::bind_rows(.)
+  df2<-df2 %>% dplyr::bind_rows(.)
+  df3<-df3 %>% dplyr::bind_rows(.)
+  #merge all prepared lists to one data frame
+  df_0<-rbind(df1,df2,df3) 
+  
+  #define line Region as a factor
+  df_0$LineRegion<-as.factor(df_0$LineRegion)
+  df_0<-df_0 %>% dplyr::group_split(uniqueID)
+  return(df_0)
+}
+
+
+#this function takes original data with replicates as an input
+CP<-function(df_0,d){ #df_0 is the result data frame and d is the orginal data with replicates
+  df_0<-furrr::future_map(df_0, function(x) x %>% dplyr::select(-missing,-CI))
+  
+  #remove data points with missing data for replicates
+  # d<-d %>% purrr::keep(function(x){
+  #   nrow(x)>=20
+  # })
+  #make sure uniqueIDs are consistent among data frames
+  d<-dplyr::bind_rows(d)
+  df_0<-dplyr::bind_rows(df_0)
+  #keep the IDs in df_0 which are present in d
+  df_0<-df_0 %>% dplyr::filter(uniqueID %in% d$uniqueID)
+  
+  #Split into lists once again
+  d<-d %>% dplyr::group_split(uniqueID)
+  
+  #remove IDs that are not common in both datasets
+  d<-d %>% purrr::keep(function(x) x$uniqueID[1] %in% df_0$uniqueID)
+  #split into list
+  df_0<-df_0 %>% dplyr::group_split(uniqueID)
+  #For the original data (unlabeled LR) define LR with intensities
+  df_0<-suppressWarnings(furrr::future_map2(d,df_0,function(x,y) x %>% #if the intensity in DF is greater than the max(LR2) label 1 else if the intensity is less than min (LR=2)label 3
+                                              dplyr::mutate(LineRegion=as.numeric(ifelse(x$I>=min(y$I[y$LineRegion==1]),1,ifelse(x$I<min(y$I[y$LineRegion==2]),3,2))))))
+  
+  df_n<-vector(mode = "list", length(df_0))
+  ctest<-df_n
+  dap<-data.frame()
+  Split<-df_n
+  #This function is to verify consistent line Region assignments for C (temperature) across replicates
+  df_0<-furrr::future_map(df_0,function(x)x %>% dplyr::arrange(C) %>% dplyr::group_by(C,LineRegion)%>%dplyr::mutate(n=dplyr::n()) %>% dplyr::ungroup())
+  
+  #subset of the data with shared line region values, using purrr::map to keep size constant
+  Split<-furrr::future_map(df_0,function(x)x %>%subset(n<max(n)) %>% data.frame(.) %>% dplyr::mutate(LineRegion=as.numeric((.$LineRegion))))
+  #remove NA values
+  Split<-dplyr::bind_rows(Split)
+  df_0<-dplyr::bind_rows(df_0)
+  #Join df_0 with the subset of values
+  dap<-df_0 %>% dplyr::left_join(Split,by=c("C"="C","uniqueID"="uniqueID","dataset"="dataset","I"="I","Dataset"="Dataset","CC"="CC","n"="n"))
+  dap<-dap %>% dplyr::group_split(uniqueID)
+  dap<-furrr::future_map(dap,function(x)x %>% dplyr::mutate(LineRegion=ifelse(.$C<=tail(.$C[.$LineRegion.x==1],1),1,ifelse(.$C<=tail(.$C[.$LineRegion.x==2],1),2,3))) %>% dplyr::select(-LineRegion.x,-LineRegion.y,-sample_name.y,-missing.y))
+  
+  return(dap)
+}
+
+plan(sequential)
+
 ##################################
 
 # #prepare a list of proteins
@@ -686,7 +862,7 @@ find_pat = function(pat, x)
 
 #rename to the folder where your PSM file is located
 f<- list.files(pattern='*PEPTIDES2.xlsx')
-f<- list.files(pattern='*PROTEINS.xlsx')
+f<- list.files(pattern='*Proteins.xlsx')
 # PSMs<-read_excel(f)
 # PSMs<-PSMs %>% dplyr::rename("uniqueID"="Protein","sample_name"="Mixture","dataset"="BioReplicate","temp_ref"="Channel","I"="Abundance")
 # PSMs<-PSMs %>% dplyr::select(uniqueID,sample_name,dataset,temp_ref,I)
@@ -704,6 +880,7 @@ f<- list.files(pattern='*PROTEINS.xlsx')
 # f<-"C:/Users/figue/OneDrive - Northeastern University/CETSA R/CP_Exploris_20200811_DMSOvsMEKi_carrier_FAIMS_PhiSDM_PEPTIDES.xlsx"
 
 df_raw <- read_cetsa(f,PSM=FALSE,Batch=FALSE)
+
 
 #annotate protein data with missing values
 MID<-df_raw[is.na(df_raw$value),]
@@ -727,11 +904,11 @@ df.temps<-df.t(10)
 #df.temps <- data.frame(temp_ref = c('126', '127N', '127C', '128N', '128C', '129N','129C', '130N', '130C', '131'), temperature = c(67, 64, 60.4, 57.1, 53.8, 50.5, 47.2, 43.9, 40.6, 37.3), stringsAsFactors = FALSE)
 #df.samples <- data.frame(sample_id = c('F1', 'F2', 'F3','F4'), sample_name = c('DMSO_1','DMSO_2', '655_1','655_2'), stringsAsFactors = FALSE)
 
-df.s <- function(n,rep,vehicle_name,treated_name){#n is df_raw, rep is tech rep
-  samples<-data.frame(sample_id=as.factor(unique(n$sample_id)),sample_name=as.factor(c(paste0(vehicle_name,rep(1,rep)),paste0(vehicle_name,rep(2,rep)),paste0(treated_name,rep(1,rep)),paste0(treated_name,rep(2,rep)))))
+df.s <- function(n,rep_,vehicle_name,treated_name){#n is df_raw, rep is tech rep
+  samples<-data.frame(sample_id=as.factor(unique(n$sample_id)),sample_name=c(paste0(rep(as.factor(vehicle_name),rep_)),paste0(rep(as.factor(treated_name),rep_))))
   return(samples)
 }
-df.samples<-df.s(df_raw,3,"DMSO","TREATED")
+df.samples<-df.s(df_raw,2,"DMSO","TREATED")
 #assign TMT channel and temperature data
 df_clean <- clean_cetsa(df_raw, temperatures = df.temps, samples = df.samples,PSM=FALSE)#ssigns temperature and replicate values
 
@@ -743,10 +920,12 @@ df_norm <- df_norm %>%
   dplyr::rename("sample_id"="sample") %>% 
   dplyr::left_join(df.samples, by ="sample_id")
 
+
 #assign CC value (you need to set this to your data)
 
-df_norm<-df_norm%>% dplyr::mutate(CC=ifelse(stringr::str_detect(.$sample_name,"DMSO"),0,1))#concentration values are defined in uM
-df_norm$dataset<-ifelse(stringr::str_detect(df_norm$sample_name,"DMSO"),"vehicle","treated")
+df_norm<-df_norm%>% dplyr::mutate(CC=ifelse(stringr::str_detect(.$sample_name,"DMSO")==TRUE,0,1))#concentration values are defined in uM
+
+df_norm$dataset<-ifelse(stringr::str_detect(df_norm$sample_name,"DMSO")==TRUE,"vehicle","treated")
 
 ##SCRIPT STARTS HERE
 DF<-df_norm %>% dplyr::group_split(uniqueID) #split null dataset only by protein ID
@@ -775,181 +954,16 @@ DF<-DF %>%  dplyr::group_split(uniqueID)
 d_<-d_ %>% dplyr::group_split(uniqueID,dataset) 
 d_1<-d_1 %>% dplyr::group_split(uniqueID,dataset) 
 
-################################
-DLR<-function(d){
-  #preallocate final result as a list
-  df_n<-vector(mode = "list", length(d))
-  df_n[[1]]<-data.frame()
-  df1<-df_n
-  df2<-df1
-  df3<-df1
-  df_1<-df_n
-  df0<-df_n
-  df_0<-df_n
-  
-  d<-lapply(d,function(x) x %>% dplyr::mutate(I=as.numeric(I)))
-  df_1<-lapply(d, function(x) {x %>%
-      dplyr::group_by(C) %>%
-      dplyr::mutate(missing = sum(is.na(.$I)),
-                    I=mean(I,na.rm=TRUE)) %>% 
-      dplyr::ungroup(.)
-    
-  })
-  #rank intensity values using 3 regions,  rename column as LineRegion
-  LR<-lapply(df_1, function(x) {dplyr::ntile(dplyr::desc(x$I),3)%>%
-      as.data.frame(.) %>% dplyr::rename("LineRegion"=".")})
-  df_1<-purrr::map(df_1,function(x){x %>% dplyr::select(-LineRegion)})#remove Line Region column from one dataset before merging
-  
-  #Add LR to the list
-  df_1<-purrr::map2(df_1,LR, function(x,y) {c(x,y) %>% as.data.frame(.)})
-  df_1 <-lapply(df_1,function(x){x %>% dplyr::mutate(C = C,I=I,CC=as.factor(CC))})
-  
-  #separate by Line Regions
-  df1<-lapply(df_1,function(x){x %>% dplyr::filter(LineRegion==1) %>% as.data.frame(.)})
-  df2<-lapply(df_1,function(x){x %>% dplyr::filter(LineRegion==2) %>% as.data.frame(.)})
-  df3<-lapply(df_1,function(x){x %>% dplyr::filter(LineRegion==3) %>% as.data.frame(.)})
-  
-  #preallocate model data per line region
-  LM1<-list(NA)
-  LM2<-list(NA)
-  LM3<-list(NA)
-  df1<-lapply(df1,function(x) x[order(x$C),])
-  df2<-lapply(df2,function(x) x[order(x$C),])
-  df3<-lapply(df3,function(x) x[order(x$C),])
-  # #Flag NA values
-  df1<-lapply(df1,function(x) x %>% dplyr::mutate(missing=is.na(x$I)))
-  df2<-lapply(df2,function(x) x %>% dplyr::mutate(missing=is.na(x$I)))
-  df3<-lapply(df3,function(x) x %>% dplyr::mutate(missing=is.na(x$I)))
-  # #remove NA values
-  df1<-lapply(df1,function(x) x %>% dplyr::filter(!is.na(x$I)))
-  df2<-lapply(df2,function(x) x %>% dplyr::filter(!is.na(x$I)))
-  df3<-lapply(df3,function(x) x %>% dplyr::filter(!is.na(x$I)))
-  # #remove empty rows for proteins
-  df1<-df1 %>% purrr::keep(function(x) as.logical(nrow(x)>0))
-  df2<-df2 %>% purrr::keep(function(x) as.logical(nrow(x)>0))
-  df3<-df3 %>% purrr::keep(function(x) as.logical(nrow(x)>0))
-  #get common uniqueIDs
-  d1<-dplyr::intersect(dplyr::bind_rows(df1)$uniqueID,dplyr::bind_rows(df2)$uniqueID)
-  CID<-dplyr::intersect(d1,dplyr::bind_rows(df3)$uniqueID)
-  #keep common uniqueIDs
-  
-  df1<-df1 %>% purrr::keep(function(x) x$uniqueID[1] %in% CID)
-  df2<-df2 %>% purrr::keep(function(x) x$uniqueID[1] %in% CID)
-  df3<-df3 %>% purrr::keep(function(x) x$uniqueID[1] %in% CID)
-  #find fitted curves L3<-purrr::map(df3,function(x) tryCatch(lm(formula = I~C,data = x ,na.action=na.omit), error = function(e){NA}))
-  L1<-purrr::map(df1,function(x) tryCatch(lm(formula = I~C,data = x ,na.action='na.omit'), error = function(e){NA}))
-  LM1<-purrr::map2(df1,L1,function(x,y) x %>% purrr::keep(function(x) any(!is.na(y))))
-  
-  L2<-purrr::map(df2,function(x) tryCatch(lm(formula = I~C,data = x ,na.action='na.omit'), error = function(e){NA}))
-  LM2<-purrr::map2(df2,L2,function(x,y) x %>% purrr::keep(function(x) any(!is.na(y))))
-  
-  L3<-purrr::map2(df3,seq(df3),function(x,y) tryCatch(lm(formula = I~C,data = x ,na.action='na.omit'),error=function(e)print(y)))
-  LM3<-purrr::map2(df3,L3,function(x,y) x %>% purrr::keep(function(x) any(!is.na(y))))
-  
-  #linear fit per line region
-  LM1<-purrr::map2(df1,L1,function(x,y)x %>% dplyr::mutate(M1 = list(y)))
-  LM2<-purrr::map2(df2,L2,function(x,y)x %>% dplyr::mutate(M1 = list(y)))
-  LM3<-purrr::map2(df3,L3,function(x,y)x %>% dplyr::mutate(M1 = list(y)))
-  
-  
-  #fitted curves
-  x1<-lapply(LM1, function(x) try(ifelse(class(x$M1[[1]])=="lm",TRUE,NA)))
-  x2<-lapply(LM2, function(x) try(ifelse(class(x$M1[[1]])=="lm",TRUE,NA)))
-  x3<-lapply(LM3, function(x) try(ifelse(class(x$M1[[1]])=="lm",TRUE,NA)))
-  
-  #fit per line region with confidence intervals
-  fit1<-purrr::map(LM1,function(x)x %>% dplyr::mutate(LM1= list(try(predict(x$M1[[1]],se.fit = TRUE)))))
-  fit2<-purrr::map(LM2,function(x)x %>% dplyr::mutate(LM1= list(try(predict(x$M1[[1]],se.fit = TRUE)))))
-  fit3<-purrr::map(LM3,function(x)x %>% dplyr::mutate(LM1= list(try(predict(x$M1[[1]],se.fit = TRUE)))))
-  
-  #keep last value for CI 
-  fit1 <- purrr::map(fit1,function(x) x %>% dplyr::mutate(CI=try(tail(x$LM1[[1]]$se.fit,1))))
-  fit2 <- purrr::map(fit2,function(x) x %>% dplyr::mutate(CI=try(tail(x$LM1[[1]]$se.fit,1))))
-  fit3 <- purrr::map(fit3,function(x) x %>% dplyr::mutate(CI=try(tail(x$LM1[[1]]$se.fit,1))))
-  
-  #append # of fitted curves to original data (columns must have the same rows for map2)
-  df1<-purrr::map2(df1,x1,function(x,y)x %>% dplyr::mutate(fitn=y))
-  df2<-purrr::map2(df2,x2,function(x,y)x %>% dplyr::mutate(fitn=y))
-  df3<-purrr::map2(df3,x3,function(x,y)x %>% dplyr::mutate(fitn=y))
-  
-  #append # of fitted curves to original data (columns must have the same rows for map2)
-  df1<-purrr::map2(df1,fit1,function(x,y)x %>% dplyr::mutate(CI=y$CI))
-  df2<-purrr::map2(df2,fit2,function(x,y)x %>% dplyr::mutate(CI=y$CI))
-  df3<-purrr::map2(df3,fit3,function(x,y)x %>% dplyr::mutate(CI=y$CI))
-  
-  #Reassign line Regions if intensity falls within previous Line Region's CI
-  
-  df2<-purrr::map2(df1,df2,function(x,y)y %>%
-                     dplyr::mutate(LineRegion=ifelse(any(y$I<tail(x$I-x$CI,1)),2,1))) 
-  
-  df3<-purrr::map2(df2,df3,function(x,y)y %>% 
-                     dplyr::mutate(LineRegion=ifelse(any(y$I<tail(x$I-x$CI,1)),3,2))) 
-  
-  df1<-df1 %>% dplyr::bind_rows(.)
-  df2<-df2 %>% dplyr::bind_rows(.)
-  df3<-df3 %>% dplyr::bind_rows(.)
-  #merge all prepared lists to one data frame
-  df_0<-rbind(df1,df2,df3) 
-  
-  #define line Region as a factor
-  df_0$LineRegion<-as.factor(df_0$LineRegion)
-  df_0<-df_0 %>% dplyr::group_split(uniqueID)
-  return(df_0)
-}
-
-
-#this function takes original data with replicates as an input
-CP<-function(df_0,d){ #df_0 is the result data frame and d is the orginal data with replicates
-  df_0<-lapply(df_0, function(x) x %>% dplyr::select(-missing,-CI))
-  
-  #remove data points with missing data for replicates
-  # d<-d %>% purrr::keep(function(x){
-  #   nrow(x)>=20
-  # })
-  #make sure uniqueIDs are consistent among data frames
-  d<-dplyr::bind_rows(d)
-  df_0<-dplyr::bind_rows(df_0)
-  #keep the IDs in df_0 which are present in d
-  df_0<-df_0 %>% dplyr::filter(uniqueID %in% d$uniqueID)
-  
-  #Split into lists once again
-  d<-d %>% dplyr::group_split(uniqueID)
-  
-  #remove IDs that are not common in both datasets
-  d<-d %>% purrr::keep(function(x) x$uniqueID[1] %in% df_0$uniqueID)
-  #split into list
-  df_0<-df_0 %>% dplyr::group_split(uniqueID)
-  #For the original data (unlabeled LR) define LR with intensities
-  df_0<-suppressWarnings(purrr::map2(d,df_0,function(x,y) x %>% #if the intensity in DF is greater than the max(LR2) label 1 else if the intensity is less than min (LR=2)label 3
-                                       dplyr::mutate(LineRegion=as.numeric(ifelse(x$I>=min(y$I[y$LineRegion==1]),1,ifelse(x$I<min(y$I[y$LineRegion==2]),3,2))))))
-  
-  df_n<-vector(mode = "list", length(df_0))
-  ctest<-df_n
-  dap<-data.frame()
-  Split<-df_n
-  #This function is to verify consistent line Region assignments for C (temperature) across replicates
-  df_0<-lapply(df_0,function(x)x %>% dplyr::arrange(C) %>% dplyr::group_by(C,LineRegion)%>%dplyr::mutate(n=dplyr::n()) %>% dplyr::ungroup())
-  
-  #subset of the data with shared line region values, using purrr::map to keep size constant
-  Split<-purrr::map(df_0,function(x)x %>%subset(n<max(n)) %>% as.data.frame(.) %>% dplyr::mutate(LineRegion=as.numeric((.$LineRegion))))
-  #remove NA values
-  Split<-dplyr::bind_rows(Split)
-  df_0<-dplyr::bind_rows(df_0)
-  Split<-df_0 %>% dplyr::rename("sample"="sample_id")
-  df_0<-df_0 %>% dplyr::rename("sample"="sample_id")
-  
-  #Join df_0 with the subset of values
-  dap<-df_0 %>% dplyr::left_join(Split,by=c("C"="C","uniqueID"="uniqueID","dataset"="dataset","I"="I","CC"="CC","n"="n","sample_name"="sample_name","rank"="rank","sample"="sample","missing_pct"="missing_pct"))
-  dap<-dap %>% dplyr::group_split(uniqueID)
-  dap<-lapply(dap,function(x)x %>% dplyr::mutate(LineRegion=ifelse(.$C<=tail(.$C[.$LineRegion.x==1],1),1,ifelse(.$C<=tail(.$C[.$LineRegion.x==2],1),2,3))) %>% dplyr::select(-LineRegion.x,-LineRegion.y))
-  dap<-lapply(dap,function(x) x %>% dplyr::rename("missing"="missing.x") %>% dplyr::select(-missing.y))
-  return(dap)
-}
-
 #preallocate list
 results<-vector(mode = "list", length(d_))
 results_t<-vector(mode = "list",length(d_1))
 results_n<-vector(mode = "list",length(DF))
+
+
+results<-suppressWarnings(DLR(d_))#First guess at line regions
+results_t<-suppressWarnings(DLR(d_1))
+results_n<-suppressWarnings(DLR(DF))
+
 
 results<-suppressWarnings(DLR(d_))#First guess at line regions
 results_t<-suppressWarnings(DLR(d_1))
