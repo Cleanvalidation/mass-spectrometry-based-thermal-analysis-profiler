@@ -96,7 +96,7 @@ read_cetsa <- function(f,PSM=FALSE,Batch=TRUE){
           tidyr::unnest(cols = c(sample_id, temp_ref))
         df2<-df2 %>% dplyr::group_split(Accession,sample_id) 
         plan(sequential)
-        df2<-furrr::future_map(df2,function(x){ x %>%  dplyr::mutate(missing_pct=100*sum(is.na(value))/length(value))})
+        df2<-purrr::map(df2,function(x){ x %>%  dplyr::mutate(missing_pct=100*sum(is.na(value))/length(value))})
         df2<-dplyr::bind_rows(df2)
         
       }
@@ -121,8 +121,7 @@ read_cetsa <- function(f,PSM=FALSE,Batch=TRUE){
     df2<-df2 %>% dplyr::left_join(df_raw_D_R,by=c('sample_id','Accession'))
     df2<-df2 %>% dplyr::group_split(Accession,sample_id)
     plan(sequential)
-    df2<-furrr::future_map(df2,function(x){ x %>%  dplyr::mutate(missing_pct=100*sum(is.na(value))/length(value))})
-    df2<-dplyr::bind_rows(df2)
+    df2<-purrr::map(df2,function(x){ x %>%  dplyr::mutate(missing_pct=100*sum(is.na(value))/length(value))})
     df2<-dplyr::bind_rows(df2)
     
   }
@@ -161,7 +160,7 @@ read_cetsa <- function(f,PSM=FALSE,Batch=TRUE){
       df<-df %>% dplyr::left_join(df_raw_D_R,by=c('sample_id','Accession'))
       df<-df %>% dplyr::group_split(Accession,sample_id)
       plan(sequential)
-      df<-furrr::future_map(df,function(x){ x %>%  dplyr::mutate(missing_pct=100*sum(is.na(value))/length(value))})
+      df<-purrr::map(df,function(x){ x %>%  dplyr::mutate(missing_pct=100*sum(is.na(value))/length(value))})
       df<-dplyr::bind_rows(df)
       
       return(df)
@@ -312,7 +311,7 @@ normalize_cetsa <- function(df, temperatures,PSM=FALSE) {
   check<-check %>% unique(.) 
   check$sample<-as.factor(check$sample)
   
-  test<-df.median %>% dplyr::group_by(sample,temperature) %>% dplyr::full_join(check,c('sample','temperature'))
+  test<-df.median %>% dplyr::group_by(sample,temperature) %>% dplyr::right_join(check,c('sample','temperature'))
   ## calculate ratios between the fitted curves and the median values
   df.out <- test %>%
     dplyr::mutate(correction = ifelse(is.na(fitted_values / value),NA,fitted_values / value)) %>%
@@ -685,10 +684,115 @@ find_pat = function(pat, x)
   
   return(ff(pat, x) - length(pat))
 }  
-
+###Upset plots#################
+#To generate information on missing values
 ################################
+#df_ is the input from df_norm which includes missing percentages
+#returns segmented data for vehicle and treated
+upMV <- function(df_,vehicle,treated) {
+  if(!is.character(vehicle) & !is.character(treated)){
+    return(warning("Please define vehicle and treated names for plot labels"))
+  }
+  d2<-dplyr::bind_rows(df_)%>% dplyr::filter(dataset=="vehicle") #%>% dplyr::filter(sample_name==unique(.$sample_name)[1])
+  d2$uniqueID<-as.factor(d2$uniqueID)
+  d2$sample_name<-as.factor(d2$sample_name)
+  d2$C<-as.factor(d2$C)
+  d2$rank<-as.factor(d2$rank)
+  
+  d1<-dplyr::bind_rows(df_)%>% dplyr::filter(dataset=="treated") #%>% dplyr::filter(sample_name==unique(.$sample_name)[1])
+  d1$uniqueID<-as.factor(d1$uniqueID)
+  d1$sample_name<-as.factor(d1$sample_name)
+  d1$C<-as.factor(d1$C)
+  d1$rank<-as.factor(d1$rank)
+  
+  d1<-pivot_wider(d1,names_from=c(sample_name,missing_pct),values_from=missing_pct,values_fill=NA)
+  d2<-pivot_wider(d2,names_from=c(sample_name,missing_pct),values_from=missing_pct,values_fill=NA)
+  
+  
+  d1<-d1%>% dplyr::select(-uniqueID,-C,-I,-CC,-missing,-dataset,-sample_id)
+  d2<-d2 %>% dplyr::select(-uniqueID,-C,-I,-CC,-missing,-dataset,-sample_id)
+  
+  rating_scale = scale_fill_manual(values=c(
+    '1'='#E41A1C', '2'='#377EB8',
+    '3'='#4DAF4A'
+  ))
+  show_hide_scale = scale_color_manual(values=c('show'='black', 'hide'='transparent'), guide=FALSE)
+  
+  p<-upset(d2,names(d2),name="Sample bins",
+           min_degree=1,
+           set_sizes=FALSE,
+           base_annotations=list(
+             '# of Proteins'=intersection_size(
+               counts=TRUE,
+             )
+           ),
+           annotations =list(
+             "Ranked Intensity %"=list(
+               aes=aes(x=intersection, fill=d2$rank),
+               geom=list(
+                 geom_bar(stat='count', position='fill', na.rm=TRUE),
+                 geom_text(
+                   aes(
+                     label=!!aes_percentage(relative_to='intersection'),
+                     color=ifelse(!is.na(rank), 'show', 'hide')
+                   ),
+                   stat='count',
+                   position=position_fill(vjust = .5)
+                 ),
+                 scale_y_continuous(labels=scales::percent_format()),
+                 
+                 show_hide_scale,
+                 rating_scale
+               )
+             )
+           )
+           
+  )+ggtitle(paste0(vehicle," C_F_S"))
+  
+  p2<-upset(d1,names(d1),name="Sample bins",
+            min_degree=1,
+            set_sizes=FALSE,
+            base_annotations=list(
+              '# of Proteins'=intersection_size(
+                counts=TRUE,
+              )
+            ),
+            annotations =list(
+              "Ranked Intensity %"=list(
+                aes=aes(x=intersection, fill=d1$rank),
+                geom=list(
+                  geom_bar(stat='count', position='fill', na.rm=TRUE),
+                  geom_text(
+                    aes(
+                      label=!!aes_percentage(relative_to='intersection'),
+                      color=ifelse(!is.na(rank), 'show', 'hide')
+                    ),
+                    stat='count',
+                    position=position_fill(vjust = .5)
+                  ),
+                  scale_y_continuous(labels=scales::percent_format()),
+                  
+                  show_hide_scale,
+                  rating_scale
+                )
+              )
+            )
+            
+  )+ggtitle(paste0(treated," C_F_S"))
+  return(list(plot(p),plot(p2)))
+  
+}
+listUP<-upMV(df_,"DMSO","TREATED")
+#combine plots
+pdf("UpsetMV.pdf", height=10, width=20)
+listUP[[1]]
+listUP[[2]]
+
+dev.off()
 DLR<-function(d){
   #preallocate final result as a list
+  
+  
   df_n<-vector(mode = "list", length(d))
   df_n[[1]]<-data.frame()
   df1<-df_n
@@ -699,41 +803,44 @@ DLR<-function(d){
   df_0<-df_n
   
   d<-lapply(d,function(x) x %>% dplyr::mutate(I=as.numeric(I)))
-  df_1<-furrr::future_map(d, function(x) {x %>%
+
+  df_1<-purrr::map(d, function(x) { 
+    x %>%
       dplyr::group_by(C) %>%
       dplyr::mutate(I=mean(I,na.rm=TRUE)) %>% 
       dplyr::ungroup(.)
     
   })
   #rank intensity values using 3 regions,  rename column as LineRegion
-  LR<-furrr::future_map(df_1, function(x) {dplyr::ntile(dplyr::desc(x$I),3)%>%
+  LR<-purrr::map(df_1, function(x) { 
+    dplyr::ntile(dplyr::desc(x$I),3)%>%
       as.data.frame(.) %>% dplyr::rename("LineRegion"=".")})
-  df_1<-furrr::future_map(df_1,function(x){x %>% dplyr::select(-LineRegion)})#remove Line Region column from one dataset before merging
+  df_1<-purrr::map(df_1,function(x){x %>% dplyr::select(-LineRegion)})#remove Line Region column from one dataset before merging
   
   #Add LR to the list
-  df_1<-furrr::future_map2(df_1,LR, function(x,y) {c(x,y) %>% as.data.frame(.)})
-  df_1 <-furrr::future_map(df_1,function(x){x %>% dplyr::mutate(C = C,I=I,CC=as.factor(CC))})
+  df_1<-purrr::map2(df_1,LR, function(x,y) {c(x,y) %>% as.data.frame(.)})
+  df_1 <-purrr::map(df_1,function(x){x %>% dplyr::mutate(C = C,I=I,CC=as.factor(CC))})
   
   #separate by Line Regions
-  df1<-furrr::future_map(df_1,function(x){x %>% dplyr::filter(LineRegion==1) %>% as.data.frame(.)})
-  df2<-furrr::future_map(df_1,function(x){x %>% dplyr::filter(LineRegion==2) %>% as.data.frame(.)})
-  df3<-furrr::future_map(df_1,function(x){x %>% dplyr::filter(LineRegion==3) %>% as.data.frame(.)})
+  df1<-purrr::map(df_1,function(x){x %>% dplyr::filter(LineRegion==1) %>% as.data.frame(.)})
+  df2<-purrr::map(df_1,function(x){x %>% dplyr::filter(LineRegion==2) %>% as.data.frame(.)})
+  df3<-purrr::map(df_1,function(x){x %>% dplyr::filter(LineRegion==3) %>% as.data.frame(.)})
   
   #preallocate model data per line region
   LM1<-list(NA)
   LM2<-list(NA)
   LM3<-list(NA)
-  df1<-furrr::future_map(df1,function(x) x[order(x$C),])
-  df2<-furrr::future_map(df2,function(x) x[order(x$C),])
-  df3<-furrr::future_map(df3,function(x) x[order(x$C),])
+  df1<-purrr::map(df1,function(x) x[order(x$C),])
+  df2<-purrr::map(df2,function(x) x[order(x$C),])
+  df3<-purrr::map(df3,function(x) x[order(x$C),])
   # #Flag NA values
-  df1<-furrr::future_map(df1,function(x) x %>% dplyr::mutate(missing=is.na(x$I)))
-  df2<-furrr::future_map(df2,function(x) x %>% dplyr::mutate(missing=is.na(x$I)))
-  df3<-furrr::future_map(df3,function(x) x %>% dplyr::mutate(missing=is.na(x$I)))
+  df1<-purrr::map(df1,function(x) x %>% dplyr::mutate(missing=is.na(x$I)))
+  df2<-purrr::map(df2,function(x) x %>% dplyr::mutate(missing=is.na(x$I)))
+  df3<-purrr::map(df3,function(x) x %>% dplyr::mutate(missing=is.na(x$I)))
   # #remove NA values
-  df1<-furrr::future_map(df1,function(x) x %>% dplyr::filter(!is.na(x$I)))
-  df2<-furrr::future_map(df2,function(x) x %>% dplyr::filter(!is.na(x$I)))
-  df3<-furrr::future_map(df3,function(x) x %>% dplyr::filter(!is.na(x$I)))
+  df1<-purrr::map(df1,function(x) x %>% dplyr::filter(!is.na(x$I)))
+  df2<-purrr::map(df2,function(x) x %>% dplyr::filter(!is.na(x$I)))
+  df3<-purrr::map(df3,function(x) x %>% dplyr::filter(!is.na(x$I)))
   # #remove empty rows for proteins
   df1<-df1 %>% purrr::keep(function(x) as.logical(nrow(x)>0))
   df2<-df2 %>% purrr::keep(function(x) as.logical(nrow(x)>0))
@@ -747,52 +854,55 @@ DLR<-function(d){
   df2<-df2 %>% purrr::keep(function(x) x$uniqueID[1] %in% CID)
   df3<-df3 %>% purrr::keep(function(x) x$uniqueID[1] %in% CID)
   #find fitted curves L3<-purrr::map(df3,function(x) tryCatch(lm(formula = I~C,data = x ,na.action=na.omit), error = function(e){NA}))
-  L1<-furrr::future_map(df1,function(x) tryCatch(lm(formula = I~C,data = x ,na.action='na.omit'), error = function(e){NA}))
-  LM1<-furrr::future_map2(df1,L1,function(x,y) x %>% purrr::keep(function(x) any(!is.na(y))))
+  L1<-purrr::map(df1,function(x){ 
+    tryCatch(lm(formula = I~C,data = x ,na.action='na.omit'), error = function(e){NA})})
+  LM1<-purrr::map2(df1,L1,function(x,y) x %>% purrr::keep(function(x) any(!is.na(y))))
   
-  L2<-furrr::future_map(df2,function(x) tryCatch(lm(formula = I~C,data = x ,na.action='na.omit'), error = function(e){NA}))
-  LM2<-furrr::future_map2(df2,L2,function(x,y) x %>% purrr::keep(function(x) any(!is.na(y))))
+  L2<-purrr::map(df2,function(x){ 
+    tryCatch(lm(formula = I~C,data = x ,na.action='na.omit'), error = function(e){NA})})
+  LM2<-purrr::map2(df2,L2,function(x,y) x %>% purrr::keep(function(x) any(!is.na(y))))
   
-  L3<-furrr::future_map2(df3,seq(df3),function(x,y) tryCatch(lm(formula = I~C,data = x ,na.action='na.omit'),error=function(e)print(y)))
-  LM3<-furrr::future_map2(df3,L3,function(x,y) x %>% purrr::keep(function(x) any(!is.na(y))))
+  L3<-purrr::map2(df3,seq(df3),function(x,y) { 
+    tryCatch(lm(formula = I~C,data = x ,na.action='na.omit'), error = function(e){NA})})
+  LM3<-purrr::map2(df3,L3,function(x,y) x %>% purrr::keep(function(x) any(!is.na(y))))
   
   #linear fit per line region
-  LM1<-furrr::future_map2(df1,L1,function(x,y)x %>% dplyr::mutate(M1 = list(y)))
-  LM2<-furrr::future_map2(df2,L2,function(x,y)x %>% dplyr::mutate(M1 = list(y)))
-  LM3<-furrr::future_map2(df3,L3,function(x,y)x %>% dplyr::mutate(M1 = list(y)))
+  LM1<-purrr::map2(df1,L1,function(x,y)x %>% dplyr::mutate(M1 = list(y)))
+  LM2<-purrr::map2(df2,L2,function(x,y)x %>% dplyr::mutate(M1 = list(y)))
+  LM3<-purrr::map2(df3,L3,function(x,y)x %>% dplyr::mutate(M1 = list(y)))
   
   
   #fitted curves
-  x1<-furrr::future_map(LM1, function(x) try(ifelse(class(x$M1[[1]])=="lm",TRUE,NA)))
-  x2<-furrr::future_map(LM2, function(x) try(ifelse(class(x$M1[[1]])=="lm",TRUE,NA)))
-  x3<-furrr::future_map(LM3, function(x) try(ifelse(class(x$M1[[1]])=="lm",TRUE,NA)))
+  x1<-purrr::map(LM1, function(x) try(ifelse(class(x$M1[[1]])=="lm",TRUE,NA)))
+  x2<-purrr::map(LM2, function(x) try(ifelse(class(x$M1[[1]])=="lm",TRUE,NA)))
+  x3<-purrr::map(LM3, function(x) try(ifelse(class(x$M1[[1]])=="lm",TRUE,NA)))
   
   #fit per line region with confidence intervals
-  fit1<-furrr::future_map(LM1,function(x)x %>% dplyr::mutate(LM1= list(try(predict(x$M1[[1]],se.fit = TRUE)))))
-  fit2<-furrr::future_map(LM2,function(x)x %>% dplyr::mutate(LM1= list(try(predict(x$M1[[1]],se.fit = TRUE)))))
-  fit3<-furrr::future_map(LM3,function(x)x %>% dplyr::mutate(LM1= list(try(predict(x$M1[[1]],se.fit = TRUE)))))
+  fit1<-purrr::map(LM1,function(x)x %>% dplyr::mutate(LM1= list(try(predict(x$M1[[1]],se.fit = TRUE)))))
+  fit2<-purrr::map(LM2,function(x)x %>% dplyr::mutate(LM1= list(try(predict(x$M1[[1]],se.fit = TRUE)))))
+  fit3<-purrr::map(LM3,function(x)x %>% dplyr::mutate(LM1= list(try(predict(x$M1[[1]],se.fit = TRUE)))))
   
   #keep last value for CI 
-  fit1 <- furrr::future_map(fit1,function(x) x %>% dplyr::mutate(CI=try(tail(x$LM1[[1]]$se.fit,1))))
-  fit2 <- furrr::future_map(fit2,function(x) x %>% dplyr::mutate(CI=try(tail(x$LM1[[1]]$se.fit,1))))
-  fit3 <- furrr::future_map(fit3,function(x) x %>% dplyr::mutate(CI=try(tail(x$LM1[[1]]$se.fit,1))))
+  fit1 <- purrr::map(fit1,function(x) x %>% dplyr::mutate(CI=try(tail(x$LM1[[1]]$se.fit,1))))
+  fit2 <- purrr::map(fit2,function(x) x %>% dplyr::mutate(CI=try(tail(x$LM1[[1]]$se.fit,1))))
+  fit3 <- purrr::map(fit3,function(x) x %>% dplyr::mutate(CI=try(tail(x$LM1[[1]]$se.fit,1))))
   
   #append # of fitted curves to original data (columns must have the same rows for map2)
-  df1<-furrr::future_map2(df1,x1,function(x,y)x %>% dplyr::mutate(fitn=y))
-  df2<-furrr::future_map2(df2,x2,function(x,y)x %>% dplyr::mutate(fitn=y))
-  df3<-furrr::future_map2(df3,x3,function(x,y)x %>% dplyr::mutate(fitn=y))
+  df1<-purrr::map2(df1,x1,function(x,y)x %>% dplyr::mutate(fitn=y))
+  df2<-purrr::map2(df2,x2,function(x,y)x %>% dplyr::mutate(fitn=y))
+  df3<-purrr::map2(df3,x3,function(x,y)x %>% dplyr::mutate(fitn=y))
   
   #append # of fitted curves to original data (columns must have the same rows for map2)
-  df1<-furrr::future_map2(df1,fit1,function(x,y)x %>% dplyr::mutate(CI=y$CI))
-  df2<-furrr::future_map2(df2,fit2,function(x,y)x %>% dplyr::mutate(CI=y$CI))
-  df3<-furrr::future_map2(df3,fit3,function(x,y)x %>% dplyr::mutate(CI=y$CI))
+  df1<-purrr::map2(df1,fit1,function(x,y)x %>% dplyr::mutate(CI=y$CI))
+  df2<-purrr::map2(df2,fit2,function(x,y)x %>% dplyr::mutate(CI=y$CI))
+  df3<-purrr::map2(df3,fit3,function(x,y)x %>% dplyr::mutate(CI=y$CI))
   
   #Reassign line Regions if intensity falls within previous Line Region's CI
   
-  df2<-furrr::future_map2(df1,df2,function(x,y)y %>%
+  df2<-purrr::map2(df1,df2,function(x,y)y %>%
                             dplyr::mutate(LineRegion=ifelse(any(y$I<tail(x$I-x$CI,1)),2,1))) 
   
-  df3<-furrr::future_map2(df2,df3,function(x,y)y %>% 
+  df3<-purrr::map2(df2,df3,function(x,y)y %>% 
                             dplyr::mutate(LineRegion=ifelse(any(y$I<tail(x$I-x$CI,1)),3,2))) 
   
   df1<-df1 %>% dplyr::bind_rows(.)
@@ -810,7 +920,7 @@ DLR<-function(d){
 
 #this function takes original data with replicates as an input
 CP<-function(df_0,d){ #df_0 is the result data frame and d is the orginal data with replicates
-  df_0<-furrr::future_map(df_0, function(x) x %>% dplyr::select(-missing,-CI))
+  df_0<-purrr::map(df_0, function(x) x %>% dplyr::select(-missing,-CI))
   
   #remove data points with missing data for replicates
   # d<-d %>% purrr::keep(function(x){
@@ -830,7 +940,7 @@ CP<-function(df_0,d){ #df_0 is the result data frame and d is the orginal data w
   #split into list
   df_0<-df_0 %>% dplyr::group_split(uniqueID)
   #For the original data (unlabeled LR) define LR with intensities
-  df_0<-suppressWarnings(furrr::future_map2(d,df_0,function(x,y) x %>% #if the intensity in DF is greater than the max(LR2) label 1 else if the intensity is less than min (LR=2)label 3
+  df_0<-suppressWarnings(purrr::map2(d,df_0,function(x,y) x %>% #if the intensity in DF is greater than the max(LR2) label 1 else if the intensity is less than min (LR=2)label 3
                                               dplyr::mutate(LineRegion=as.numeric(ifelse(x$I>=min(y$I[y$LineRegion==1]),1,ifelse(x$I<min(y$I[y$LineRegion==2]),3,2))))))
   
   df_n<-vector(mode = "list", length(df_0))
@@ -838,17 +948,17 @@ CP<-function(df_0,d){ #df_0 is the result data frame and d is the orginal data w
   dap<-data.frame()
   Split<-df_n
   #This function is to verify consistent line Region assignments for C (temperature) across replicates
-  df_0<-furrr::future_map(df_0,function(x)x %>% dplyr::arrange(C) %>% dplyr::group_by(C,LineRegion)%>%dplyr::mutate(n=dplyr::n()) %>% dplyr::ungroup())
+  df_0<-purrr::map(df_0,function(x)x %>% dplyr::arrange(C) %>% dplyr::group_by(C,LineRegion)%>%dplyr::mutate(n=dplyr::n()) %>% dplyr::ungroup())
   
   #subset of the data with shared line region values, using purrr::map to keep size constant
-  Split<-furrr::future_map(df_0,function(x)x %>%subset(n<max(n)) %>% data.frame(.) %>% dplyr::mutate(LineRegion=as.numeric((.$LineRegion))))
+  Split<-purrr::map(df_0,function(x)x %>%subset(n<max(n)) %>% data.frame(.) %>% dplyr::mutate(LineRegion=as.numeric((.$LineRegion))))
   #remove NA values
   Split<-dplyr::bind_rows(Split)
   df_0<-dplyr::bind_rows(df_0)
   #Join df_0 with the subset of values
   dap<-df_0 %>% dplyr::left_join(Split,by=c("C"="C","uniqueID"="uniqueID","dataset"="dataset","I"="I","sample_name"="sample_name","CC"="CC","n"="n","sample_id"="sample_id","missing_pct"="missing_pct","rank"="rank"))
   dap<-dap %>% dplyr::group_split(uniqueID)
-  dap<-furrr::future_map(dap,function(x)x %>% dplyr::mutate(LineRegion=ifelse(.$C<=tail(.$C[.$LineRegion.x==1],1),1,ifelse(.$C<=tail(.$C[.$LineRegion.x==2],1),2,3))) %>% dplyr::select(-LineRegion.x,-LineRegion.y,-missing.y))
+  dap<-purrr::map(dap,function(x)x %>% dplyr::mutate(LineRegion=ifelse(.$C<=tail(.$C[.$LineRegion.x==1],1),1,ifelse(.$C<=tail(.$C[.$LineRegion.x==2],1),2,3))) %>% dplyr::select(-LineRegion.x,-LineRegion.y,-missing.y))
   
   return(dap)
 }
@@ -875,7 +985,7 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
   if(!isTRUE(norm)){
     mean1<-list()
     mean1[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),AUC = rep(0,1),dataset="treated",uniqueID=df1[[i]]$uniqueID[1],Tm=rep(0,1))
-    mean1<- furrr::future_map(df,function(x) x %>% as.data.frame(.) %>% 
+    mean1<- purrr::map(df,function(x) x %>% as.data.frame(.) %>% 
                                 dplyr::group_nest(LineRegion,uniqueID) %>%
                                 dplyr::mutate(M1=purrr::map(data,function(x){stats::lm(x$I ~ x$C)}),
                                               CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
@@ -887,14 +997,14 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
                                               dataset="vehicle",
                                               uniqueID=x$uniqueID[1]))
     
-    mean1<-furrr::future_map(mean1,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values)))
+    mean1<-purrr::map(mean1,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values)))
     
     #define linear models with outputs
     
     mean1_1<-list()
     mean1_1[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),AUC = rep(0,1),dataset="treated",uniqueID=df1[[i]]$uniqueID[1],Tm=rep(0,1))
     
-    mean1_1<- furrr::future_map(df1,function(x) x %>% as.data.frame(.) %>%
+    mean1_1<- purrr::map(df1,function(x) x %>% as.data.frame(.) %>%
                                   dplyr::group_nest(LineRegion,uniqueID) %>% 
                                   dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
                                                 CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
@@ -908,7 +1018,7 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
     
     
     
-    mean1_1<-furrr::future_map(mean1_1,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values)))
+    mean1_1<-purrr::map(mean1_1,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values)))
     
     # null hypothesis
     #null
@@ -916,7 +1026,7 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
     mean3[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),AUC = rep(0,1),dataset="null",uniqueID=DF[[i]]$uniqueID[1],Tm=rep(0,1))
     
     
-    mean3<- furrr::future_map(DF,function(x) x %>% as.data.frame(.) %>%
+    mean3<- purrr::map(DF,function(x) x %>% as.data.frame(.) %>%
                                 dplyr::group_nest(LineRegion,uniqueID) %>% 
                                 dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
                                               CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
@@ -929,7 +1039,7 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
                                               uniqueID=x$uniqueID[1]))
     
     
-    mean3<-furrr::future_map(mean3,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values)))
+    mean3<-purrr::map(mean3,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values)))
     
     if (isTRUE(Filters)){
       #Apply lax Rsq and negative slope filter to remove flat melt curves
@@ -959,20 +1069,20 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
     mean3<-mean3 %>% dplyr::group_split(uniqueID)
     if(isTRUE(Ftest)){
       #Calculate rss0 and rss1 null vs alt
-      rss0<-furrr::future_map(mean3,function(x)data.frame(RSS = sum(as.numeric(x$rss))))
+      rss0<-purrr::map(mean3,function(x)data.frame(RSS = sum(as.numeric(x$rss))))
       rss1<-purrr::map2(mean1,mean1_1,function(x,y)data.frame(RSS = sum(as.numeric(x$rss))+sum(as.numeric(y$rss)),
                                                               Tm = y$Tm[[1]]-x$Tm[[1]]))
       #params for null and alternative models
-      pN<-furrr::future_map(mean3,function(x)x %>% dplyr::summarise(pN = 4))
-      pA<-furrr::future_map(mean1_1,function(x)x %>% dplyr::summarise(pA = 8))
+      pN<-purrr::map(mean3,function(x)x %>% dplyr::summarise(pN = 4))
+      pA<-purrr::map(mean1_1,function(x)x %>% dplyr::summarise(pA = 8))
       
       #sum residuals
-      n1<-furrr::future_map2(mean1,mean1_1,function(x,y) data.frame(n1 = as.numeric(nrow(dplyr::bind_rows(x$data))) + as.numeric(nrow(dplyr::bind_rows(y$data)))))
+      n1<-purrr::map2(mean1,mean1_1,function(x,y) data.frame(n1 = as.numeric(nrow(dplyr::bind_rows(x$data))) + as.numeric(nrow(dplyr::bind_rows(y$data)))))
       #degrees of freedom before
-      d1<-furrr::future_map2(pA,pN,function(x,y)data.frame(d1=x$pA-y$pN))
-      d2<-furrr::future_map2(n1,pA,function(x,y)data.frame(d2=x$n1-y$pA)) 
+      d1<-purrr::map2(pA,pN,function(x,y)data.frame(d1=x$pA-y$pN))
+      d2<-purrr::map2(n1,pA,function(x,y)data.frame(d2=x$n1-y$pA)) 
       #delta RSS
-      rssDiff<-furrr::future_map2(rss0,rss1,function(x,y) x$RSS-y$RSS %>% as.data.frame(.))
+      rssDiff<-purrr::map2(rss0,rss1,function(x,y) x$RSS-y$RSS %>% as.data.frame(.))
       #bind rows
       rssDiff<-dplyr::bind_rows(rssDiff)$.
       rss0<-dplyr::bind_rows(rss0)$RSS
@@ -982,12 +1092,12 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
       #F-test
       Fvals<-(rssDiff/rss1)*(d2/d1)
       #append results to data
-      ResF<-furrr::future_map2(mean1,Fvals,function(x,y) x %>% dplyr::mutate(Fvals=y))
-      ResF<-furrr::future_map2(ResF,rss0,function(x,y) x %>% dplyr::mutate(rss0=y))
-      ResF<-furrr::future_map2(ResF,rss1,function(x,y) x %>% dplyr::mutate(rss1=y))
-      ResF<-furrr::future_map2(ResF,rssDiff,function(x,y) x %>% dplyr::mutate(rssDiff=y))
-      ResF<-furrr::future_map2(ResF,d1,function(x,y) x %>% dplyr::mutate(d1=y))
-      ResF<-furrr::future_map2(ResF,d2,function(x,y) x %>% dplyr::mutate(d2=y))
+      ResF<-purrr::map2(mean1,Fvals,function(x,y) x %>% dplyr::mutate(Fvals=y))
+      ResF<-purrr::map2(ResF,rss0,function(x,y) x %>% dplyr::mutate(rss0=y))
+      ResF<-purrr::map2(ResF,rss1,function(x,y) x %>% dplyr::mutate(rss1=y))
+      ResF<-purrr::map2(ResF,rssDiff,function(x,y) x %>% dplyr::mutate(rssDiff=y))
+      ResF<-purrr::map2(ResF,d1,function(x,y) x %>% dplyr::mutate(d1=y))
+      ResF<-purrr::map2(ResF,d2,function(x,y) x %>% dplyr::mutate(d2=y))
       
       #convert to df
       mean1<-dplyr::bind_rows(mean1)
@@ -1061,7 +1171,7 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
   }else if (isTRUE(norm)){
     mean1<-list()
     mean1[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),AUC = rep(0,1),dataset="treated",uniqueID=df[[i]]$uniqueID[1],Tm=rep(0,1))
-    mean1<- furrr::future_map(df,function(x) x %>% as.data.frame(.) %>% 
+    mean1<- purrr::map(df,function(x) x %>% as.data.frame(.) %>% 
                                 dplyr::group_nest(LineRegion,uniqueID) %>%
                                 dplyr::mutate(M1=purrr::map(data,function(x){stats::lm(x$I ~ x$C)}),
                                               CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
@@ -1074,14 +1184,14 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
                                               uniqueID=x$uniqueID[1]))
     
     
-    mean1<-furrr::future_map(mean1,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values)))
+    mean1<-purrr::map(mean1,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values)))
     
     #define linear models with outputs
     
     mean1_1<-list()
     mean1_1[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),AUC = rep(0,1),dataset="treated",uniqueID=df1[[i]]$uniqueID[1],Tm=rep(0,1))
     
-    mean1_1<- furrr::future_map(df1,function(x) x %>% as.data.frame(.) %>%
+    mean1_1<- purrr::map(df1,function(x) x %>% as.data.frame(.) %>%
                                   dplyr::group_nest(LineRegion,uniqueID) %>% 
                                   dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
                                                 CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
@@ -1094,7 +1204,7 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
                                                 uniqueID=x$uniqueID[1]))
     
     
-    mean1_1<-furrr::future_map(mean1_1,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values)))
+    mean1_1<-purrr::map(mean1_1,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values)))
     
     
     
@@ -1104,7 +1214,7 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
     mean3[[1]]<-data.frame(slope=rep(0,1),intercept=rep(0,1),rss=rep(0,1),Rsq=rep(0,1),AUC = rep(0,1),dataset="null",uniqueID=DF[[i]]$uniqueID[1],Tm=rep(0,1))
     
     
-    mean3<- furrr::future_map(DF,function(x) x %>% as.data.frame(.) %>%
+    mean3<- purrr::map(DF,function(x) x %>% as.data.frame(.) %>%
                                 dplyr::group_nest(LineRegion,uniqueID) %>% 
                                 dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
                                               CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
@@ -1117,7 +1227,7 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
                                               uniqueID=x$uniqueID[1]))
     
     
-    mean3<-furrr::future_map(mean3,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values)))
+    mean3<-purrr::map(mean3,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values)))
     #convert to df and split by uniqueID 
     mean1<-dplyr::bind_rows(mean1)
     mean1_1<-dplyr::bind_rows(mean1_1)
@@ -1168,19 +1278,19 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
     results<-dplyr::bind_rows(mean1,mean1_1,mean3) %>% dplyr::group_split(uniqueID)
     if(isTRUE(Ftest)){
       #Calculate rss0 and rss1 null vs alt
-      rss0<-furrr::future_map(mean3,function(x)data.frame(RSS = sum(as.numeric(x$rss))))
-      rss1<-furrr::future_map2(mean1,mean1_1,function(x,y)data.frame(RSS = sum(as.numeric(x$rss))+sum(as.numeric(y$rss)),
+      rss0<-purrr::map(mean3,function(x)data.frame(RSS = sum(as.numeric(x$rss))))
+      rss1<-purrr::map2(mean1,mean1_1,function(x,y)data.frame(RSS = sum(as.numeric(x$rss))+sum(as.numeric(y$rss)),
                                                                      Tm = y$Tm[[1]]-x$Tm[[1]]))
       #params for null and alternative models
-      pN<-furrr::future_map(mean3,function(x)x %>% dplyr::summarise(pN = 4))
-      pA<-furrr::future_map(mean1_1,function(x)x %>% dplyr::summarise(pA = 8))
+      pN<-purrr::map(mean3,function(x)x %>% dplyr::summarise(pN = 4))
+      pA<-purrr::map(mean1_1,function(x)x %>% dplyr::summarise(pA = 8))
       #sum residuals
-      n1<-furrr::future_map2(mean1,mean1_1,function(x,y) data.frame(n1 = as.numeric(nrow(dplyr::bind_rows(x$data))) + as.numeric(nrow(dplyr::bind_rows(y$data)))))
+      n1<-purrr::map2(mean1,mean1_1,function(x,y) data.frame(n1 = as.numeric(nrow(dplyr::bind_rows(x$data))) + as.numeric(nrow(dplyr::bind_rows(y$data)))))
       #degrees of freedom before
-      d1<-furrr::future_map2(pA,pN,function(x,y)data.frame(d1=x$pA-y$pN))
-      d2<-furrr::future_map2(n1,pA,function(x,y)data.frame(d2=x$n1-y$pA))
+      d1<-purrr::map2(pA,pN,function(x,y)data.frame(d1=x$pA-y$pN))
+      d2<-purrr::map2(n1,pA,function(x,y)data.frame(d2=x$n1-y$pA))
       #delta RSS
-      rssDiff<-furrr::future_map2(rss0,rss1,function(x,y) x$RSS-y$RSS %>% data.frame(.))
+      rssDiff<-purrr::map2(rss0,rss1,function(x,y) x$RSS-y$RSS %>% data.frame(.))
       #bind rows
       rssDiff<-dplyr::bind_rows(rssDiff)$.
       rss0<-dplyr::bind_rows(rss0)$RSS
@@ -1190,12 +1300,12 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
       #F-test
       Fvals<-(rssDiff/rss1)*(d2/d1)
       #append results to data
-      ResF<-furrr::future_map2(mean1,Fvals,function(x,y) x %>% dplyr::mutate(Fvals=y))
-      ResF<-furrr::future_map2(ResF,rss0,function(x,y) x %>% dplyr::mutate(rss0=y))
-      ResF<-furrr::future_map2(ResF,rss1,function(x,y) x %>% dplyr::mutate(rss1=y))
-      ResF<-furrr::future_map2(ResF,rssDiff,function(x,y) x %>% dplyr::mutate(rssDiff=y))
-      ResF<-furrr::future_map2(ResF,d1,function(x,y) x %>% dplyr::mutate(d1=y))
-      ResF<-furrr::future_map2(ResF,d2,function(x,y) x %>% dplyr::mutate(d2=y))
+      ResF<-purrr::map2(mean1,Fvals,function(x,y) x %>% dplyr::mutate(Fvals=y))
+      ResF<-purrr::map2(ResF,rss0,function(x,y) x %>% dplyr::mutate(rss0=y))
+      ResF<-purrr::map2(ResF,rss1,function(x,y) x %>% dplyr::mutate(rss1=y))
+      ResF<-purrr::map2(ResF,rssDiff,function(x,y) x %>% dplyr::mutate(rssDiff=y))
+      ResF<-purrr::map2(ResF,d1,function(x,y) x %>% dplyr::mutate(d1=y))
+      ResF<-purrr::map2(ResF,d2,function(x,y) x %>% dplyr::mutate(d2=y))
       
       #convert to df
       mean1<-dplyr::bind_rows(mean1)
@@ -1321,19 +1431,19 @@ tlf<-function(tlresults,DFN,APfilt=TRUE,PF=TRUE){
   Nsum<-list()
   Nsum[[1]]<-data.frame(RSS=0,Tm=0)
   #get the summed rss values for null
-  Nsum<-furrr::future_map(tlresults, function(x) x %>% subset(stringr::str_detect(tolower(dataset), pattern = "null")) %>% 
+  Nsum<-purrr::map(tlresults, function(x) x %>% subset(stringr::str_detect(tolower(dataset), pattern = "null")) %>% 
                             dplyr::rowwise(.) %>%  dplyr::mutate(RSS=sum(unlist(.$rss)))%>% dplyr::select(RSS,Tm,dataset,uniqueID)%>% head(.,1))
   
   #get the summed rss values for vehicle
-  Rssv<-furrr::future_map(tlresults, function(x) x %>% subset(stringr::str_detect(tolower(dataset), pattern = "vehicle")) %>% 
+  Rssv<-purrr::map(tlresults, function(x) x %>% subset(stringr::str_detect(tolower(dataset), pattern = "vehicle")) %>% 
                             dplyr::rowwise(.) %>%  dplyr::mutate(RSS=sum(unlist(.$rss)))%>% dplyr::select(RSS,Tm,dataset,uniqueID)%>%head(.,1))
   #get the summed rss values for treated
-  Rsst<-furrr::future_map(tlresults, function(x) x %>% subset(stringr::str_detect(tolower(dataset), pattern = "treated")) %>% 
+  Rsst<-purrr::map(tlresults, function(x) x %>% subset(stringr::str_detect(tolower(dataset), pattern = "treated")) %>% 
                             dplyr::rowwise(.) %>%  dplyr::mutate(RSS=sum(unlist(.$rss)))%>% dplyr::select(RSS,Tm,dataset,uniqueID)%>% head(.,1))
   #find the rss difference between treated and vehicle 
   
-  Rssv<-furrr::future_map(Rssv,function(x)na.omit(x))
-  Rsst<-furrr::future_map(Rsst,function(x)na.omit(x))
+  Rssv<-purrr::map(Rssv,function(x)na.omit(x))
+  Rsst<-purrr::map(Rsst,function(x)na.omit(x))
   #find common IDs
   CID<-intersect(dplyr::bind_rows(Rsst)$uniqueID,dplyr::bind_rows(Rssv)$uniqueID)
   #keep common IDs
@@ -1397,7 +1507,7 @@ tlf<-function(tlresults,DFN,APfilt=TRUE,PF=TRUE){
   
   df1<-list()
   #get uniqueID and dataset for stable proteins with decreasing RSS differences
-  df1<-furrr::future_map(Df1,function(x) x %>% dplyr::select(uniqueID,dataset) %>% head(.,1))
+  df1<-purrr::map(Df1,function(x) x %>% dplyr::select(uniqueID,dataset) %>% head(.,1))
   df1<-data.frame(dplyr::bind_rows(df1))
   
   #unlist to data.frame
@@ -1692,11 +1802,11 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE){
   DF$I<-as.numeric(as.vector(DF$I))
   #mutate to get CV values
   DF<-DF %>% dplyr::group_split(C,uniqueID) 
-  DF<- furrr::future_map(DF,function(x) x %>% dplyr::mutate(CV_pct = 100*sd(.$I,na.rm=TRUE)/mean(.$I,na.rm=TRUE)))
+  DF<- purrr::map(DF,function(x) x %>% dplyr::mutate(CV_pct = 100*sd(.$I,na.rm=TRUE)/mean(.$I,na.rm=TRUE)))
   df<-df %>% dplyr::group_split(C,uniqueID,dataset) 
-  df<- furrr::future_map(df,function(x) x %>% dplyr::mutate(CV_pct = 100*sd(.$I,na.rm=TRUE)/mean(.$I,na.rm=TRUE)))
+  df<- purrr::map(df,function(x) x %>% dplyr::mutate(CV_pct = 100*sd(.$I,na.rm=TRUE)/mean(.$I,na.rm=TRUE)))
   df1<-df1 %>% dplyr::group_split(C,uniqueID,dataset) 
-  df1<- furrr::future_map(df1,function(x) x %>% dplyr::mutate(CV_pct = 100*sd(.$I,na.rm=TRUE)/mean(.$I,na.rm=TRUE)))
+  df1<- purrr::map(df1,function(x) x %>% dplyr::mutate(CV_pct = 100*sd(.$I,na.rm=TRUE)/mean(.$I,na.rm=TRUE)))
   
   #convert to data frame
   
@@ -1719,17 +1829,17 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE){
   df<-df %>% dplyr::group_split(uniqueID) 
   df1<-df1 %>% dplyr::group_split(uniqueID) 
   #remove NA vaues
-  DF<-furrr::future_map(DF,function(x)na.omit(x))
-  df<-furrr::future_map(df,function(x)na.omit(x))
-  df1<-furrr::future_map(df1,function(x)na.omit(x))
+  DF<-purrr::map(DF,function(x)na.omit(x))
+  df<-purrr::map(df,function(x)na.omit(x))
+  df1<-purrr::map(df1,function(x)na.omit(x))
   if(!isTRUE(norm)){
     
     #alternative spline fit method : Generalized Additive Models
     #fit penalized splines
-    m <- furrr::future_map(df,function(x)x %>% dplyr::mutate(M1 = list(try(mgcv::gam(x$I ~ s(x$C,k=5), data = x , method = "REML")))))
+    m <- purrr::map(df,function(x)x %>% dplyr::mutate(M1 = list(try(mgcv::gam(x$I ~ s(x$C,k=5), data = x , method = "REML")))))
     m<-m %>% purrr::keep(function(x)any(class(dplyr::first(x$M1))=="gam"))
     #check significance and refit data with more k 
-    m<-furrr::future_map(m,function(x)x %>% dplyr::mutate(k_ = .$M1[[1]]$rank,
+    m<-purrr::map(m,function(x)x %>% dplyr::mutate(k_ = .$M1[[1]]$rank,
                                                           sum = list(summary(.$M1[[1]])),
                                                           Tm=ifelse(any(class(dplyr::first(.$M1))=="gam"),try(with(x, stats::approx(x$I,x$C,xout=max(x$I, na.rm=TRUE)-0.5))$y),NA),
                                                           rss=deviance(.$M1[[1]]),
@@ -1737,10 +1847,10 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE){
                                                           AUC = pracma::trapz(.$M1[[1]]$fit),
                                                           rsq=summary(x$M1[[1]])$r.sq))
     #m<-lapply(m,function(x) x %>% dplyr::mutate(sig = ifelse(sum[[1]]$p.pv[[1]]<0.05,list(mgcv::gam(I ~ s(C,k=k_[[1]]-1), data = x , method = "REML")),"ns")))
-    m1 <- furrr::future_map(df1,function(x)x %>% dplyr::mutate(M1 = list(try(mgcv::gam(I ~ s(C,k=5), data = x , method = "REML")))))
+    m1 <- purrr::map(df1,function(x)x %>% dplyr::mutate(M1 = list(try(mgcv::gam(I ~ s(C,k=5), data = x , method = "REML")))))
     m1<-m1 %>% purrr::keep(function(x)any(class(dplyr::first(x$M1))=="gam"))
     #check significance and refit data with more k 
-    m1<-furrr::future_map(m1,function(x)x %>% dplyr::mutate(k_ = .$M1[[1]]$rank,
+    m1<-purrr::map(m1,function(x)x %>% dplyr::mutate(k_ = .$M1[[1]]$rank,
                                                             sum = list(summary(.$M1[[1]])),
                                                             Tm=ifelse(any(class(dplyr::first(.$M1))=="gam"),try(with(x, stats::approx(x$I,x$C,xout=max(x$I, na.rm=TRUE)-0.5))$y),NA),
                                                             rss=deviance(.$M1[[1]]),
@@ -1750,10 +1860,10 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE){
     #m1<-lapply(df1,function(x) x %>% dplyr::mutate(sig = ifelse(sum[[1]]$p.pv[[1]]<0.05,list(mgcv::gam(I ~ s(C,k=k_[[1]]-1), data = x , method = "REML")),"ns")))
     
     
-    mn<- furrr::future_map(DF,function(x)x %>% dplyr::mutate(M1 = list(try(mgcv::gam(I ~ s(C,k=5), data =x, method = "REML")))))
+    mn<- purrr::map(DF,function(x)x %>% dplyr::mutate(M1 = list(try(mgcv::gam(I ~ s(C,k=5), data =x, method = "REML")))))
     mn<-mn %>% purrr::keep(function(x)any(class(dplyr::first(x$M1))=="gam"))
     #check significance and refit data with more k 
-    mn<-furrr::future_map(mn,function(x)x %>% dplyr::mutate(k_ = .$M1[[1]]$rank,
+    mn<-purrr::map(mn,function(x)x %>% dplyr::mutate(k_ = .$M1[[1]]$rank,
                                                             sum = list(summary(.$M1[[1]])),
                                                             Tm=ifelse(any(class(dplyr::first(.$M1))=="gam"),try(with(x, stats::approx(x$I,x$C,xout=max(x$I, na.rm=TRUE)-0.5))$y),NA),
                                                             rss=deviance(.$M1[[1]]),
@@ -1783,30 +1893,30 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE){
     return(results)
     if(isTRUE(Ftest)){
       #Calculate rss0 and rss1 null vs alt
-      rss0<-furrr::future_map(mean3,function(x)data.frame(RSS = deviance(x$M1[[1]]),
+      rss0<-purrr::map(mean3,function(x)data.frame(RSS = deviance(x$M1[[1]]),
                                                           RSS1 = deviance(x$sig[[1]])))
-      rss1<-furrr::future_map2(mean1,mean1_1,function(x,y)data.frame(RSS = (deviance(x$M1[[1]])+deviance(y$M1[[1]])),
+      rss1<-purrr::map2(mean1,mean1_1,function(x,y)data.frame(RSS = (deviance(x$M1[[1]])+deviance(y$M1[[1]])),
                                                                      RSS1 =(deviance(x$sig[[1]])+deviance(y$sig[[1]])),
                                                                      Tm = y$Tm[[1]]-x$Tm[[1]]))
       #params for null and alternative models
-      pN<-furrr::future_map(mean3,function(x)x %>% dplyr::summarise(pN = x$M1[[1]]$rank,
+      pN<-purrr::map(mean3,function(x)x %>% dplyr::summarise(pN = x$M1[[1]]$rank,
                                                                     n=x$M1[[1]]$df.null,
                                                                     pN1 = x$sig[[1]]$rank,
                                                                     n1 = x$sig[[1]]$df.null))
-      pA<-furrr::future_map(mean1_1,function(x)x %>% dplyr::summarise(pA = 2*(x$M1[[1]]$rank),
+      pA<-purrr::map(mean1_1,function(x)x %>% dplyr::summarise(pA = 2*(x$M1[[1]]$rank),
                                                                       pA1= 2*(x$sig[[1]]$rank)))
       #data points
-      n1<-furrr::future_map2(mean1,mean1_1,function(x,y) data.frame(n1 = x$M1[[1]]$df.null + y$M1[[1]]$df.null,
+      n1<-purrr::map2(mean1,mean1_1,function(x,y) data.frame(n1 = x$M1[[1]]$df.null + y$M1[[1]]$df.null,
                                                                     n1_1 = x$sig[[1]]$df.null + y$sig[[1]]$df.null))
       #degrees of freedom before
-      d1<-furrr::future_map2(pA,pN,function(x,y)data.frame(d1=x$pA-y$pN))
-      d2<-furrr::future_map2(n1,pA,function(x,y)data.frame(d2=x$n1-y$pA))
+      d1<-purrr::map2(pA,pN,function(x,y)data.frame(d1=x$pA-y$pN))
+      d2<-purrr::map2(n1,pA,function(x,y)data.frame(d2=x$n1-y$pA))
       #DoF 'new_k' < k
-      d1<-furrr::future_map2(pA,pN,function(x,y)data.frame(d1=x$pA1-y$pN1))
-      d2<-furrr::future_map2(n1,pA,function(x,y)data.frame(d2=x$n1_1-y$pA1))
+      d1<-purrr::map2(pA,pN,function(x,y)data.frame(d1=x$pA1-y$pN1))
+      d2<-purrr::map2(n1,pA,function(x,y)data.frame(d2=x$n1_1-y$pA1))
       
       #delta RSS
-      rssDiff<-furrr::future_map2(rss0,rss1,function(x,y) x$RSS1-y$RSS1 %>% as.data.frame(.))
+      rssDiff<-purrr::map2(rss0,rss1,function(x,y) x$RSS1-y$RSS1 %>% as.data.frame(.))
       #bind rows
       rssDiff<-dplyr::bind_rows(rssDiff)$.
       
@@ -1817,12 +1927,12 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE){
       #F-test
       Fvals<-(rssDiff/rss1)*(d2/d1)
       #append results to data
-      ResF<-furrr::future_map2(mean1,Fvals,function(x,y) x %>% dplyr::mutate(Fvals=y))
-      ResF<-furrr::future_map2(ResF,rss0,function(x,y) x %>% dplyr::mutate(rss0=y))
-      ResF<-furrr::future_map2(ResF,rss1,function(x,y) x %>% dplyr::mutate(rss1=y))
-      ResF<-furrr::future_map2(ResF,rssDiff,function(x,y) x %>% dplyr::mutate(rssDiff=y))
-      ResF<-furrr::future_map2(ResF,d1,function(x,y) x %>% dplyr::mutate(d1=y))
-      ResF<-furrr::future_map2(ResF,d2,function(x,y) x %>% dplyr::mutate(d2=y))
+      ResF<-purrr::map2(mean1,Fvals,function(x,y) x %>% dplyr::mutate(Fvals=y))
+      ResF<-purrr::map2(ResF,rss0,function(x,y) x %>% dplyr::mutate(rss0=y))
+      ResF<-purrr::map2(ResF,rss1,function(x,y) x %>% dplyr::mutate(rss1=y))
+      ResF<-purrr::map2(ResF,rssDiff,function(x,y) x %>% dplyr::mutate(rssDiff=y))
+      ResF<-purrr::map2(ResF,d1,function(x,y) x %>% dplyr::mutate(d1=y))
+      ResF<-purrr::map2(ResF,d2,function(x,y) x %>% dplyr::mutate(d2=y))
       
       #convert to df
       mean1<-dplyr::bind_rows(mean1)
@@ -1906,8 +2016,8 @@ spf<-function(spresults,filters = TRUE){
   
   if(!isTRUE(filters))
   {
-    sl<-furrr::future_map(seq_len(length(spresults)),function(x) as.numeric({paste(x)})) 
-    sp<-furrr::future_map2(spresults,sl,~.x %>% dplyr::mutate(id = as.numeric(.y)))  
+    sl<-purrr::map(seq_len(length(spresults)),function(x) as.numeric({paste(x)})) 
+    sp<-purrr::map2(spresults,sl,~.x %>% dplyr::mutate(id = as.numeric(.y)))  
     sp<-dplyr::bind_rows(sp)  
     df1<-data.frame(uniqueID = unique(sp$uniqueID))  
     df2<-dplyr::bind_rows(DFN)  
@@ -1922,14 +2032,14 @@ spf<-function(spresults,filters = TRUE){
     spresults<-spresults %>% keep(function(x) max(x$lambda)<1)
     
     #get Tm and RSS differences
-    sp<-furrr::future_map(spresults, function(x) x %>% dplyr::mutate(Tmd= x[stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "treated"),'Tm'][[1]] - x[stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "vehicle"),'Tm'][[1]],
+    sp<-purrr::map(spresults, function(x) x %>% dplyr::mutate(Tmd= x[stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "treated"),'Tm'][[1]] - x[stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "vehicle"),'Tm'][[1]],
                                                                      RSSd = sum(x[stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "null"),'rss']) - sum(x[!stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "null"),'rss']),
                                                                      AUCd = x[stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "treated"),'AUC'])[[1]]- x[stringr::str_detect(tolower(data.frame(x)$dataset), pattern = "vehicle"),'AUC'][[1]])
     #conserve list indexes
-    sl<-furrr::future_map(seq_along(length(sp)),function(x) as.numeric({paste(x)}))
+    sl<-purrr::map(seq_along(length(sp)),function(x) as.numeric({paste(x)}))
     
     #insert list index column
-    sp<-furrr::future_map2(sp,sl,~.x %>% dplyr::mutate(id = as.numeric(.y)))
+    sp<-purrr::map2(sp,sl,~.x %>% dplyr::mutate(id = as.numeric(.y)))
     sp<-dplyr::bind_rows(sp) +
       sp<-dplyr::arrange(sp,dplyr::desc(AUCd),dplyr::desc(RSSd),dplyr::desc(Tmd)) %>% dplyr::select(uniqueID,id) %>% unique(.) 
     #arrange results by decreasing AUCd, RSSd and Tmd and standardize the order in spresults
@@ -2129,6 +2239,30 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE,alpha){
   print(plot)  
 }
 plan(sequential)
+furrr::furrr_options(stdout=TRUE,packages=c("minpack.lm",
+                                            "rlist",
+                                            "data.table",
+                                            "knitr",
+                                            "ggthemes",
+                                            "gridExtra",
+                                            "grid",
+                                            "readxl",
+                                            "nls2",
+                                            "stats",
+                                            "pkgcond",
+                                            "rlist",
+                                            "pracma",
+                                            "fs",
+                                            "tidyverse",
+                                            "splines",
+                                            "mgcv",
+                                            "purrr",
+                                            "nlstools",
+                                            "stringr",
+                                            "stringi",
+                                            "mice",
+                                            "DBI"),
+                     scheduling=2)
 
 ##################################
 
@@ -2240,12 +2374,6 @@ d_1<-d_1 %>% dplyr::group_split(uniqueID,dataset)
 results<-vector(mode = "list", length(d_))
 results_t<-vector(mode = "list",length(d_1))
 results_n<-vector(mode = "list",length(DF))
-
-
-results<-suppressWarnings(DLR(d_))#First guess at line regions
-results_t<-suppressWarnings(DLR(d_1))
-results_n<-suppressWarnings(DLR(DF))
-
 
 
 results<-suppressWarnings(DLR(d_))#First guess at line regions

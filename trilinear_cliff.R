@@ -301,7 +301,8 @@ normalize_cetsa <- function(df, temperatures,PSM=FALSE) {
   df$correction<-df.out$correction
   df <- df %>% 
     dplyr::mutate(norm_value = ifelse(is.na(correction),value,value * correction)) %>% dplyr::ungroup(.)
-  
+  df <- df %>% 
+    dplyr::mutate(norm_value = ifelse(is.na(correction),value,value * correction)) %>% dplyr::ungroup(.)
     return(df)
 }
 
@@ -663,11 +664,11 @@ find_pat = function(pat, x)
 
 ##################################
 #READ PSM FILES
-f<-"~/Cliff_MD/Old data"
+
 #read new data
 setwd(f)
 
-file.list <- list.files(pattern='*.xlsx')
+file.list <- list.files(pattern='*-PSMs.xlsx')
 s1 <- str_replace(file.list, ".xlsx","")#remove Excel extension
 s1 <- str_replace_all(s1, "-","")#remove punct
 s1<-str_replace_all(s1,"[:upper:][:digit:][:digit:][:digit:]","")
@@ -700,24 +701,25 @@ df.t <- function(n){
   return(TMT)
 }
 
-df.temps<-df.t(11)
-#df.samples <- data.frame(sample_id = samples, sample_name = c('MEK_1','MEK_2', 'MEK_3','DMSO_1','DMSO_3'), stringsAsFactors = FALSE)
-df.samples <- data.frame(sample_id = samples, sample_name = c(do.call(paste0, expand.grid(factor(c('CFAIMS'),levels = c('CFAIMS')),1:3)),
-                                                              do.call(paste0, expand.grid(factor(c('CFAIMSPHI'),levels = c('CFAIMSPHI')),1:3)),
-                                                              do.call(paste0, expand.grid(factor(c('CNOFAIMS'),levels = c('CNOFAIMS')),1:3)),
-                                                              do.call(paste0, expand.grid(factor(c('CNOFAIMSPHI'),levels = c('CNOFAIMSPHI')),1:3)),
-                                                              do.call(paste0, expand.grid(factor(c('NCFAIMS'),levels = c('NCFAIMS')),1:3)),
-                                                              do.call(paste0, expand.grid(factor(c('NCFAIMSPHI'),levels = c('NCFAIMSPHI')),1:3)),
-                                                              do.call(paste0, expand.grid(factor(c('NCNOFAIMS'),levels = c('NCNOFAIMS')),1:3)),
-                                                              do.call(paste0, expand.grid(factor(c('NCNOFAIMSPHI'),levels = c('NCNOFAIMSPHI')),1:3))))                                                              
+df.temps<-df.t(10)
+samples <- do.call(paste0, expand.grid(factor(c('F'),levels = c('F')),1:4))
+df.samples <- data.frame(sample_id = samples, sample_name = c('control_1','treatment_1', 'control_2','treatment_2'), stringsAsFactors = FALSE)
+#df.samples <- data.frame(sample_id = samples, sample_name = c(do.call(paste0, expand.grid(factor(c('CFAIMS'),levels = c('CFAIMS')),1:3)),
+                                                              # do.call(paste0, expand.grid(factor(c('CFAIMSPHI'),levels = c('CFAIMSPHI')),1:3)),
+                                                              # do.call(paste0, expand.grid(factor(c('CNOFAIMS'),levels = c('CNOFAIMS')),1:3)),
+                                                              # do.call(paste0, expand.grid(factor(c('CNOFAIMSPHI'),levels = c('CNOFAIMSPHI')),1:3)),
+                                                              # do.call(paste0, expand.grid(factor(c('NCFAIMS'),levels = c('NCFAIMS')),1:3)),
+                                                              # do.call(paste0, expand.grid(factor(c('NCFAIMSPHI'),levels = c('NCFAIMSPHI')),1:3)),
+                                                              # do.call(paste0, expand.grid(factor(c('NCNOFAIMS'),levels = c('NCNOFAIMS')),1:3)),
+                                                              # do.call(paste0, expand.grid(factor(c('NCNOFAIMSPHI'),levels = c('NCNOFAIMSPHI')),1:3))))                                                              
+                                                              # 
+                                                              # 
 
-
-
-f<-"~/CS7290-/internal data/ALLP.xlsx"
-#read new data
-setwd("~/Cliff_MD")
-f<-"~/Cliff_MD"
-file.list <- list.files(pattern='*.xlsx')
+# f<-"~/CS7290-/internal data/ALLP.xlsx"
+# #read new data
+# setwd("~/Cliff_MD")
+# f<-"~/Cliff_MD"
+file.list <- list.files(pattern='*-Proteins.xlsx')
 s1 <- str_replace(file.list, ".xlsx","")#remove Excel extension
 s1 <- str_replace_all(s1, "-","")#remove punct
 s1<-str_replace_all(s1,"[:upper:][:digit:][:digit:][:digit:]","")
@@ -728,6 +730,8 @@ samples <- do.call(paste0, expand.grid(factor(c('F'),levels = c('F')),1:length(s
 df.samples <- data.frame(sample_id = samples, sample_name = as.factor(s1))
 #check that sample_names match to file list
 chk<-mapply(grepl, s1, file.list)
+
+
 df_raw <- read_cetsa(file.list,PSM=FALSE,Batch = FALSE)
 
 
@@ -801,107 +805,111 @@ LowP<-df_norm_l %>% purrr::keep(function(x) mode(x$rank)==1)
 df_raw<-df_raw %>% dplyr::left_join(df.temps,by="temp_ref")
 df_raw<-df_raw %>% dplyr::left_join(df.samples, by ="sample_id")
 df_<-df_raw %>% dplyr::filter(temperature<68)
- 
-upMV <- function(df_) {
-  d<-df_ #%>% dplyr::filter(sample_name==unique(.$sample_name)[1])
-  d$Accession<-as.factor(d$Accession)
-  d$sample_name<-as.factor(d$sample_name)
-  d$missing<-as.integer(d$missing)
-  d<-d %>% dplyr::filter(missing==1)
-   
-  d1<-d %>% dplyr::select(-value,-id,-temp_ref)
-  d<-spread(d1,temperature,missing,fill=FALSE)
+###Upset plots#################
+#To generate information on missing values
+################################
+#df_ is the input from df_norm which includes missing percentages
+#returns segmented data for vehicle and treated
+upMV <- function(df_,vehicle,treated) {
+  if(!is.character(vehicle) & !is.character(treated)){
+    return(warning("Please define vehicle and treated names for plot labels"))
+  }
+  d2<-dplyr::bind_rows(df_)%>% dplyr::filter(dataset=="vehicle") #%>% dplyr::filter(sample_name==unique(.$sample_name)[1])
+  d2$uniqueID<-as.factor(d2$uniqueID)
+  d2$sample_name<-as.factor(d2$sample_name)
+  d2$C<-as.factor(d2$C)
+  d2$rank<-as.factor(d2$rank)
+  
+  d1<-dplyr::bind_rows(df_)%>% dplyr::filter(dataset=="treated") #%>% dplyr::filter(sample_name==unique(.$sample_name)[1])
+  d1$uniqueID<-as.factor(d1$uniqueID)
+  d1$sample_name<-as.factor(d1$sample_name)
+  d1$C<-as.factor(d1$C)
+  d1$rank<-as.factor(d1$rank)
+  
+  d1<-pivot_wider(d1,names_from=c(sample_name,missing_pct),values_from=missing_pct,values_fill=NA)
+  d2<-pivot_wider(d2,names_from=c(sample_name,missing_pct),values_from=missing_pct,values_fill=NA)
   
   
-  d1<-d %>% dplyr::select(-Accession,-sample_id)
+  d1<-d1%>% dplyr::select(-uniqueID,-C,-I,-CC,-missing,-dataset,-sample_id)
+  d2<-d2 %>% dplyr::select(-uniqueID,-C,-I,-CC,-missing,-dataset,-sample_id)
   
-  p<-upset(d1 %>% dplyr::filter(sample_name==unique(d1)$sample_name[1]),names(d1)[which(!names(d1) %in% "sample_name")],name="Shared Missing Values",
-    base_annotations=list(
-      'Missing Values'=intersection_size(
-        counts=TRUE,
-        aes=aes(fill=names(d1$sample_name))
-      )
-    ),
-    set_sizes=FALSE
-  )+ggtitle(unique(d1$sample_name)[1])
-  p2<-upset(d1 %>% dplyr::filter(sample_name==unique(d1)$sample_name[2]),names(d1)[which(!names(d1) %in% "sample_name")],name="Shared Missing Values",
+  rating_scale = scale_fill_manual(values=c(
+    '1'='#E41A1C', '2'='#377EB8',
+    '3'='#4DAF4A'
+  ))
+  show_hide_scale = scale_color_manual(values=c('show'='black', 'hide'='transparent'), guide=FALSE)
+  
+  p<-upset(d2,names(d2),name="Sample bins",
+           min_degree=1,
+           set_sizes=FALSE,
            base_annotations=list(
-             'Missing Values'=intersection_size(
+             '# of Proteins'=intersection_size(
                counts=TRUE,
-               aes=aes(fill=names(d1$sample_name))
              )
            ),
-           set_sizes=FALSE
-  )+ggtitle(unique(d1$sample_name)[2])
-  p3<-upset(d1 %>% dplyr::filter(sample_name==unique(d1)$sample_name[3]),names(d1)[which(!names(d1) %in% "sample_name")],name="Shared Missing Values",
-           base_annotations=list(
-             'Missing Values'=intersection_size(
-               counts=TRUE,
-               aes=aes(fill=names(d1$sample_name))
+           annotations =list(
+             "Ranked Intensity %"=list(
+               aes=aes(x=intersection, fill=d2$rank),
+               geom=list(
+                 geom_bar(stat='count', position='fill', na.rm=TRUE),
+                 geom_text(
+                   aes(
+                     label=!!aes_percentage(relative_to='intersection'),
+                     color=ifelse(!is.na(rank), 'show', 'hide')
+                   ),
+                   stat='count',
+                   position=position_fill(vjust = .5)
+                 ),
+                 scale_y_continuous(labels=scales::percent_format()),
+                 
+                 show_hide_scale,
+                 rating_scale
+               )
              )
-           ),
-           set_sizes=FALSE
-  )+ggtitle(unique(d1$sample_name)[3])
-  p4<-upset(d1 %>% dplyr::filter(sample_name==unique(d1)$sample_name[4]),names(d1)[which(!names(d1) %in% "sample_name")],name="Shared Missing Values",
+           )
+           
+  )+ggtitle(paste0(vehicle," C_F_S"))
+  
+  p2<-upset(d1,names(d1),name="Sample bins",
+            min_degree=1,
+            set_sizes=FALSE,
             base_annotations=list(
-              'Missing Values'=intersection_size(
+              '# of Proteins'=intersection_size(
                 counts=TRUE,
-                aes=aes(fill=names(d1$sample_name))
               )
             ),
-            set_sizes=FALSE
-  )+ggtitle(unique(d1$sample_name)[4])
-  p5<-upset(d1 %>% dplyr::filter(sample_name==unique(d1)$sample_name[5]),names(d1)[which(!names(d1) %in% "sample_name")],name="Shared Missing Values",
-            base_annotations=list(
-              'Missing Values'=intersection_size(
-                counts=TRUE,
-                aes=aes(fill=names(d1$sample_name))
+            annotations =list(
+              "Ranked Intensity %"=list(
+                aes=aes(x=intersection, fill=d1$rank),
+                geom=list(
+                  geom_bar(stat='count', position='fill', na.rm=TRUE),
+                  geom_text(
+                    aes(
+                      label=!!aes_percentage(relative_to='intersection'),
+                      color=ifelse(!is.na(rank), 'show', 'hide')
+                    ),
+                    stat='count',
+                    position=position_fill(vjust = .5)
+                  ),
+                  scale_y_continuous(labels=scales::percent_format()),
+                  
+                  show_hide_scale,
+                  rating_scale
+                )
               )
-            ),
-            set_sizes=FALSE
-  )+ggtitle(unique(d1$sample_name)[5])
-  p6<-upset(d1 %>% dplyr::filter(sample_name==unique(d1)$sample_name[6]),names(d1)[which(!names(d1) %in% "sample_name")],name="Shared Missing Values",
-            base_annotations=list(
-              'Missing Values'=intersection_size(
-                counts=TRUE,
-                aes=aes(fill=names(d1$sample_name))
-              )
-            ),
-            set_sizes=FALSE
-  )+ggtitle(unique(d1$sample_name)[6])
-  p7<-upset(d1 %>% dplyr::filter(sample_name==unique(d1)$sample_name[7]),names(d1)[which(!names(d1) %in% "sample_name")],name="Shared Missing Values",
-            base_annotations=list(
-              'Missing Values'=intersection_size(
-                counts=TRUE,
-                aes=aes(fill=names(d1$sample_name))
-              )
-            ),
-            set_sizes=FALSE
-  )+ggtitle(unique(d1$sample_name)[7])
-  p8<-upset(d1 %>% dplyr::filter(sample_name==unique(d1)$sample_name[8]),names(d1)[which(!names(d1) %in% "sample_name")],name="Shared Missing Values",
-            base_annotations=list(
-              'Missing Values'=intersection_size(
-                counts=TRUE,
-                aes=aes(fill=names(d1$sample_name))
-              )
-            ),
-            set_sizes=FALSE
-  )+ggtitle(unique(d1$sample_name)[8])
-  #combine plots
-  pdf("UpsetMV.pdf", height=10, width=20)
-  p
-  p2
-  p3
-  p4
-  p5
-  p6
-  p7
-  p8
-  dev.off()
+            )
+            
+  )+ggtitle(paste0(treated," C_F_S"))
+  return(list(plot(p),plot(p2)))
+  
 }
-upMV(df_)
+listUP<-upMV(df_,"DMSO","TREATED")
+#combine plots
+pdf("UpsetMV.pdf", height=10, width=20)
+listUP[[1]]
+listUP[[2]]
 
-
+dev.off()
 summaryMV <- function(df_) {
   d<-df_ #%>% dplyr::filter(sample_name==unique(.$sample_name)[1])
   d$Accession<-as.factor(d$Accession)
