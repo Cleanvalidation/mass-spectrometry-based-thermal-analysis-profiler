@@ -782,13 +782,7 @@ upMV <- function(df_,vehicle,treated) {
   return(list(plot(p),plot(p2)))
   
 }
-listUP<-upMV(df_,"DMSO","TREATED")
-#combine plots
-pdf("UpsetMV.pdf", height=10, width=20)
-listUP[[1]]
-listUP[[2]]
 
-dev.off()
 DLR<-function(d){
   #preallocate final result as a list
   
@@ -2343,15 +2337,21 @@ df_norm<-df_norm%>% dplyr::mutate(CC=ifelse(stringr::str_detect(.$sample_name,"D
 
 df_norm$dataset<-ifelse(stringr::str_detect(df_norm$sample_name,"DMSO")==TRUE,"vehicle","treated")
 
+###Generate upset plots for missing value data###
+
+listUP<-upMV(df_,"DMSO","TREATED")
+#combine plots and save as pdf
+pdf("UpsetMV.pdf", height=10, width=20)
+listUP[[1]]
+listUP[[2]]
+dev.off()
+
 ##SCRIPT STARTS HERE
 DF<-df_norm %>% dplyr::group_split(uniqueID) #split null dataset only by protein ID
 d_<-df_norm %>% dplyr::filter(CC == 0) %>% dplyr::group_split(uniqueID,dataset) #split vehicle dataset
 d_1<-df_norm %>% dplyr::filter(CC > 0) %>% dplyr::group_split(uniqueID,dataset) #split treated dataset
 
-# #keep data with less than 2 missing values
-# DF<-DF %>% purrr::keep(function(x) length(unique(x$C))>=9)#keep values with at least 9 temperature channels (TMT10)
-# d_<-d_ %>% purrr::keep(function(x) length(unique(x$C))>=9)
-# d_1<-d_1 %>% purrr::keep(function(x) length(unique(x$C))>=9)
+
 #convert to data frame for uniqueID presence
 DF<-dplyr::bind_rows(DF)
 d_<-dplyr::bind_rows(d_)
@@ -2398,6 +2398,7 @@ DFN<-lapply(DFN,function(x)x[order(x$C),])
 df_<-purrr::map2(df_,seq(df_),function(x,y)x %>% dplyr::mutate(N=y))
 df_1<-purrr::map2(df_1,seq(df_1),function(x,y)x %>% dplyr::mutate(N=y))
 DFN<-purrr::map2(DFN,seq(DFN),function(x,y)x %>% dplyr::mutate(N=y))
+
 tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
   i<-1
   #convert to df for numeric variables C and I 
@@ -3242,9 +3243,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
   Pred1$C<-as.numeric(as.vector(Pred1$C))
   Pred1$I<-as.numeric(as.vector(Pred1$I))
   
-  PLR_P1<-ggplot2::ggplot(Pred1, ggplot2::aes(x = C,y = fit,color=Treatment))+ggplot2::geom_point(Pred1, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +
-    ggplot2::geom_ribbon(data=Pred1,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)
-  
+ 
   DF_f1<-data.frame()
   DF_f1<-df2 %>% subset(uniqueID == df1$uniqueID[i]) %>% dplyr::mutate(dataset=ifelse(CC==0,'vehicle','treated'))
   DF_f1<-DF_f1 %>% subset(dataset =="treated")
@@ -3342,7 +3341,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
     
     Tm1<-vehicle$Tm[1]#pred1 is vehicle
     Tm2<-treated$Tm[1]#pred2 is treated
-    Tm_d<-as.numeric(as.vector(Tm2))-as.numeric(as.vector(Tm1))
+    Tm_d<-round(as.numeric(as.vector(Tm2))-as.numeric(as.vector(Tm1)),1)
     p<-expression(paste(Delta, "AUCdiff"))
     if(AUCd>0){
       P1_AUC <- pracma::trapz(as.numeric(as.vector(Pred1$C)),as.numeric(as.vector(Pred1$lower)))
@@ -3360,6 +3359,12 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
     miss_t<-DF1 %>% dplyr::filter(dataset=="treated")
     Pred2$missing_v<-rep(miss_v$missing_pct[1],nrow(Pred2))
     Pred2$missing_t<-rep(miss_t$missing_pct[1],nrow(Pred2))
+    
+    Pred1$missing_v<-rep(miss_v$missing_pct[1],nrow(Pred1))
+    Pred1$missing_t<-rep(miss_t$missing_pct[1],nrow(Pred1))
+    PLR_P1<-ggplot2::ggplot(Pred1, ggplot2::aes(x = C,y = fit,color=Treatment))+ggplot2::geom_point(Pred1, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +
+      ggplot2::geom_ribbon(data=Pred1,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)
+    
     PLR_P2<-PLR_P1+ggplot2::geom_point(Pred2, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +
       ggplot2::geom_ribbon(data=Pred2,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+
       ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::ggtitle(paste(Df1$uniqueID[1],"alternative"))+
@@ -3386,7 +3391,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
     print(PLR)
   }
 }
-i=1152
+i=1195
 
 plotTL<-tlCI(i,res[[1]],res[[2]],res[[3]],overlay=TRUE)
 #df1 <- only IDs in order desc(stability)
