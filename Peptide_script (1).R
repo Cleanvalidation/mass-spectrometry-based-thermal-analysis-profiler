@@ -2397,12 +2397,12 @@ computeRSSdiff <- function(x,y,treatment,maxAttempts = 50, repeatsIfNeg = 100){
     
     altResults <- tibble(x,y,treatment) %>%
       group_by(treatment) %>%
-      dplyr::do({
+      purrr::map_dfr({
         fit = computeRSS(x=.$x, y = .$y,start = start1, seed=repeats,
                          maxAttempts = maxAttempts,
                          alwaysPermute = alwaysPermute)
         
-      }) %>% ungroup
+      }) 
     rss0 <- nullResults$rss
     rss1 <-sum(altResults$rss)#combined alternative RSS values
     rssDiff <- rss0-rss1#difference between null and combined alternative RSS values
@@ -2566,8 +2566,7 @@ sigC<-function(DFN){
                                                                  "stringi",
                                                                  "mice",
                                                                  "DBI",
-                                                                 "tibble",
-                                                                 "broom"),
+                                                                 "tibble"),
                                                       scheduling=2))) #flag and omit non-sigmoidal data
 
   #calculate fit for the subset of proteins with sigmoidal behavior
