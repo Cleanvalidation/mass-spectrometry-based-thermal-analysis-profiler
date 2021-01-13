@@ -23,6 +23,8 @@ library(stringi)
 library(mice)
 library(DBI)
 library(furrr)
+library(tibble)
+
 
 theme_set(theme_bw())
 
@@ -2315,7 +2317,11 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE,alpha){
   print(plot)  
 }
 
-#sigmoidalfunctions
+##################################################
+#Sigmoidal function with confidence intervals
+###################################################
+
+
 fitSingleSigmoid <- function(x , y, start =c(Pl=0, a = 550, b = 10))
 {
   try(nls(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl,
@@ -2325,11 +2331,12 @@ fitSingleSigmoid <- function(x , y, start =c(Pl=0, a = 550, b = 10))
           algorithm = "port",
           lower = c(0.0,1e-5,1e-5),
           upper = c(1.5,15000,250),
-          control = nls.control(maxiter = 20)),
+          control = nls.control(maxiter = 50)),
       silent = TRUE)
 }
+
 repeatFits <- function(x,y, start= c(Pl = 0, a = 550, b=10),
-                       seed = NULL, alwaysPermute = FALSE, maxAttempts = 20){
+                       seed = NULL, alwaysPermute = FALSE, maxAttempts = 100){
   i <-0
   doFit <- TRUE
   doVaryPars <-alwaysPermute
@@ -2348,7 +2355,7 @@ repeatFits <- function(x,y, start= c(Pl = 0, a = 550, b=10),
 }
 
 computeRSS <- function(x,y,start = c(Pl = 0, a = 550, b=10),seed = NULL,
-                       alwaysPermute = FALSE,maxAttempts = 20){
+                       alwaysPermute = FALSE,maxAttempts = 50){
   #start model fitting
   fit <- repeatFits(x=x, y=y,start=start,seed=seed,alwaysPermute=alwaysPermute,maxAttempts = maxAttempts)
   if(!inherits(fit,"try-error")){
@@ -2375,7 +2382,7 @@ computeRSS <- function(x,y,start = c(Pl = 0, a = 550, b=10),seed = NULL,
 # #GoF by RSS comparison for each protein
 # #RSS difference
 # 
-computeRSSdiff <- function(x,y,treatment,maxAttempts = 20, repeatsIfNeg = 30){
+computeRSSdiff <- function(x,y,treatment,maxAttempts = 50, repeatsIfNeg = 100){
   rssDiff <- -1
   repeats <- 0
   alwaysPermute <- FALSE
@@ -2390,7 +2397,7 @@ computeRSSdiff <- function(x,y,treatment,maxAttempts = 20, repeatsIfNeg = 30){
     
     altResults <- tibble(x,y,treatment) %>%
       group_by(treatment) %>%
-      do({
+      dplyr::do({
         fit = computeRSS(x=.$x, y = .$y,start = start1, seed=repeats,
                          maxAttempts = maxAttempts,
                          alwaysPermute = alwaysPermute)
@@ -2466,7 +2473,7 @@ sigCI <- function(object, parm, level = 0.95, method = c("asymptotic", "profile"
 }
 
 sigC<-function(DFN){
-  
+  DFN<-dplyr::bind_rows(DFN)
   df_<-DFN
   df_1<-DFN
   DFN<-DFN
@@ -2479,13 +2486,7 @@ sigC<-function(DFN){
   Pred<-nlm1
   Pred1<-list(rep(NA,1))
   
-  df_<-df_ %>% purrr::keep(function(x) !is.null(nrow(x)))
-  df_1<-df_1 %>% purrr::keep(function(x) !is.null(nrow(x)))
-  DFN<-DFN %>% purrr::keep(function(x) !is.null(nrow(x)))
-  #keep data with at least 9 rows
-  df_<-df_ %>% purrr::keep(function(x)nrow(x)>9)
-  df_1<-df_1 %>% purrr::keep(function(x) nrow(x)>9)
-  DFN<-DFN %>% purrr::keep(function(x) nrow(x)>9)
+ 
   #convert to data frame
   df_<-dplyr::bind_rows(df_)#vehicle
   df_1<-dplyr::bind_rows(df_1)#treated
@@ -2535,8 +2536,40 @@ sigC<-function(DFN){
   
   #sigmoidal fit for vehicle
   #remove non-sigmoidal behaving proteins
-  nlm1<-df_ %>% purrr::keep(function(x)!inherits(fitSingleSigmoid(x$C,x$I),'try-error')) #flag and omit non-sigmoidal data
-  fitted_curves_v<-100*length(nlm1)/length(df_)
+  nlm1<-df_ %>% 
+    dplyr::group_by(uniqueID) %>% 
+    tidyr::nest()%>%
+    dplyr::mutate(new=
+    furrr::future_map(.x=data,~fitSingleSigmoid(x$C,x$I),
+                      .options = furrr::furrr_options(stdout=TRUE,
+                                                      globals=FALSE,
+                                                      packages=c("minpack.lm",
+                                                                 "rlist",
+                                                                 "data.table",
+                                                                 "knitr",
+                                                                 "ggthemes",
+                                                                 "gridExtra",
+                                                                 "grid",
+                                                                 "readxl",
+                                                                 "nls2",
+                                                                 "stats",
+                                                                 "pkgcond",
+                                                                 "rlist",
+                                                                 "pracma",
+                                                                 "fs",
+                                                                 "tidyverse",
+                                                                 "splines",
+                                                                 "mgcv",
+                                                                 "purrr",
+                                                                 "nlstools",
+                                                                 "stringr",
+                                                                 "stringi",
+                                                                 "mice",
+                                                                 "DBI",
+                                                                 "tibble",
+                                                                 "broom"),
+                                                      scheduling=2))) #flag and omit non-sigmoidal data
+
   #calculate fit for the subset of proteins with sigmoidal behavior
   nlm2<-lapply(nlm1,function(x)x %>% dplyr::mutate(fit = list(try(fitSingleSigmoid(x$C,x$I))))) #fit sigmoids
   
@@ -2567,10 +2600,9 @@ sigC<-function(DFN){
   dfc<-list()
   
   #sigmoidal fit for treated
-  
   nlm1<-df_1 %>% purrr::keep(function(x)!try(inherits(fitSingleSigmoid(x$C,x$I),'try-error'))) #flag and omit non-sigmoidal data
-  fitted_curves_t<-100*length(nlm1)/length(df_1)
-  nlm1<-lapply(nlm1,function(x) x %>% dplyr::mutate(fit = list(try(ifelse(inherits(fitSingleSigmoid(x$C,x$I),'try-error'),NA,fitSingleSigmoid(x$C,x$I)))))) #fit sigmoids
+  
+  nlm2<-lapply(nlm1,function(x)x %>% dplyr::mutate(fit = list(try(fitSingleSigmoid(x$C,x$I))))) #fit sigmoids
   CT<-nlm2 %>% purrr::keep(function(x) !coef(x$fit[[1]])[[1]]==0)#find values where Pl = 0 
   
   dfc <- purrr::map(CT,function(x) try(nlstools::confint2(x$fit[[1]],level=0.95)))#collect predicted values
@@ -2614,14 +2646,9 @@ sigC<-function(DFN){
   
   PRED<-Pred
   PRED1<-Pred1
-  
-  if(isTRUE(Ftest)){
-    n0 <-nullResults$fittedValues
-    n1 <-sum(altResults$fittedValues)
-    
-  }
   return(list(Pred,Pred1))
 }
+
 sigfit<-function(Pred,Pred1,i,MD=FALSE){
   i<-i
   #
@@ -2684,9 +2711,10 @@ sigfit<-function(Pred,Pred1,i,MD=FALSE){
   }
   return(dplyr::bind_rows(Pred,Pred1))
 }
+  
 ###############################
 
-plan(sequential)
+plan(multisession,workers=8)
 furrr::furrr_options(stdout=TRUE,packages=c("minpack.lm",
                                             "rlist",
                                             "data.table",
@@ -2709,7 +2737,8 @@ furrr::furrr_options(stdout=TRUE,packages=c("minpack.lm",
                                             "stringr",
                                             "stringi",
                                             "mice",
-                                            "DBI"),
+                                            "DBI",
+                                            "tibble"),
                      scheduling=2)
 
 ##################################
@@ -2896,7 +2925,7 @@ Pred2
 dev.off()
 
 
-                                                                                                                                                                                                                                                                                                                            ##################################################
+###################################################                                                                                                                                                                                                                                                                                                                            ##################################################
 #Sigmoidal function with confidence intervals
 ###################################################
 
