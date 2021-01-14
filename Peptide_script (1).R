@@ -581,7 +581,9 @@ cetsa_fit <- function(d, norm = FALSE) {
 #'
 Tm <- function(f) {
   if (length(f) == 1) return(NA)
-  f$m$getPars()[['m']]
+  pars<-f$fit[[1]]$m$getPars()
+  Tm<-pars['a']/(pars['b'] - log(1-pars['Pl'])/(1/2 - pars['Pl']-1))
+  return(round(Tm,1)[['a']]) 
 }
 
 
@@ -2472,190 +2474,91 @@ sigCI <- function(object, parm, level = 0.95, method = c("asymptotic", "profile"
   switch(method, asymptotic = asCI(object, parm, level), profile = asProf(object, parm, level))
 }
 
-sigC<-function(DFN){
-  DFN<-dplyr::bind_rows(DFN)
-  df_<-DFN
-  df_1<-DFN
-  DFN<-DFN
-  nlm1<-list(rep(NA,length(df_)))
-  nlm2<-nlm1
-  dfc<-nlm1
-  dfy<-nlm1
-  result<-nlm1
-  result1<-nlm1
-  Pred<-nlm1
-  Pred1<-list(rep(NA,1))
+sigC<-function(vehicle,treated,null){
+  df_<-vehicle
+  df_1<-treated
+  DFN<-null
   
- 
-  #convert to data frame
-  df_<-dplyr::bind_rows(df_)#vehicle
-  df_1<-dplyr::bind_rows(df_1)#treated
-  DFN<-dplyr::bind_rows(DFN)#Null
-  
-  #subset dataset for vehicle and treated
-  df_<-df_ %>% dplyr::filter(dataset=="vehicle")
-  df_1<-df_1 %>% dplyr::filter(dataset=="treated")
-  
-  #intersect IDs
-  d1<-dplyr::intersect(df_$uniqueID,df_1$uniqueID)
-  CID<-dplyr::intersect(d1,DFN$uniqueID)
-  #convert back to list
-  df_<-df_ %>% dplyr::group_split(uniqueID)
-  df_1<-df_1 %>% dplyr::group_split(uniqueID)
-  DFN<-DFN %>% dplyr::group_split(uniqueID)
-  #keep data with common IDs
-  
-  df_<-df_ %>% purrr::keep(function(x) x$uniqueID[1] %in% CID)
-  df_1<-df_1 %>% purrr::keep(function(x) x$uniqueID[1] %in% CID)
-  DFN<-DFN %>% purrr::keep(function(x) x$uniqueID[1] %in% CID)
-  
-  #convert to data frame
-  df_<-dplyr::bind_rows(df_)#vehicle
-  df_1<-dplyr::bind_rows(df_1)#treated
-  DFN<-dplyr::bind_rows(DFN)#Null
-  
-  
-  #convert to factor
-  df_$C<-as.numeric(as.vector(df_$C))
-  df_1$C<-as.numeric(as.vector(df_1$C))
-  DFN$C<-as.numeric(as.vector(DFN$C))
-  
-  df_$I<-as.numeric(as.vector(df_$I))
-  df_1$I<-as.numeric(as.vector(df_1$I))
-  DFN$I<-as.numeric(as.vector(DFN$I))
-  
-  #convert back to list
-  df_<-df_ %>% dplyr::group_split(uniqueID)
-  df_1<-df_1 %>% dplyr::group_split(uniqueID)
-  DFN<-DFN %>% dplyr::group_split(uniqueID)
-  
-  #order by C
-  df_<-lapply(df_,function(x)x[order(x$C),])
-  df_1<-lapply(df_1,function(x)x[order(x$C),])
-  DFN<-lapply(DFN,function(x)x[order(x$C),])
-  
-  #sigmoidal fit for vehicle
-  #remove non-sigmoidal behaving proteins
-  nlm1<-df_ %>% 
-    dplyr::group_by(uniqueID) %>% 
-    tidyr::nest()%>%
-    dplyr::mutate(new=
-    furrr::future_map(.x=data,~fitSingleSigmoid(x$C,x$I),
-                      .options = furrr::furrr_options(stdout=TRUE,
-                                                      globals=FALSE,
-                                                      packages=c("minpack.lm",
-                                                                 "rlist",
-                                                                 "data.table",
-                                                                 "knitr",
-                                                                 "ggthemes",
-                                                                 "gridExtra",
-                                                                 "grid",
-                                                                 "readxl",
-                                                                 "nls2",
-                                                                 "stats",
-                                                                 "pkgcond",
-                                                                 "rlist",
-                                                                 "pracma",
-                                                                 "fs",
-                                                                 "tidyverse",
-                                                                 "splines",
-                                                                 "mgcv",
-                                                                 "purrr",
-                                                                 "nlstools",
-                                                                 "stringr",
-                                                                 "stringi",
-                                                                 "mice",
-                                                                 "DBI",
-                                                                 "tibble"),
-                                                      scheduling=2))) #flag and omit non-sigmoidal data
-
-  #calculate fit for the subset of proteins with sigmoidal behavior
-  nlm2<-lapply(nlm1,function(x)x %>% dplyr::mutate(fit = list(try(fitSingleSigmoid(x$C,x$I))))) #fit sigmoids
-  
+  nlm2<-df_  %>% 
+    dplyr::group_by(uniqueID) %>%  
+    dplyr::mutate(fit=list(
+      tryCatch(fitSingleSigmoid(  C,  I))))
+  nlm2$Tm<-Tm(nlm2)
+  if(class(nlm2$fit[[1]])=='try-error'){
+    return(warning("the function could not fit the data"))
+  }
   #remove proteins with a plateau value not =  zero 
-  CT<-nlm2 %>% purrr::keep(function(x) !coef(x$fit[[1]])[[1]]==0)#find values where Pl = 0 
-  #get confidence intervals for sigmoidal function
-  dfc <- purrr::map(CT,function(x) try(nlstools::confint2(x$fit[[1]],level=0.95)))#collect predicted values
+  CT<-nlm2 %>%
+    dplyr::filter( !coef(fit[[1]])[[1]]==0)#find values where Pl = 0 
+  if(nrow(CT)==0){
+    return(warning("error with the plateau"))
+  }
+  
+   #get confidence intervals for sigmoidal function
+  dfc <-tryCatch(nlstools::confint2(nlm2$fit[[1]],level=0.95)) #predicted values
   #obtain sigmoidal equation parameters
-  nlm2<-purrr::map2(CT,dfc,function(x,y)x %>% dplyr::mutate(Pl=y[1],a=y[2],b=y[3],Pl1=y[4],a1=y[5],b1=y[6]))
+  nlm2<- CT  %>% dplyr::mutate(Pl=dfc[1],a=dfc[2],b=dfc[3],Pl1=dfc[4],a1=dfc[5],b1=dfc[6])
   #ready confidence intervals for plot
-  result<- purrr::map(nlm2,function(x)x %>%dplyr::rowwise(.) %>% dplyr::mutate(LOW = list(((1-.$Pl[1])/(1+exp(.$b[1]-(.$a[1]/.$C))))+.$Pl[1]),
+  result<-  nlm2 %>%dplyr::rowwise(.) %>% dplyr::mutate(LOW = list(((1-.$Pl[1])/(1+exp(.$b[1]-(.$a[1]/.$C))))+.$Pl[1]),
                                                                                HI = list(((1-.$Pl1[1])/(1+exp(.$b1[1]-(.$a1[1]/.$C))))+.$Pl1[1]),
-                                                                               nV=length(predict(x$fit[[1]]))))#get lower CI
+                                                                               nV=length(predict(.$fit[[1]])))# lower CI
+  result$AUC<-round(pracma::trapz(result$C,result$I),2)
   
-  AUC<-purrr::map(result,function(x)pracma::trapz(x$C,x$I))
-  Tm<- lapply(result,function(x) try(stats::approx(x$I,x$C,0.5)$y[1]))
-  TM<- Tm %>% purrr::keep(function(x) !inherits(x,'try-error'))
-  #append Tm 
-  result<-purrr::map2(result,Tm,function(x,y)x %>% dplyr::mutate(Tm=y))
-  #append AUC
-  Pred<-purrr::map2(result,AUC,function(x,y)x %>% dplyr::mutate(AUC=y))
+  result <-result %>% dplyr::rowwise() %>% dplyr::mutate(rss=deviance(.$fit[[1]]))
   
-  #append RSS
-  Pred<-purrr::map(Pred,function(x) x %>% dplyr::mutate(RSS=deviance(x$fit[[1]])))
-  Pred<-purrr::map2(Pred,seq(Pred),function(x,y)x %>% dplyr::mutate(n=y))
+  
   nlm1<-list()
   CT<-list()
   dfc<-list()
   
   #sigmoidal fit for treated
-  nlm1<-df_1 %>% purrr::keep(function(x)!try(inherits(fitSingleSigmoid(x$C,x$I),'try-error'))) #flag and omit non-sigmoidal data
+  nlm2<-df_1 %>% 
+    dplyr::group_by(uniqueID) %>%  
+    dplyr::mutate(fit=list(
+      tryCatch(fitSingleSigmoid(  C,  I))))
+  nlm2$Tm<-Tm(nlm2)
   
-  nlm2<-lapply(nlm1,function(x)x %>% dplyr::mutate(fit = list(try(fitSingleSigmoid(x$C,x$I))))) #fit sigmoids
-  CT<-nlm2 %>% purrr::keep(function(x) !coef(x$fit[[1]])[[1]]==0)#find values where Pl = 0 
+  if(class(nlm2$fit[[1]])=='try-error'){
+    return(warning("the sigmoidal function could not fit the treated data"))
+  }
+  #remove proteins with a plateau value not =  zero 
+  CT<-nlm2 %>%
+    dplyr::filter( !coef(fit[[1]])[[1]]==0)#find values where Pl = 0 
+  if(nrow(CT)==0){
+    return(warning("error with the plateau"))
+  }
   
-  dfc <- purrr::map(CT,function(x) try(nlstools::confint2(x$fit[[1]],level=0.95)))#collect predicted values
-  nlm2<-purrr::map2(CT,dfc,function(x,y)x %>% dplyr::mutate(Pl=y[1],a=y[2],b=y[3],Pl1=y[4],a1=y[5],b1=y[6]))
-  #calculate CI
-  result1<- purrr::map(nlm2,function(x)x %>% dplyr::rowwise(.) %>% dplyr::mutate(LOW = list(((1-.$Pl[1])/(1+exp(.$b[1]-(.$a[1]/.$C))))+.$Pl[1]),
-                                                                                 HI = list(((1-.$Pl1[1])/(1+exp(.$b1[1]-(.$a1[1]/.$C))))+.$Pl1[1]),
-                                                                                 nV=length(predict(x$fit[[1]]))))#get lower CI
-  AUC<-purrr::map(result1,function(x)pracma::trapz(x$C,x$I))
-  Tm<- lapply(result1,function(x) try(stats::approx(x$I,x$C,0.5)$y[1]))
-  TM<- Tm %>% purrr::keep(function(x) !inherits(x,'try-error'))
-  #append Tm 
-  result1<-purrr::map2(result1,Tm,function(x,y)x %>% dplyr::mutate(Tm=y))
-  #append AUC
-  Pred1<-purrr::map2(result1,AUC,function(x,y)x %>% dplyr::mutate(AUC=y))
+  #get confidence intervals for sigmoidal function
+  dfc <-tryCatch(nlstools::confint2(nlm2$fit[[1]],level=0.95)) #predicted values
+  #obtain sigmoidal equation parameters
+  nlm2<- CT  %>% dplyr::mutate(Pl=dfc[1],a=dfc[2],b=dfc[3],Pl1=dfc[4],a1=dfc[5],b1=dfc[6])
+  #ready confidence intervals for plot
+  result1<-  nlm2 %>%dplyr::rowwise(.) %>% dplyr::mutate(LOW = list(((1-.$Pl[1])/(1+exp(.$b[1]-(.$a[1]/.$C))))+.$Pl[1]),
+                                                        HI = list(((1-.$Pl1[1])/(1+exp(.$b1[1]-(.$a1[1]/.$C))))+.$Pl1[1]),
+                                                        nV=length(predict(.$fit[[1]])))# lower CI
+  result1$AUC<-round(pracma::trapz(result1$C,result1$I),2)
+   
+  result1<-result1 %>% dplyr::rowwise() %>% dplyr::mutate(rss=deviance(.$fit[[1]]))
   
-  #append RSS
-  Pred1<-purrr::map(Pred1,function(x) x %>% dplyr::mutate(RSS=deviance(x$fit[[1]])))
-  Pred1<-purrr::map2(Pred1,seq(Pred1),function(x,y)x %>% dplyr::mutate(n=y))
-  #find common IDs between vehicle and treated with converging models
-  ID<-dplyr::bind_rows(result)$uniqueID 
-  names(ID)<-"uniqueID"
-  ID1<-dplyr::bind_rows(result1)$uniqueID %>% unique(.)
-  names(ID1)<-"uniqueID"
-  IID<-intersect(ID,ID1)#get intersecting IDs which have convergence info
-  O_ID<-setdiff(ID,ID1)#get different proteins where one fit failed
-  #Filter data based on common IDs
-  Pred<- Pred %>% purrr::keep(.,function(x) x$uniqueID[1] %in% IID)
-  Pred1<- Pred1 %>% purrr::keep(.,function(x) x$uniqueID[1] %in% IID)
-  #remove fit column
-  Pred<-lapply(Pred,function(x) x %>% dplyr::select(-fit))
-  Pred1<-lapply(Pred1,function(x) x %>% dplyr::select(-fit))
-  
-  Pred<-purrr::map2(Pred,seq(Pred),function(x,y)x %>% dplyr::mutate(N=y))
-  Pred1<-purrr::map2(Pred1,seq(Pred1),function(x,y)x %>% dplyr::mutate(N=y))
-  
-  chk<-dplyr::bind_rows(Pred) %>% dplyr::filter(uniqueID %in% "P36507")
-  print(chk$N)
-  chk<-dplyr::bind_rows(Pred) %>% dplyr::filter(uniqueID %in% "Q02750")
-  print(chk$N)
-  
-  PRED<-Pred
-  PRED1<-Pred1
-  return(list(Pred,Pred1))
+   #remove fit column
+  Pred<- result %>% dplyr::select(-fit)
+  Pred1<- result1 %>% dplyr::select(-fit)
+   
+  return(rbind(Pred,Pred1))
 }
 
-sigfit<-function(Pred,Pred1,i,MD=FALSE){
+sigfit<-function(SigF,i,MD=FALSE){
   i<-i
   #
   if(isTRUE(MD)){
-    Pred<-Pred[[i]] %>% dplyr::select(uniqueID,dataset,Dataset,C,I,CC,LineRegion,Pl,a,Pl1,a1,b1,Tm,
-                                      AUC,RSS,LOW,HI,N)
-    Pred1<-Pred1[[i]]%>% dplyr::select(uniqueID,dataset,Dataset,C,I,CC,LineRegion,Pl,a,Pl1,a1,b1,Tm,
-                                       AUC,RSS,LOW,HI,N)
+    Pred<-SigF[[i]] %>%
+      subset(dataset=="vehicle") %>% 
+      dplyr::select(uniqueID,dataset ,C,I,CC,LineRegion,Pl,a,Pl1,a1,b1,Tm,rss,
+                    AUC ,LOW,HI,N,sample_name,sample_id,missing_pct,rank)
+    Pred1<-SigF[[i]]%>%
+      subset(dataset=="treated") %>% 
+      dplyr::select(uniqueID,dataset ,C,I,CC,LineRegion,Pl,a,Pl1,a1,b1,Tm,rss,
+                    AUC ,LOW,HI,N,sample_name,sample_id,missing_pct,rank)
     Pred$LOW<-Pred$LOW[[1]]
     Pred$HI<-Pred$HI[[1]]
     
@@ -2663,34 +2566,7 @@ sigfit<-function(Pred,Pred1,i,MD=FALSE){
     Pred1$HI<-Pred1$HI[[1]]
     Pred1$dTm<-round(Pred1$Tm[1]-Pred$Tm[1],1)
     Pred1$dAUC<-as.double(round(Pred1$AUC[1]-Pred$AUC[1],2))
-    Pred1$RSS<-round(sum(Pred1$RSS[1]+Pred$RSS[1]),3)
-    #Check sigmoidal fit
-    P<-ggplot2::ggplot(Pred1, ggplot2::aes(x =C,y =I,color=Dataset))+
-      ggplot2::geom_point(Pred1,mapping=ggplot2::aes(x=C,y=I,color = Dataset))+
-      ggplot2::geom_ribbon(Pred1,mapping=ggplot2::aes(ymin = LOW, ymax = HI ,fill=Dataset), alpha = 0.2 ) +
-      ggplot2::annotate("text", x=60, y=0.8, label=  paste("\u0394", "AUC = ",Pred1$dAUC[1]))+
-      ggplot2::annotate("text", x=60, y=0.7, label= paste("\u0394","Tm = ",Pred1$dTm[1],"\u00B0C"))+
-      ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::ggtitle(paste(Pred1$uniqueID[1]))+
-      ggplot2::annotate("text", x=60, y=0.9, label= paste("\u03A3","RSS = ",Pred1$RSS[1]))
-    
-    P1<- P +ggplot2::geom_point(Pred,mapping=ggplot2::aes(x=C,y=I,color = Dataset))+
-      ggplot2::geom_ribbon(Pred,mapping=ggplot2::aes(ymin = LOW, ymax = HI ,fill=Dataset), alpha = 0.2 ) 
-    
-    
-    print(P1)
-  }else{
-    Pred<-Pred[[i]] %>% dplyr::select(uniqueID,dataset,C,I,CC,LineRegion,Pl,a,Pl1,a1,b1,Tm,
-                                      AUC,RSS,LOW,HI,N)
-    Pred1<-Pred1[[i]]%>% dplyr::select(uniqueID,dataset,C,I,CC,LineRegion,Pl,a,Pl1,a1,b1,Tm,
-                                       AUC,RSS,LOW,HI,N)
-    Pred$LOW<-Pred$LOW[[1]]
-    Pred$HI<-Pred$HI[[1]]
-    
-    Pred1$LOW<-Pred1$LOW[[1]]
-    Pred1$HI<-Pred1$HI[[1]]
-    Pred1$dTm<-round(Pred1$Tm[1]-Pred$Tm[1],1)
-    Pred1$dAUC<-as.double(round(Pred1$AUC[1]-Pred$AUC[1],2))
-    Pred1$RSS<-round(sum(Pred1$RSS[1]+Pred$RSS[1]),3)
+    Pred1$RSS<-round(sum(Pred1$rss[1]+Pred$rss[1]),3)
     #Check sigmoidal fit
     P<-ggplot2::ggplot(Pred1, ggplot2::aes(x =C,y =I,color=dataset))+
       ggplot2::geom_point(Pred1,mapping=ggplot2::aes(x=C,y=I,color = dataset))+
@@ -2698,47 +2574,94 @@ sigfit<-function(Pred,Pred1,i,MD=FALSE){
       ggplot2::annotate("text", x=60, y=0.8, label=  paste("\u0394", "AUC = ",Pred1$dAUC[1]))+
       ggplot2::annotate("text", x=60, y=0.7, label= paste("\u0394","Tm = ",Pred1$dTm[1],"\u00B0C"))+
       ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::ggtitle(paste(Pred1$uniqueID[1]))+
-      ggplot2::annotate("text", x=60, y=0.9, label= paste("\u03A3","RSS = ",Pred1$RSS[1]))
+      ggplot2::annotate("text", x=60, y=0.9, label= paste("\u03A3","RSS = ",Pred1$RSS[1]))+
+      annotate("text",
+               x = 2+round(Pred1$Tm[1],1),
+               y = 0.55,
+               label=paste0(round(Pred1$Tm[1],1)),
+               colour="red"
+      )+
+      annotate("segment", x = round(Pred$Tm[1],1), xend =round(Pred1$Tm[1],1), y = 0.5, yend = 0.5,
+               colour = "red",linetype=2)+
+      annotate("segment", x = round(Pred1$Tm[1],1), xend = round(Pred1$Tm[1],1), y = 0, yend = 0.5,
+               colour = "red",linetype=2)
+    
     
     P1<- P +ggplot2::geom_point(Pred,mapping=ggplot2::aes(x=C,y=I,color = dataset))+
-      ggplot2::geom_ribbon(Pred,mapping=ggplot2::aes(ymin = LOW, ymax = HI ,fill=dataset), alpha = 0.2 ) 
+      ggplot2::geom_ribbon(Pred,mapping=ggplot2::aes(ymin = LOW, ymax = HI ,fill=dataset), alpha = 0.2 )+
+      annotate("text",
+               x = 2+round(Pred$Tm[1],1),
+               y = 0.55,
+               label=paste0(round(Pred$Tm[1],1)),
+               colour="blue"
+      )+
+      annotate("segment", x = round(min(Pred$C),1), xend =round(Pred$Tm[1],1), y = 0.5, yend = 0.5,
+               colour = "blue",linetype=2)+
+      annotate("segment", x = round(Pred$Tm[1],1), xend = round(Pred$Tm[1],1), y = 0, yend = 0.5,
+               colour = "blue",linetype=2) 
+    
+    
+    print(P1)
+  }else{
+    Pred<-SigF[[i]] %>%
+      subset(dataset=="vehicle") %>% 
+      dplyr::select(uniqueID,dataset,C,I,CC,LineRegion,Pl,a,Pl1,a1,b1,Tm,rss,
+                    AUC ,LOW,HI,N,sample_name,sample_id,missing_pct,rank)
+    Pred1<-SigF[[i]]%>%
+      subset(dataset=="treated") %>% 
+      dplyr::select(uniqueID,dataset,C,I,CC,LineRegion,Pl,a,Pl1,a1,b1,Tm,rss,
+                    AUC ,LOW,HI,N,sample_name,sample_id,missing_pct,rank)
+    Pred$LOW<-Pred$LOW[[1]]
+    Pred$HI<-Pred$HI[[1]]
+    
+    Pred1$LOW<-Pred1$LOW[[1]]
+    Pred1$HI<-Pred1$HI[[1]]
+    Pred1$dTm<-round(Pred1$Tm[1]-Pred$Tm[1],1)
+    Pred1$dAUC<-as.double(round(Pred1$AUC[1]-Pred$AUC[1],2))
+    Pred1$RSS<-round(sum(Pred1$rss[1]+Pred$rss[1]),3)
+    #Check sigmoidal fit
+    P<-ggplot2::ggplot(Pred1, ggplot2::aes(x =C,y =I,color=dataset))+
+      ggplot2::geom_point(Pred1,mapping=ggplot2::aes(x=C,y=I,color = dataset))+
+      ggplot2::geom_ribbon(Pred1,mapping=ggplot2::aes(ymin = LOW, ymax = HI ,fill=dataset), alpha = 0.2 ) +
+      ggplot2::annotate("text", x=60, y=0.8, label=  paste("\u0394", "AUC = ",Pred1$dAUC[1]))+
+      ggplot2::annotate("text", x=60, y=0.7, label= paste("\u0394","Tm = ",Pred1$dTm[1],"\u00B0C"))+
+      ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::ggtitle(paste(Pred1$uniqueID[1]))+
+      ggplot2::annotate("text", x=60, y=0.9, label= paste("\u03A3","RSS = ",Pred1$RSS[1]))+
+      annotate("text",
+               x = 2+round(Pred1$Tm[1],1),
+               y = 0.55,
+               label=paste0(round(Pred1$Tm[1],1)),
+               colour="red"
+      )+
+      annotate("segment", x = round(Pred$Tm[1],1), xend =round(Pred1$Tm[1],1), y = 0.5, yend = 0.5,
+               colour = "red",linetype=2)+
+      annotate("segment", x = round(Pred1$Tm[1],1), xend = round(Pred1$Tm[1],1), y = 0, yend = 0.5,
+               colour = "red",linetype=2)
+    
+    P1<- P +ggplot2::geom_point(Pred,mapping=ggplot2::aes(x=C,y=I,color = dataset))+
+      ggplot2::geom_ribbon(Pred,mapping=ggplot2::aes(ymin = LOW, ymax = HI ,fill=dataset), alpha = 0.2 )+
+      annotate("text",
+               x = 2+round(Pred$Tm[1],1),
+               y = 0.55,
+               label=paste0(round(Pred$Tm[1],1)),
+               colour="blue"
+      )+
+      annotate("segment", x = round(min(Pred$C),1), xend =round(Pred$Tm[1],1), y = 0.5, yend = 0.5,
+               colour = "blue",linetype=2)+
+      annotate("segment", x = round(Pred$Tm[1],1), xend = round(Pred$Tm[1],1), y = 0, yend = 0.5,
+               colour = "blue",linetype=2) 
     
     
     print(P1)
     
     
   }
-  return(dplyr::bind_rows(Pred,Pred1))
+   
 }
   
 ###############################
 
 plan(multisession,workers=8)
-furrr::furrr_options(stdout=TRUE,packages=c("minpack.lm",
-                                            "rlist",
-                                            "data.table",
-                                            "knitr",
-                                            "ggthemes",
-                                            "gridExtra",
-                                            "grid",
-                                            "readxl",
-                                            "nls2",
-                                            "stats",
-                                            "pkgcond",
-                                            "rlist",
-                                            "pracma",
-                                            "fs",
-                                            "tidyverse",
-                                            "splines",
-                                            "mgcv",
-                                            "purrr",
-                                            "nlstools",
-                                            "stringr",
-                                            "stringi",
-                                            "mice",
-                                            "DBI",
-                                            "tibble"),
-                     scheduling=2)
 
 ##################################
 
@@ -2927,11 +2850,17 @@ dev.off()
 ###################################################                                                                                                                                                                                                                                                                                                                            ##################################################
 #Sigmoidal function with confidence intervals
 ###################################################
+CID<-dplyr::bind_rows(df_)$uniqueID
+CID<-intersect(dplyr::bind_rows(df_1)$uniqueID,CID)
+df_<-df_ %>% purrr::keep(function(x) x$uniqueID[1] %in% CID)
+df_1<-df_1%>% purrr::keep(function(x) x$uniqueID[1] %in% CID)
 
-PlSig<-sigC(DFN)
 
-i=1
-sig<-sigfit(PlSig[[1]],PlSig[[2]],i,MD=FALSE)
+PlSig<-purrr::map2(df_,df_1,function(x,y)try(sigC(x,y,NA)))
+SigF<-PlSig %>% purrr::keep(function(x)any(class(x)=="data.frame"))
 
-i=4
-sig<-unique(dplyr::bind_rows(PlSig[[1]])$uniqueID)
+ID<-unique(dplyr::bind_rows(SigF)$uniqueID)
+i=3
+sig<-sigfit(SigF,i,MD=FALSE)
+
+ 
