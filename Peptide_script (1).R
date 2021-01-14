@@ -2571,10 +2571,12 @@ sigfit<-function(SigF,i,MD=FALSE){
     P<-ggplot2::ggplot(Pred1, ggplot2::aes(x =C,y =I,color=dataset))+
       ggplot2::geom_point(Pred1,mapping=ggplot2::aes(x=C,y=I,color = dataset))+
       ggplot2::geom_ribbon(Pred1,mapping=ggplot2::aes(ymin = LOW, ymax = HI ,fill=dataset), alpha = 0.2 ) +
-      ggplot2::annotate("text", x=60, y=0.8, label=  paste("\u0394", "AUC = ",Pred1$dAUC[1]))+
-      ggplot2::annotate("text", x=60, y=0.7, label= paste("\u0394","Tm = ",Pred1$dTm[1],"\u00B0C"))+
+      ggplot2::annotate("text", x=min(Pred1$C)+5, y=0.55, label= paste("\u03A3","RSS = ",Pred1$RSS[1]))+
+      ggplot2::annotate("text", x=min(Pred1$C)+5, y=0.45, label=  paste("\u0394", "AUC = ",Pred1$dAUC[1]))+
+      ggplot2::annotate("text", x=min(Pred1$C)+5, y=0.35, label= paste("\u0394","Tm = ",Pred1$dTm[1],"\u00B0C"))+
       ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::ggtitle(paste(Pred1$uniqueID[1]))+
-      ggplot2::annotate("text", x=60, y=0.9, label= paste("\u03A3","RSS = ",Pred1$RSS[1]))+
+      ggplot2::annotate("text", x=min(Pred1$C)+5, y=min(Pred1$I)+0.22, label= paste("missing vehicle",round(Pred$missing_pct[1],0),"%"))+ 
+      ggplot2::annotate("text", x=min(Pred1$C)+5, y=min(Pred1$I)+0.12, label= paste("missing treated",round(Pred1$missing_pct[1],0),"%"))+
       annotate("text",
                x = 2+round(Pred1$Tm[1],1),
                y = 0.55,
@@ -2623,10 +2625,12 @@ sigfit<-function(SigF,i,MD=FALSE){
     P<-ggplot2::ggplot(Pred1, ggplot2::aes(x =C,y =I,color=dataset))+
       ggplot2::geom_point(Pred1,mapping=ggplot2::aes(x=C,y=I,color = dataset))+
       ggplot2::geom_ribbon(Pred1,mapping=ggplot2::aes(ymin = LOW, ymax = HI ,fill=dataset), alpha = 0.2 ) +
-      ggplot2::annotate("text", x=60, y=0.8, label=  paste("\u0394", "AUC = ",Pred1$dAUC[1]))+
-      ggplot2::annotate("text", x=60, y=0.7, label= paste("\u0394","Tm = ",Pred1$dTm[1],"\u00B0C"))+
+      ggplot2::annotate("text", x=min(Pred1$C)+5, y=0.55, label= paste("\u03A3","RSS = ",Pred1$RSS[1]))+
+      ggplot2::annotate("text", x=min(Pred1$C)+5, y=0.45, label=  paste("\u0394", "AUC = ",Pred1$dAUC[1]))+
+      ggplot2::annotate("text", x=min(Pred1$C)+5, y=0.35, label= paste("\u0394","Tm = ",Pred1$dTm[1],"\u00B0C"))+
       ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::ggtitle(paste(Pred1$uniqueID[1]))+
-      ggplot2::annotate("text", x=60, y=0.9, label= paste("\u03A3","RSS = ",Pred1$RSS[1]))+
+      ggplot2::annotate("text", x=min(Pred1$C)+5, y=min(Pred1$I)+0.22, label= paste("missing vehicle",round(Pred1$missing_pct[1],0),"%"))+ 
+      ggplot2::annotate("text", x=min(Pred1$C)+5, y=min(Pred1$I)+0.12, label= paste("missing treated",round(Pred1$missing_pct[1],0),"%"))+
       annotate("text",
                x = 2+round(Pred1$Tm[1],1),
                y = 0.55,
@@ -2637,6 +2641,7 @@ sigfit<-function(SigF,i,MD=FALSE){
                colour = "red",linetype=2)+
       annotate("segment", x = round(Pred1$Tm[1],1), xend = round(Pred1$Tm[1],1), y = 0, yend = 0.5,
                colour = "red",linetype=2)
+    
     
     P1<- P +ggplot2::geom_point(Pred,mapping=ggplot2::aes(x=C,y=I,color = dataset))+
       ggplot2::geom_ribbon(Pred,mapping=ggplot2::aes(ymin = LOW, ymax = HI ,fill=dataset), alpha = 0.2 )+
@@ -2860,7 +2865,7 @@ PlSig<-purrr::map2(df_,df_1,function(x,y)try(sigC(x,y,NA)))
 SigF<-PlSig %>% purrr::keep(function(x)any(class(x)=="data.frame"))
 
 ID<-unique(dplyr::bind_rows(SigF)$uniqueID)
-i=3
+i=8
 sig<-sigfit(SigF,i,MD=FALSE)
 
  
