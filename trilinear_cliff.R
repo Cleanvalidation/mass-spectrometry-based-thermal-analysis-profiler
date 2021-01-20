@@ -2386,7 +2386,8 @@ his_sp<-function(Df1,df.temps,MD=FALSE){
                                  FAIMS = ifelse(str_detect(test$sample_name,"NO_FAIMS"),"+ FAIMS","- FAIMS"),
                                  Phi = ifelse(str_detect(test$sample_name,"PhiSDM"),"+ PhiSDM","- PhiSDM"))
   }else{
-    test<-test%>% dplyr::select(Dataset,CV_pct,dataset,C) %>% unique(.)
+    test<-dplyr::bind_rows(Df1)
+    test<-test %>% unique(.)
     test<-test %>% dplyr::rename("temperature"="C")
     test<-test %>% dplyr::left_join(df.temps,by="temperature")
   }
@@ -2420,14 +2421,16 @@ his_sp<-function(Df1,df.temps,MD=FALSE){
     
   }
 }
-his_sp(res_sp[[3]],df.temps,MD=TRUE)
+his_sp(res_sp[[3]],df.temps,MD=FALSE)
 #plot global violin plots for Rsquared splines
 rsq<-function(Df1,MD=FALSE){#input df_raw
-  test<-dplyr::bind_rows(Df1) %>% dplyr::select(uniqueID,Dataset,dataset,rsq)
+  test<-dplyr::bind_rows(Df1)
+  test$Dataset<-test$sample_name
+  #test<-test%>% dplyr::select(uniqueID,Dataset,dataset,rsq)
   
   if(MD==TRUE){
   test$Dataset<-as.factor(test$Dataset)
-  levels(test$Dataset)<-rev(levels(test$Dataset))
+
   ggplot(test,aes(y=rsq,x=Dataset,fill=Dataset,alpha=0.2))+
     geom_violin(na.rm=TRUE,show.legend="FALSE",color=NA)+theme_bw()+
     geom_boxplot(width=0.1) +
@@ -2436,7 +2439,7 @@ rsq<-function(Df1,MD=FALSE){#input df_raw
     theme(axis.text.x = element_text(angle = 90))
   }else{
     test$dataset<-as.factor(test$dataset)
-    levels(test$dataset)<-rev(levels(test$dataset))
+
     ggplot(test,aes(y=rsq,x=dataset,fill=dataset,alpha=0.2))+
       geom_violin(na.rm=TRUE,show.legend="FALSE",color=NA)+theme_bw()+
       geom_boxplot(width=0.1) +
@@ -2446,16 +2449,18 @@ rsq<-function(Df1,MD=FALSE){#input df_raw
   }
   
 }
-rsq(res_sp[[3]],MD=TRUE)
+rsq(res_sp[[3]],MD=FALSE)
 
 #plot global violin plots for Rsquared splines
 AUC_V<-function(Df1,MD=FALSE){#input df_raw
-
-  test<-dplyr::bind_rows(Df1) %>% dplyr::group_split(uniqueID,Dataset)
-  test<-lapply(test,function(x) x[1,])
-  test<-dplyr::bind_rows(test) %>% dplyr::select(uniqueID,Dataset,dataset,AUC) %>% unique(.)
+  test<-dplyr::bind_rows(Df1)
+  test$Dataset<-test$sample_name
+ 
   
   if(MD==TRUE){
+    test<-test %>% dplyr::group_split(uniqueID,Dataset)
+    test<-lapply(test,function(x) x[1,])
+    test<-dplyr::bind_rows(test) 
     test$Dataset<-as.factor(test$Dataset)
     levels(test$Dataset)<-rev(levels(test$Dataset))
     ggplot(test,aes(y=AUC,x=Dataset,fill=Dataset,alpha=0.2))+
@@ -2466,8 +2471,11 @@ AUC_V<-function(Df1,MD=FALSE){#input df_raw
       theme(axis.text.x = element_text(angle = 90))+
       ggplot2::ylim(0,50)
   }else{
+    test<-test %>% dplyr::group_split(uniqueID,dataset)
+    test<-lapply(test,function(x) x[1,])
+    test<-dplyr::bind_rows(test) 
     test$dataset<-as.factor(test$dataset)
-    levels(test$dataset)<-rev(levels(test$dataset))
+
     ggplot(test,aes(y=AUC,x=dataset,fill=dataset,alpha=0.2))+
       geom_violin(na.rm=TRUE,show.legend="FALSE",color=NA)+theme_bw()+
       geom_boxplot(width=0.1) +
@@ -2478,31 +2486,40 @@ AUC_V<-function(Df1,MD=FALSE){#input df_raw
   }
   
 }
-AUC_V(res_sp[[3]],MD=TRUE)
+AUC_V(res_sp[[3]],MD=FALSE)
  #plot global histograms for variability 
 viol_int<-function(fdata,df_raw,df.samples,df.temps,MD=FALSE){#input df_raw
   #get original data and join samples and temp reference
+  fdata<-dplyr::bind_rows(fdata)
   df_raw<-df_raw %>% dplyr::left_join(df.temps,by="temp_ref")
   df_raw<-df_raw %>% dplyr::left_join(df.samples,by='sample_id')
   test<-df_raw %>% dplyr::rename("uniqueID"="Accession","C"="temperature","RunID"="id")
+  test<-test %>% dplyr::ungroup(.)%>%
+    dplyr::mutate(sample_name=paste0(ifelse(str_detect(test$sample_name,"NOcarrier"),"nC",ifelse(str_detect(test,"carrier"),"C",NA)),'_',
+                                     ifelse(str_detect(test$sample_name,"NO_FAIMS"),"nF",ifelse(str_detect(test$sample_name,"r_FAIMS"),"F",NA)),'_',
+                                     ifelse(str_detect(test$sample_name,"S_eFT"),"E",ifelse(str_detect(test$sample_name,"S_Phi"),"S",NA))))
+  test$sample_name<-as.factor(test$sample_name)
+  fdata$sample_name<-as.factor(fdata$sample_name)
+  test<-test %>% dplyr::filter(sample_name %in% fdata$sample_name)
+  
   #fix names to match original
-  fdata<-dplyr::bind_rows(fdata) %>% dplyr::rename("sample_name"="sample_name.x","rank"="rank.x") %>% dplyr::select(-rank.y)
+  #fdata<-dplyr::bind_rows(fdata) %>% dplyr::rename("sample_name"="sample_name.x","rank"="rank.x") %>% dplyr::select(-rank.y)
   #left join
-  fdata<-fdata %>% dplyr::left_join(test,by=c("uniqueID","sample_name","C"))
+  fdata1<-fdata %>% dplyr::right_join(test,by=c("uniqueID","sample_name","C","missing_pct","rank"))
   
   
   fdata$logI<-log(fdata$value,base=exp(2))
   
-  fdata<-fdata %>% dplyr::select(sample_name,C,temp_ref,I,dataset,logI)
+  fdata<-fdata %>% dplyr::select(sample_name,C,temp_ref,I,value,dataset,logI)
   fdata$temp_ref<-as.factor(fdata$temp_ref)
   fdata$C<-as.factor(fdata$C)
-  fdata<-fdata %>% dplyr::mutate(carrier=ifelse(str_detect(fdata$sample_name,"NOcarrier"),"+ Carrier","- Carrier"),
-                               FAIMS = ifelse(str_detect(fdata$sample_name,"NO_FAIMS"),"+ FAIMS","- FAIMS"),
-                               Phi = ifelse(str_detect(fdata$sample_name,"PhiSDM"),"+ PhiSDM","- PhiSDM"))
+  fdata<-fdata %>% dplyr::mutate(carrier=ifelse(str_detect(fdata$sample_name,"nC"),"+ Carrier","- Carrier"),
+                               FAIMS = ifelse(str_detect(fdata$sample_name,"nF"),"+ FAIMS","- FAIMS"),
+                               Phi = ifelse(str_detect(fdata$sample_name,"S"),"+ PhiSDM","- PhiSDM"))
   
   if(isTRUE(MD)){
     fdata$sample_name<-as.factor(fdata$sample_name)
-    levels(fdata$sample_name)<-rev(levels(fdata$sample_name))
+
     ggplot(fdata,aes(y=logI,x=sample_name,fill=sample_name,alpha=0.2))+
       facet_grid(c(~C,~carrier),scales="free_x")+
       geom_violin(na.rm=TRUE,show.legend="FALSE",color=NA)+theme_bw()+
@@ -2513,15 +2530,14 @@ viol_int<-function(fdata,df_raw,df.samples,df.temps,MD=FALSE){#input df_raw
       ggplot2::ylim(3,11) 
   }else{
     fdata$dataset<-as.factor(fdata$dataset)
-    levels(fdata$dataset)<-rev(levels(fdata$dataset))
+
     ggplot(fdata,aes(y=logI,x=dataset,fill=dataset,alpha=0.2))+
       facet_grid(~C)+
       geom_violin(na.rm=TRUE,show.legend="FALSE",color=NA)+theme_bw()+
       geom_boxplot(width=0.1) +
       ylab(expression(paste("lo",g[2]," Intensity")))+
       ggplot2::xlab("sample")+
-      theme(axis.text.x = element_text(angle = 90))+
-      ggplot2::ylim(3,11)
+      theme(axis.text.x = element_text(angle = 90))
   }
 }
 viol_int(res_sp[[3]],df_raw,df.samples,df.temps,MD=TRUE)
