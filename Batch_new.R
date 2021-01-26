@@ -68,7 +68,8 @@ read_cetsa <- function(f,PSM=FALSE,Batch=TRUE){
                       tidyselect::starts_with('XCorr'),
                       tidyselect::contains('Delta'),
                       tidyselect::contains('File ID'),
-                      tidyselect::contains('S/N')) %>%
+                      tidyselect::contains('S/N'),
+                      tidyselect::contains('Spectrum')) %>%
         dplyr::rename("Accession"="Master Protein Accessions") 
       
     }
@@ -79,6 +80,7 @@ read_cetsa <- function(f,PSM=FALSE,Batch=TRUE){
       df <-df2  %>% separate("File_ID",c("sample_id","Fraction"))
       df1 <-df %>% 
         dplyr::select(Accession,names(df )[str_detect(names(df ),'1')],
+                      tidyselect::starts_with('Annotated'),
                       tidyselect::contains('sample_id'),
                       tidyselect::contains('Fraction'),
                       tidyselect::contains('Isolation'),
@@ -90,7 +92,8 @@ read_cetsa <- function(f,PSM=FALSE,Batch=TRUE){
                       tidyselect::starts_with('XCorr'),
                       tidyselect::contains('Delta'),
                       tidyselect::contains('File ID'),
-                      tidyselect::contains('S/N'))
+                      tidyselect::contains('S/N'),
+                      tidyselect::contains('Spectrum'))
       names(df1 ) <- gsub("Abundance:_", "", names(df1 ))  
       df2<-df1  %>%  pivot_longer(cols=starts_with("1"),names_to="temp_ref",values_to="value")
       df2<-df2 %>% dplyr::mutate(missing=ifelse(is.na(value),1,0))
@@ -722,180 +725,300 @@ find_pat = function(pat, x)
 ################################
 #df_ is the input from df_norm which includes missing percentages
 #returns segmented data for vehicle and treated
-upMV <- function(df_,vehicle,treated,condition,N) {
-  df_<-df_ %>% dplyr::filter(sample_name==condition)%>%
-    dplyr::group_split(uniqueID) 
-  df_<-lapply(df_,function(x) x[1,]) %>% dplyr::bind_rows(.)
-  
-  df_$missing_pct<-round(df_$missing_pct,0)
-  df_$dataset<-as.factor(df_$dataset)
-  if(!is.character(vehicle) & !is.character(treated)){
-    return(warning("Please define vehicle and treated names for plot labels"))
-  }
-  d2<-dplyr::bind_rows(df_)%>% dplyr::filter(dataset=="vehicle") %>% dplyr::select(-T7,-T9,-n)#%>% dplyr::filter(sample_name==unique(.$sample_name)[1])
-  d2$uniqueID<-as.factor(d2$uniqueID)
-  d2$sample_name<-as.factor(d2$sample_name)
-  d2$C<-as.factor(d2$C)
-  d2$rank<-as.factor(d2$rank)
-  d2$missing_pct<-round(d2$missing_pct,1)
-  
-  d1<-dplyr::bind_rows(df_)%>% dplyr::filter(dataset=="treated") %>% dplyr::select(-T7,-T9,-n)#%>% dplyr::filter(sample_name==unique(.$sample_name)[1])
-  d1$uniqueID<-as.factor(d1$uniqueID)
-  d1$sample_name<-as.factor(d1$sample_name)
-  d1$C<-as.factor(d1$C)
-  d1$rank<-as.factor(d1$rank)
-  d1$missing_pct<-round(d1$missing_pct,1)
-  
-  if(any(names(d2)=="T10")){
-    d2<-d2 %>% dplyr::select(-T10)
-  }
-  if(any(names(d1)=="T10")){
-    d1<-d1 %>% dplyr::select(-T10)
-  }
-  if(any(names(d3)=="T10")){
-    d3<-d3 %>% dplyr::select(-T10)
-  }
-  d3<-rbind(d1,d2)
-  d3<-tidyr::pivot_wider(d3,names_from=c(missing_pct),values_from=missing_pct,values_fill=NA)
-  d1<-pivot_wider(d1,names_from=c(missing_pct),values_from=missing_pct,values_fill=NA)
-  d2<-pivot_wider(d2,names_from=c(missing_pct),values_from=missing_pct,values_fill=NA)
-  
-  
-
-  
-  d1<-d1%>% dplyr::select(-uniqueID,-C,-I,-CC,-missing,-dataset,-sample_id,-sample_name)
-  d2<-d2 %>% dplyr::select(-uniqueID,-C,-I,-CC,-missing,-dataset,-sample_id,-sample_name)
-  d3<-d3 %>% dplyr::select(-uniqueID,-C,-I,-CC,-missing,-dataset,-sample_id,-sample_name)
-  
-  rd1<-d1$rank
-  rd2<-d2$rank
-  rd3<-d3$rank
-  
-  d1<-1+d1
-  d2<-1+d2
-  d3<-1+d3
- 
-  d1$rank<-rd1
-  d2$rank<-rd2
-  d3$rank<-rd3
-  
-  colnames(d1) <- paste("missing ", colnames(d1),"%", sep = " ")
-  colnames(d2) <- paste("missing ", colnames(d2),"%", sep = " ")
-  colnames(d3) <- paste("missing ", colnames(d3),"%", sep = " ")
-  
-  rating_scale = scale_fill_manual(values=c(
-    '1'='#2ca25f', '2'='#99d8c9',
-    '3'='#e5f5f9'
-  ))
-  show_hide_scale = scale_color_manual(values=c('show'='black', 'hide'='transparent'), guide=FALSE)
-  
-  d1$rank<-rd1
-  d2$rank<-rd2
-  d3$rank<-rd3
-  p<-upset(d2,names(d2),
-           min_degree=1,
-           set_sizes=FALSE,
-           stripes='white',
-           base_annotations=list(
-             '# of Proteins'=intersection_size(
-               counts=TRUE,
-             )
-           ),
-           annotations =list(
-             "Ranked Intensity %"=list(
-               aes=aes(x=intersection, fill=d2$rank),
-               geom=list(
-                 geom_bar(stat='count', position='fill', na.rm=TRUE),
-                 geom_text(
-                   aes(
-                     label=!!aes_percentage(relative_to='intersection'),
-                     color=ifelse(!is.na(rank), 'show', 'hide')
+upMV <- function(df_,condition,N,plot_multiple=FALSE){
+  if(isTRUE(plot_multiple)){
+    df_1<-df_ %>% dplyr::rename("uniqueID"="Accession","I"="value","C"="temperature")
+    df_1$rank<-ifelse(df_1$rank==1,"high",ifelse(df_1$rank==2,"medium","low"))
+    df_1$rank<-factor(df_1$rank,levels=c("high","medium","low"))
+    df_1<-df_1%>% 
+      dplyr::group_split(uniqueID,sample_name)
+    df_1<-lapply(df_1,function(x) x[1,]) %>% dplyr::bind_rows(.)
+    df_1$missing_pct<-as.numeric(df_1$missing_pct)
+    df_1$missing_pct<-round(df_1$missing_pct,0)
+    df_1$dataset<-as.factor(df_1$dataset)
+    
+    df_1<-df_1 %>% dplyr::group_split(sample_name)
+    df_1<-purrr::map(df_1,function(x)
+      pivot_wider(x,names_from=c(missing_pct),values_from=missing_pct,values_fill=NA) %>%
+        dplyr::select(-uniqueID,-C,-I,-CC,-missing,-dataset,-sample_id))
+    df_2<-purrr::map(df_1,function(x) x %>% dplyr::select(rank,sample_name))
+    df_1<-purrr::map(df_1,function(x) 1+x[,lapply(x,class)=="numeric"])
+    df<-lapply(df_1,function(x) colnames(x))
+    df<-lapply(df,function(x) str_replace(x,x,
+                                          paste0("missing ",x,"%", sep = " ")))
+    
+    
+    
+    
+    df_1<-purrr::map2(df_1,df,function(x,y){setNames(x,y)})
+    df_1<-purrr::map2(df_1,df_2,function(x,y)cbind(x,y))
+    df_1<-purrr::map(df_1,function(x)x[!is.na(x$rank),])
+    
+    rating_scale = scale_fill_manual(name="Ranked Intensity",
+                                     values=c(
+                                       'high'='#2ca25f', 'medium'='#99d8c9',
+                                       'low'='#e5f5f9'
+                                     ))
+    
+    show_hide_scale = scale_color_manual(values=c('show'='black', 'hide'='transparent'), guide=FALSE)
+    
+    check<-list()
+    check<- purrr::map(df_1,function(x)upset(x,names(x),
+                                             min_degree=1,
+                                             set_sizes=FALSE,
+                                             guides='collect',
+                                             n_intersections=N,
+                                             height_ratio = 0.7,
+                                             stripes='white',
+                                             base_annotations=list(
+                                               '# of Proteins'=intersection_size(
+                                                 counts=TRUE,
+                                               )
+                                             ),
+                                             annotations =list(
+                                               "Bin %"=list(
+                                                 aes=aes(x=intersection, fill=x$rank),
+                                                 
+                                                 geom=list(
+                                                   geom_bar(stat='count', position='fill', na.rm=TRUE,show.legend=FALSE),
+                                                   
+                                                   geom_text(
+                                                     aes(
+                                                       label=!!aes_percentage(relative_to='intersection'),
+                                                       color=ifelse(!is.na(rank), 'show', 'hide')
+                                                     ),
+                                                     stat='count',
+                                                     position=position_fill(vjust = .5),
+                                                     
+                                                   ),
+                                                   
+                                                   scale_y_continuous(labels=scales::percent_format()),
+                                                   show_hide_scale,
+                                                   rating_scale
+                                                   
+                                                 )
+                                               )
+                                             )
+                                             
+    )+ggtitle(paste0(x$sample_name[1])))
+    check1<-upset(df_1[[1]],names(df_1[[1]]),min_degree=1,
+                                             set_sizes=FALSE,
+                                             guides='collect',
+                                             n_intersections=N,
+                                             
+                                             stripes='white',
+                                             base_annotations=list(
+                                               '# of Proteins'=intersection_size(
+                                                 counts=TRUE,
+                                               )
+                                             ),
+                                             annotations =list(
+                                               "Ranked Intensity  "=list(
+                                                 aes=aes(x=intersection, fill=df_1[[1]]$rank),
+                                                 
+                                                 geom=list(
+                                                   geom_bar(stat='count', position='fill', na.rm=TRUE),
+                                                   themes=theme(legend.position="bottom", legend.box = "horizontal"),
+                                                   geom_text(
+                                                     aes(
+                                                       label=!!aes_percentage(relative_to='intersection'),
+                                                       color=ifelse(!is.na(rank), 'show', 'hide')
+                                                     ),
+                                                     stat='count',
+                                                     position=position_fill(vjust = .5),
+                                                     
+                                                   ),
+                                                   
+                                                   scale_y_continuous(labels=scales::percent_format()),
+                                                   show_hide_scale,
+                                                   rating_scale
+                                                   
+                                                 )
+                                               )
+                                             )
+                                             
+    )+ggtitle(paste0(df_1[[1]]$sample_name[1]))
+   y<-get_legend(check1$patches$plots[[1]])
+   
+    P<-ggarrange(plotlist=check,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
+    print(P)
+  }else{
+    ########Plot separately
+    
+    df_<-df_ %>% subset(sample_name== condition) 
+    
+    df_<-df_ %>% dplyr::rename("uniqueID"="Accession","C"="temperature","I"="value")
+    
+    df_$rank<-ifelse(df_$rank==1,"high",ifelse(df_$rank==2,"medium","low"))
+    df_$rank<-factor(df_$rank,levels=c("high","medium","low"))
+    df_<-df_ %>% dplyr::filter(sample_name==condition)%>%
+      dplyr::group_split(uniqueID) 
+    df_<-lapply(df_,function(x) x[1,]) %>% dplyr::bind_rows(.)
+    df_$missing_pct<-as.numeric(df_$missing_pct)
+    df_$missing_pct<-round(df_$missing_pct,0)
+    df_$dataset<-as.factor(df_$dataset)
+    
+    d2<-dplyr::bind_rows(df_)%>% dplyr::filter(dataset=="vehicle") 
+    d2$uniqueID<-as.factor(d2$uniqueID)
+    d2$sample_name<-as.factor(d2$sample_name)
+    d2$C<-as.factor(d2$C)
+    d2$rank<-as.factor(d2$rank)
+    
+    
+    d1<-dplyr::bind_rows(df_)%>% dplyr::filter(dataset=="treated") 
+    d1$uniqueID<-as.factor(d1$uniqueID)
+    d1$sample_name<-as.factor(d1$sample_name)
+    d1$C<-as.factor(d1$C)
+    d1$rank<-as.factor(d1$rank)
+    
+    
+    d3<-rbind(d1,d2)
+    
+    d3<-tidyr::pivot_wider(d3,names_from=c(missing_pct),values_from=missing_pct,values_fill=NA)
+    d1<-pivot_wider(d1,names_from=c(missing_pct),values_from=missing_pct,values_fill=NA)
+    d2<-pivot_wider(d2,names_from=c(missing_pct),values_from=missing_pct,values_fill=NA)
+    
+    d1<-d1%>% dplyr::select(-uniqueID,-C,-I,-CC,-missing,-dataset,-sample_id,-sample_name)
+    d2<-d2 %>% dplyr::select(-uniqueID,-C,-I,-CC,-missing,-dataset,-sample_id,-sample_name)
+    d3<-d3 %>% dplyr::select(-uniqueID,-C,-I,-CC,-missing,-dataset,-sample_id,-sample_name)
+    
+    rd1<-d1$rank
+    rd2<-d2$rank
+    rd3<-d3$rank
+    
+    d1<-1+d1[,lapply(d1,class)=="numeric"]
+    d2<-1+d2[,lapply(d2,class)=="numeric"]
+    d3<-1+d3[,lapply(d3,class)=="numeric"]
+    
+    d1$rank<-rd1
+    d2$rank<-rd2
+    d3$rank<-rd3
+    
+    colnames(d1) <- paste("missing ", colnames(d1),"%", sep = " ")
+    colnames(d2) <- paste("missing ", colnames(d2),"%", sep = " ")
+    colnames(d3) <- paste("missing ", colnames(d3),"%", sep = " ")
+    
+    rating_scale = scale_fill_manual(name="Ranked Intensity",
+                                     values=c(
+                                       'high'='#2ca25f', 'medium'='#99d8c9',
+                                       'low'='#e5f5f9'
+                                     ))
+    show_hide_scale = scale_color_manual(values=c('show'='black', 'hide'='transparent'), guide=FALSE)
+    
+    d1$rank<-rd1
+    d2$rank<-rd2
+    d3$rank<-rd3
+    
+    p<-upset(d2,names(d2),
+             min_degree=1,
+             set_sizes=FALSE,
+             n_intersections=N,
+             stripes='white',
+             base_annotations=list(
+               '# of Proteins'=intersection_size(
+                 counts=TRUE,
+               )
+             ),
+             annotations =list(
+               "Ranked Intensity %"=list(
+                 aes=aes(x=intersection, fill=d2$rank),
+                 geom=list(
+                   geom_bar(stat='count', position='fill', na.rm=TRUE),
+                   geom_text(
+                     aes(
+                       label=!!aes_percentage(relative_to='intersection'),
+                       color=ifelse(!is.na(rank), 'show', 'hide')
+                     ),
+                     stat='count',
+                     position=position_fill(vjust = .5)
                    ),
-                   stat='count',
-                   position=position_fill(vjust = .5)
-                 ),
-                 scale_y_continuous(labels=scales::percent_format()),
-                 
-                 show_hide_scale,
-                 rating_scale
+                   scale_y_continuous(labels=scales::percent_format()),
+                   
+                   show_hide_scale,
+                   rating_scale
+                 )
                )
              )
-           )
-           
-  )+ggtitle(paste0(vehicle," vehicle"))
-  
-  p2<-upset(d1,names(d1),name="Sample bins",
-            min_degree=1,
-            n_intersections=N,
-            set_sizes=FALSE,
-            stripes='white',
-            base_annotations=list(
-              '# of Proteins'=intersection_size(
-                counts=TRUE,
-              )
-            ),
-            annotations =list(
-              "Ranked Intensity %"=list(
-                aes=aes(x=intersection, fill=d1$rank),
-                geom=list(
-                  geom_bar(stat='count', position='fill', na.rm=TRUE),
-                  geom_text(
-                    aes(
-                      label=!!aes_percentage(relative_to='intersection'),
-                      color=ifelse(!is.na(rank), 'show', 'hide')
+             
+    )+ggtitle(paste0( condition," vehicle"))
+    
+    p2<-upset(d1,names(d1),name="Sample bins",
+              min_degree=1,
+              n_intersections=N,
+              set_sizes=FALSE,
+              stripes='white',
+              base_annotations=list(
+                '# of Proteins'=intersection_size(
+                  counts=TRUE,
+                )
+              ),
+              annotations =list(
+                "Ranked Intensity %"=list(
+                  aes=aes(x=intersection, fill=d1$rank),
+                  geom=list(
+                    geom_bar(stat='count', position='fill', na.rm=TRUE),
+                    
+                    geom_text(
+                      aes(
+                        label=!!aes_percentage(relative_to='intersection'),
+                        color=ifelse(!is.na(rank), 'show', 'hide')
+                      ),
+                      stat='count',
+                      position=position_fill(vjust = .5)
                     ),
-                    stat='count',
-                    position=position_fill(vjust = .5)
-                  ),
-                  scale_y_continuous(labels=scales::percent_format()),
-                  
-                  show_hide_scale,
-                  rating_scale
+                    scale_y_continuous(labels=scales::percent_format()),
+                    
+                    show_hide_scale,
+                    rating_scale
+                  )
                 )
               )
-            )
-            
-  )+ggtitle(paste0(treated," treated"))
-  d<-names(d3)[which(!names(d3)=="rank")]
-  dr<-which(names(d3)=="rank")
-  d3<-d3 %>% dplyr::select(-rank)
-  d<-as.numeric(unlist(str_extract_all(d,"[[:digit:]]+")))
-  ints<-names(d3)[c(order(d,decreasing=FALSE))] %>% as.list(.)
-  d3$rank<-rd3
- 
-  p3<-ComplexUpset::upset(d3,names(d3), 
-            n_intersections=N,
-            set_sizes=FALSE,
-            stripes='white',
-            base_annotations=list(
-              '# of Proteins'=intersection_size(
-                counts=TRUE,
-              )
-            ),
-            annotations =list(
-              "Ranked Intensity %"=list(
-                aes=aes(x=intersection, fill=d3$rank),
-                geom=list(
-                  geom_bar(stat='count', position='fill', na.rm=TRUE),
-                  geom_text(
-                    aes(
-                      label=!!aes_percentage(relative_to='intersection'),
-                      color=ifelse(!is.na(rank), 'show', 'hide')
-                    ),
-                    stat='count',
-                    position=position_fill(vjust = .5)
-                  ),
-                  scale_y_continuous(labels=scales::percent_format()),
-                  
-                  show_hide_scale,
-                  rating_scale
-                )
-              )
-            ) 
-            
-  )+ggtitle(paste0(condition))
-  return(list(plot(p),plot(p2),plot(p3)))
-  
+              
+    )+ggtitle(paste0( condition," treated"))+ guides(color=guide_legend(title="Ranked Intensity"))
+    
+    
+    d<-names(d3)[which(!names(d3)=="rank")]
+    dr<-which(names(d3)=="rank")
+    d3<-d3 %>% dplyr::select(-rank)
+    d<-as.numeric(unlist(str_extract_all(d,"[[:digit:]]+")))
+    ints<-names(d3)[c(order(d,decreasing=FALSE))] %>% as.list(.)
+    d3$rank<-rd3
+    
+    p3<-ComplexUpset::upset(d3,names(d3), 
+                            n_intersections=N,
+                            set_sizes=FALSE,
+                            stripes='white',
+                            base_annotations=list(
+                              '# of Proteins'=intersection_size(
+                                counts=TRUE,
+                              )
+                            ),
+                            annotations =list(
+                              "Ranked Intensity %"=list(
+                                aes=aes(x=intersection, fill=d3$rank),
+                                geom=list(
+                                  geom_bar(stat='count', position='fill', na.rm=TRUE),
+                                  
+                                  geom_text(
+                                    aes(
+                                      label=!!aes_percentage(relative_to='intersection'),
+                                      color=ifelse(!is.na(rank), 'show', 'hide')
+                                    ),
+                                    stat='count',
+                                    position=position_fill(vjust = .5)
+                                  ),
+                                  scale_y_continuous(labels=scales::percent_format()),
+                                  
+                                  show_hide_scale,
+                                  rating_scale
+                                )
+                              )
+                            ) 
+                            
+    )+ggtitle(paste0(condition))+ guides(color=guide_legend(title="Ranked Intensity"))
+    
+    return(list(plot(p),plot(p2),plot(p3)))
+  }
 }
 
 DLR<-function(d){
@@ -1104,7 +1227,8 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
                                        rss=purrr::map(M1,function(x){deviance(x)}),
                                        Rsq=purrr::map(M1,function(x){summary(x)$r.squared}), 
                                        dataset="vehicle",
-                                       uniqueID=x$uniqueID[1]))
+                                       uniqueID=x$uniqueID[1],
+                                       n=ifelse(class(M1)=="lm",1,0)))
     
     mean1<-purrr::map(mean1,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values)))
     
@@ -1123,7 +1247,8 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
                                          rss=map(M1,function(x){deviance(x)}),
                                          Rsq=map(M1,function(x){summary(x)$r.squared}), 
                                          dataset="treated",
-                                         uniqueID=x$uniqueID[1]))
+                                         uniqueID=x$uniqueID[1],
+                                         n=ifelse(class(M1)=="lm",1,0)))
     
     
     
@@ -1145,7 +1270,8 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
                                        rss=map(M1,function(x){deviance(x)}),
                                        Rsq=map(M1,function(x){summary(x)$r.squared}),
                                        dataset="null",
-                                       uniqueID=x$uniqueID[1]))
+                                       uniqueID=x$uniqueID[1],
+                                       n=ifelse(class(M1)=="lm",1,0)))
     
     
     mean3<-purrr::map(mean3,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values)))
@@ -1290,7 +1416,8 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
                                        rss=map(M1,function(x){deviance(x)}),
                                        Rsq=map(M1,function(x){summary(x)$r.squared}),
                                        dataset="vehicle",
-                                       uniqueID=x$uniqueID[1]))
+                                       uniqueID=x$uniqueID[1],
+                                       n=ifelse(class(M1)=="lm",1,0)))
     
     
     mean1<-purrr::map(mean1,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values)))
@@ -1310,7 +1437,8 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
                                          rss=map(M1,function(x){deviance(x)}),
                                          Rsq=map(M1,function(x){summary(x)$r.squared}),
                                          dataset="treated",
-                                         uniqueID=x$uniqueID[1]))
+                                         uniqueID=x$uniqueID[1],
+                                         n=ifelse(class(M1)=="lm",1,0)))
     
     
     mean1_1<-purrr::map(mean1_1,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values)))
@@ -1333,7 +1461,8 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
                                        rss=map(M1,function(x){deviance(x)}),
                                        Rsq=map(M1,function(x){summary(x)$r.squared}),
                                        dataset="null",
-                                       uniqueID=x$uniqueID[1]))
+                                       uniqueID=x$uniqueID[1],
+                                       n=ifelse(class(M1)=="lm",1,0)))
     
     
     mean3<-purrr::map(mean3,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values)))
@@ -2001,7 +2130,7 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE){
                                                    CV_pct = .$CV_pct,
                                                    AUC = pracma::trapz(.$M1[[1]]$fit),
                                                    rsq=summary(x$M1[[1]])$r.sq,
-                                                   N = ifelse(any(class(dplyr::first(.$M1))=="gam"),1,0)))
+                                                   n = ifelse(any(class(dplyr::first(.$M1))=="gam"),1,0)))
     #m<-lapply(m,function(x) x %>% dplyr::mutate(sig = ifelse(sum[[1]]$p.pv[[1]]<0.05,list(mgcv::gam(I ~ s(C,k=k_[[1]]-1), data = x , method = "REML")),"ns")))
     m1 <- purrr::map(df1,function(x)x %>% dplyr::mutate(M1 = list(try(mgcv::gam(I ~ s(C,k=5), data = x , method = "REML")))))
     m1<-m1 %>% purrr::keep(function(x)any(class(dplyr::first(x$M1))=="gam"))
@@ -2013,7 +2142,7 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE){
                                                      CV_pct = .$CV_pct,
                                                      AUC = pracma::trapz(.$M1[[1]]$fit),
                                                      rsq=summary(x$M1[[1]])$r.sq,
-                                                     N = ifelse(any(class(dplyr::first(.$M1))=="gam"),1,0)))
+                                                     n = ifelse(any(class(dplyr::first(.$M1))=="gam"),1,0)))
     #m1<-lapply(df1,function(x) x %>% dplyr::mutate(sig = ifelse(sum[[1]]$p.pv[[1]]<0.05,list(mgcv::gam(I ~ s(C,k=k_[[1]]-1), data = x , method = "REML")),"ns")))
     
     
@@ -2027,7 +2156,7 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE){
                                                      CV_pct=.$CV_pct,
                                                      AUC = pracma::trapz(.$M1[[1]]$fit),
                                                      rsq=summary(.$M1[[1]])$r.sq,
-                                                     N = ifelse(any(class(dplyr::first(.$M1))=="gam"),1,0)))
+                                                     n = ifelse(any(class(dplyr::first(.$M1))=="gam"),1,0)))
     #mn<-lapply(mn,function(x) x %>% dplyr::mutate(sig = ifelse(sum[[1]]$p.pv[[1]]<0.05,list(mgcv::gam(I ~ s(C,k=k_[[1]]-1), data = x , method = "REML")),"ns")))
     #convert to df and split by uniqueID 
     mean1<-dplyr::bind_rows(m)
@@ -2798,8 +2927,18 @@ f<- list.files(pattern='*PEPTIDES2.xlsx')
 f<- list.files(pattern='*PROTEINS.xlsx')
 
 #New
-f<- list.files(pattern='*PEPTIDES2.xlsx')
+f<- list.files(pattern='*PSMs.xlsx')
 f<- list.files(pattern='*_0.xlsx')
+
+#Covid
+# f<- list.files(pattern='*Proteins.xlsx')
+# f<- list.files(pattern='*PSMs.xlsx')
+
+# df.samples<-read_csv(list.files(pattern="mapping.csv")) %>% 
+#   dplyr::rename("temp_ref"="TMT_label","temperature"="Temperature","sample"="Sample","sample_name"="MS_sample_number")
+# df_raw<-df_raw %>% dplyr::left_join(df.samples,by=c("temp_ref",))
+
+
 # PSMs<-read_excel(f)
 # PSMs<-PSMs %>% dplyr::rename("uniqueID"="Protein","sample_name"="Mixture","dataset"="BioReplicate","temp_ref"="Channel","I"="Abundance")
 # PSMs<-PSMs %>% dplyr::select(uniqueID,sample_name,dataset,temp_ref,I)
@@ -2818,6 +2957,10 @@ f<- list.files(pattern='*_0.xlsx')
 
 df_raw <- read_cetsa(f,PSM=FALSE,Batch=TRUE)
 
+
+
+#new for PSMs
+#df_raw<-df_raw %>% dplyr::rename("sample_name"="Spectrum_File")
 
 #annotate protein data with missing values
 MID<-df_raw[is.na(df_raw$value),]
@@ -2841,7 +2984,24 @@ df.temps<-df.t(10)
 #df.temps <- data.frame(temp_ref = c('126', '127N', '127C', '128N', '128C', '129N','129C', '130N', '130C', '131'), temperature = c(67, 64, 60.4, 57.1, 53.8, 50.5, 47.2, 43.9, 40.6, 37.3), stringsAsFactors = FALSE)
 #df.samples <- data.frame(sample_id = c('F1', 'F2', 'F3','F4'), sample_name = c('DMSO_1','DMSO_2', '655_1','655_2'), stringsAsFactors = FALSE)
 
-df.s <- function(n,rep_,bio_,vehicle_name,treated_name){#n is df_raw, rep is tech rep
+df.s <- function(data_path,n,rep_,bio_,vehicle_name,treated_name,Batch=FALSE){#n is df_raw, rep is tech rep
+  
+  if(any(names(n)=="sample_name") & any(names(n)=="sample_id")){
+    n<-n %>% dplyr::select(sample_id,sample_name) %>% unique(.)
+    return(n)
+  }
+  if(isTRUE(Batch)){
+    f<-data_path
+    find<-c('[:upper:][[:digit:]]+')
+    check<-list()
+    check<-purrr::map(seq(f),function(x){
+      data.frame(sample_name= str_extract_all(names(read_xlsx(f[x]))[str_detect(names(read_xlsx(f[x])),"Abundance")],find)[[1]])
+    })
+    
+    df.samples<-data.frame(sample_name=data.frame(f),sample_id=dplyr::bind_rows(check) )
+    names(df.samples)<-c("sample_name","sample_id")
+    return(df.samples)
+  }
   b<-2*rep_*bio_
   samples<-data.frame(sample_name=c(paste0(rep(as.factor(vehicle_name),rep_*bio_)),paste0(rep(as.factor(treated_name),rep_*bio_))),
                       sample_id=NA)
@@ -2852,34 +3012,53 @@ df.s <- function(n,rep_,bio_,vehicle_name,treated_name){#n is df_raw, rep is tec
   samples$sample_name<-as.factor(samples$sample_name)
   return(samples)
 }
-df.samples<-df.s(df_raw,3,2,"DMSO","TREATED")
+df.samples<-df.s(f,df_raw,3,2,"DMSO","TREATED",Batch=TRUE)
+
+#Convert to MSStatsTMT
+
+editPSMs2<-data.frame()
+editPSMs2<-df_raw %>% dplyr::rename("ProteinName"="Accession",
+                                    "PeptideSequence"="Annotated_Sequence",
+                                    "Run"="Spectrum_File",
+                                    "PSM"="PSMs_Peptide_ID",
+                                    "Channel"="temp_ref",
+                                    "Intensity"="value")
+#Condition, Bioreplicate and TechRepMixture need to be filled
+
+editPSMs2$Condition<-ifelse(editPSMs2$Channel=="126","Norm",0)
+editPSMs2$BioReplicate<-ifelse(str_detect(editPSMs2$Run,"DMSO")=="TRUE","vehicle","treated")
+editPSMs2<-editPSMs2 %>% 
+  dplyr::mutate(Mixture=paste0(ifelse(str_detect(Run,"NOcarrier"),"nC",ifelse(str_detect(Run,"carrier"),"C",NA)),'_',
+                                   ifelse(str_detect(Run,"NO_FAIMS"),"nF",ifelse(str_detect(Run,"r_FAIMS"),"F",NA)),'_',
+                                   ifelse(str_detect(Run,"S_eFT"),"E",ifelse(str_detect(Run,"S_Phi"),"S",NA))))
+
+editPSMs2$TechRepMixture<-1
+editPSMs2<-editPSMs2 %>% dplyr::select(ProteinName,PeptideSequence,Charge,PSM,Mixture,TechRepMixture,Run,Channel,Condition,BioReplicate,Intensity)
+
+Annotation<-editPSMs2 %>% dplyr::select(Run,TechRepMixture,Channel,Condition,Mixture,BioReplicate)
+Annotation$Fraction<-1
+Annotation<-Annotation %>% dplyr::group_split(Run)
+
 
 #method development 
 ####
 #read filenames from separate excel sheets
 ###
-f<-file.list
-find<-c('[:upper:][[:digit:]]+')
-check<-purrr::map(seq(f),function(x){
-  data.frame(sample_name= str_extract_all(names(read_xlsx(f[x]))[str_detect(names(read_xlsx(f[x])),"Abundance")],find)[[1]])
-})
 
-df.samples<-data.frame(sample_name=data.frame(f),sample_id=dplyr::bind_rows(check) )
-names(df.samples)<-c("sample_name","sample_id")
+
 
 #assign TMT channel and temperature data
-df_clean <- clean_cetsa(df_raw, temperatures = df.temps, samples = df.samples,PSM=TRUE)#ssigns temperature and replicate values
+df_clean <- clean_cetsa(df_raw, temperatures = df.temps, samples = df.samples,PSM=FALSE)#ssigns temperature and replicate values
 
 
 df_clean <-df_clean %>% dplyr::mutate(CC=ifelse(stringr::str_detect(sample_name,"DMSO")==TRUE,0,1))#concentration values are defined in uM
 
 df_clean$dataset<-ifelse(df_clean$CC==0,"vehicle","treated")
 
-df_clean<-df_clean %>% dplyr::ungroup(.)%>%
-  dplyr::mutate(sample_name=paste0(ifelse(str_detect(df_clean$sample_name,"NOcarrier"),"nC",ifelse(str_detect(df_clean$sample_name,"carrier"),"C",NA)),'_',
-                                                      ifelse(str_detect(df_clean$sample_name,"NO_FAIMS"),"nF",ifelse(str_detect(df_clean$sample_name,"r_FAIMS"),"F",NA)),'_',
-                                                      ifelse(str_detect(df_clean$sample_name,"S_eFT"),"E",ifelse(str_detect(df_clean$sample_name,"S_Phi"),"S",NA))))
-df_<-df_clean %>% subset(sample_name== "C_F_S")
+
+df_clean$sample_name<-paste0(ifelse(str_detect(df_clean$sample_name,"NOcarrier")==TRUE,"nC",ifelse(str_detect(df_clean$sample_name,"carrier")==TRUE,"C",NA)),'_',
+                                                      ifelse(str_detect(df_clean$sample_name,"NO_FAIMS")==TRUE,"nF",ifelse(str_detect(df_clean$sample_name,"r_FAIMS")==TRUE,"F",NA)),'_',
+                                                      ifelse(str_detect(df_clean$sample_name,"S_eFT")==TRUE,"E",ifelse(str_detect(df_clean$sample_name,"S_Phi")==TRUE,"S",NA)))
 
 df_norm <- normalize_cetsa(df_, df.temps$temperature,Batch=TRUE,filters=FALSE) #normalizes according to Franken et. al. without R-squared filter
 
@@ -2887,20 +3066,17 @@ df_norm <- normalize_cetsa(df_, df.temps$temperature,Batch=TRUE,filters=FALSE) #
 df_v<-df_norm %>% dplyr::filter(dataset=="vehicle")
 df_t<-df_norm %>% dplyr::filter(dataset=="treated")
 ###Generate upset plots for missing value data###
+df_<-df_clean %>% dplyr::rename("sample_id"="sample")%>%
+  dplyr::select(-missing_pct,-value,-missing,-rank)
+df_<-df_raw%>% dplyr::right_join(df_,by=c("Accession","sample_id"))
 
-listUP<-upMV(df_norm ,"nC_F_S","nC_F_S ","nC_F_S",10)
+listUP<-upMV(df_,"C_F_S",5,plot_multiple=TRUE)
 pdf("UpsetMV_nCFS.pdf", height=10, width=20,pointsize= 14)
 listUP[[1]]
 listUP[[2]]
 listUP[[3]]
 dev.off()
-################
-listUP<-upMV(df_,"DMSO","TREATED")
-#combine plots and save as pdf
-pdf("UpsetMV.pdf", height=10, width=20)
-listUP[[1]]
-listUP[[2]]
-dev.off()
+
 
 
 ##SCRIPT STARTS HERE
@@ -2969,7 +3145,7 @@ plotTL1<-tlCI(i,res[[1]],res[[2]],res[[3]],overlay=TRUE)
 i=which(res[[1]]$uniqueID %in% "Q02750")
 plotTL2<-tlCI(i,res[[1]],res[[2]],res[[3]],overlay=TRUE)
 #saveIDs filtered
-saveRDS(res[[1]]$uniqueID,"proteins_trilinear_filters_Ftest.rds")
+saveRDS(res[[1]]$uniqueID,"proteins_trilinear_filters_Ftest_CFE.rds")
 pdf("Target_curves_trilinear_CnFE.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
 plotTL1
 plotTL2
@@ -2984,12 +3160,12 @@ dev.off()
 spresults<-list()
 spresults_PI<-list()
 
-spresults<-spstat(DFN,df_,df_1,Ftest=TRUE)
+spresults<-spstat(DFN,df_,df_1,Ftest=FALSE)
 
 res_sp<-spf(spresults,DFN,filters=FALSE)
 #saveIDs filtered
-saveRDS(res_sp[[1]]$uniqueID,"proteins_splines_no_filters_Ftest.rds")
-
+saveRDS(res_sp[[1]]$uniqueID,"proteins_splines_no_filters_noFtest_CFE.rds")
+saveRDS(res_sp[[3]],paste0("protein_data_splines",as.character(unique(res_sp[[3]][[1]]$sample_name[[1]])),".rds"))
 i=which(res_sp[[1]]$uniqueID %in% "P36507")
 #generate 95%CI for splines
 Pred1<-spCI(i,res_sp[[1]],res_sp[[2]],res_sp[[3]],overlay=TRUE,alpha=0.05)
