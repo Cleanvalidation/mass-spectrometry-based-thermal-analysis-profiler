@@ -25,7 +25,9 @@ library(DBI)
 library(furrr)
 library(tibble)
 library(ComplexUpset)
-
+library(patchwork)
+library(caret)
+library(ggpubr)
 
 theme_set(theme_bw())
 
@@ -1773,7 +1775,7 @@ tlf<-function(tlresults,DFN,APfilt=TRUE,PF=TRUE){
   
   return(list(df1,df2,Df1))
 }
-tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
+tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE){
   null<-data.frame()
   i<-i
   df1<-df1
@@ -1824,7 +1826,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
   Pred$C<-as.numeric(as.vector(Pred$C))
   Pred$I<-as.numeric(as.vector(Pred$I))
   PLN<-ggplot2::ggplot(Pred, ggplot2::aes(x = C,y = I,color=Treatment)) +
-    ggplot2::geom_point(ggplot2::aes(x=C,y=I))+ ggplot2::ggtitle(paste(Df1$uniqueID[1],"null"))+
+    ggplot2::geom_point(ggplot2::aes(x=C,y=I))+ ggplot2::ggtitle(paste(Df1$uniqueID[1],DF1$sample_name[1]))+
     ggplot2::geom_ribbon(data=Pred,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+ 
     ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ 
     annotate("text", x=60, y=min(Pred$I),label=paste("RSS= ",round(sum(unlist(null$rss)),3)))+
@@ -1965,10 +1967,11 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
   DF1$dataset<-as.factor(DF1$dataset)
   
   PLrs<-ggplot2::ggplot(Preds, ggplot2::aes(x =fit,y = residuals,color=Treatment)) +
-    ggplot2::geom_point()+ ggplot2::ggtitle(paste(Df1$uniqueID[1]))+
+    ggplot2::geom_point()+ ggplot2::ggtitle(paste(Df1$uniqueID[1],DF1$sample_name[1]))+
     ggplot2::xlab("Fitted Intensities")+ggplot2::ylab("Residuals")
+  if(isTRUE(residuals)){
   print(PLrs)
-  
+  }
   Tm_d<-round(round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1)-round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1),1)
   PLR_P1<-ggplot2::ggplot(Pred1, ggplot2::aes(x = C,y = fit,color=Treatment))+ggplot2::geom_point(Pred1, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +
     ggplot2::geom_ribbon(data=Pred1,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+
@@ -2023,7 +2026,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE){
     
     PLR_P2<-PLR_P1+ggplot2::geom_point(Pred2, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +
       ggplot2::geom_ribbon(data=Pred2,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+
-      ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::ggtitle(paste(Df1$uniqueID[1],"alternative"))+
+      ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::ggtitle(paste(Df1$uniqueID[1],DF1$sample_name[1]))+
       ggplot2::annotate("text", x=min(Pred2$C)+5, y= 0.55, label= paste("\u03A3","RSS= ",round(sum(unlist(Df1[stringr::str_detect(tolower(Df1$dataset), pattern = "vehicle"),'rss']))+
                                                                                                  sum(unlist(Df1[stringr::str_detect(tolower(Df1$dataset), pattern = "treated"),'rss'])),3)))+
       ggplot2::annotate("text", x=min(Pred2$C)+5, y= 0.45, label=  paste("\u0394", "AUC = ",AUCd))+ 
@@ -3059,8 +3062,12 @@ df_clean$dataset<-ifelse(df_clean$CC==0,"vehicle","treated")
 df_clean$sample_name<-paste0(ifelse(str_detect(df_clean$sample_name,"NOcarrier")==TRUE,"nC",ifelse(str_detect(df_clean$sample_name,"carrier")==TRUE,"C",NA)),'_',
                                                       ifelse(str_detect(df_clean$sample_name,"NO_FAIMS")==TRUE,"nF",ifelse(str_detect(df_clean$sample_name,"r_FAIMS")==TRUE,"F",NA)),'_',
                                                       ifelse(str_detect(df_clean$sample_name,"S_eFT")==TRUE,"E",ifelse(str_detect(df_clean$sample_name,"S_Phi")==TRUE,"S",NA)))
+df_<-df_clean %>%
+  dplyr::ungroup() %>% 
+  dplyr::group_split(sample_name)#split by method development parameters before curve fitting
+df_norm <- purrr::map(df_,function(x) normalize_cetsa(x, df.temps$temperature,Batch=TRUE,filters=FALSE)) #normalizes according to Franken et. al. without R-squared filter
 
-df_norm <- normalize_cetsa(df_, df.temps$temperature,Batch=TRUE,filters=FALSE) #normalizes according to Franken et. al. without R-squared filter
+df_norm1<-df_norm
 
 
 df_v<-df_norm %>% dplyr::filter(dataset=="vehicle")
@@ -3071,79 +3078,86 @@ df_<-df_clean %>% dplyr::rename("sample_id"="sample")%>%
 df_<-df_raw%>% dplyr::right_join(df_,by=c("Accession","sample_id"))
 
 listUP<-upMV(df_,"C_F_S",5,plot_multiple=TRUE)
-pdf("UpsetMV_nCFS.pdf", height=10, width=20,pointsize= 14)
+pdf("UpsetMV.pdf",pointsize= 14)
 listUP[[1]]
-listUP[[2]]
-listUP[[3]]
+
 dev.off()
 
 
-
-##SCRIPT STARTS HERE
-DF<-df_norm %>% dplyr::group_split(uniqueID) #split null dataset only by protein ID
-d_<-df_norm %>% dplyr::filter(CC == 0) %>% dplyr::group_split(uniqueID,dataset) #split vehicle dataset
-d_1<-df_norm %>% dplyr::filter(CC > 0) %>% dplyr::group_split(uniqueID,dataset) #split treated dataset
+df_norm<-purrr::map(df_norm1,function(x)x %>% dplyr::filter(uniqueID %in% c("P36507","Q02750")))
 
 
-#convert to data frame for uniqueID presence
-DF<-dplyr::bind_rows(DF)
-d_<-dplyr::bind_rows(d_)
-d_1<-dplyr::bind_rows(d_1)#1 
-#make sure uniqueIDs are present for treated and vehicle
-CID<-intersect(d_1$uniqueID,d_$uniqueID)
-CID<-intersect(CID,DF$uniqueID)
-DF<-DF %>% subset(.$uniqueID %in% CID)
-DF$LineRegion<-1
-d_<-d_%>% subset(.$uniqueID %in% CID)
-d_$LineRegion<-1
-d_1<-d_1%>% subset(.$uniqueID %in% CID)
-d_1$LineRegion<-1
-#split dataset into equal-sized lists
-DF<-DF %>%  dplyr::group_split(uniqueID) 
-d_<-d_ %>% dplyr::group_split(uniqueID,dataset) 
-d_1<-d_1 %>% dplyr::group_split(uniqueID,dataset) 
+PlotTrilinear<-function(df_norm,target){
+  ##SCRIPT STARTS HERE
+  DF<-df_norm %>% dplyr::group_split(uniqueID) #split null dataset only by protein ID
+  d_<-df_norm %>% dplyr::filter(CC == 0) %>% dplyr::group_split(uniqueID,dataset) #split vehicle dataset
+  d_1<-df_norm %>% dplyr::filter(CC > 0) %>% dplyr::group_split(uniqueID,dataset) #split treated dataset
+  
+  
+  #convert to data frame for uniqueID presence
+  DF<-dplyr::bind_rows(DF)
+  d_<-dplyr::bind_rows(d_)
+  d_1<-dplyr::bind_rows(d_1)#1 
+  #make sure uniqueIDs are present for treated and vehicle
+  CID<-intersect(d_1$uniqueID,d_$uniqueID)
+  CID<-intersect(CID,DF$uniqueID)
+  DF<-DF %>% subset(.$uniqueID %in% CID)
+  DF$LineRegion<-1
+  d_<-d_%>% subset(.$uniqueID %in% CID)
+  d_$LineRegion<-1
+  d_1<-d_1%>% subset(.$uniqueID %in% CID)
+  d_1$LineRegion<-1
+  #split dataset into equal-sized lists
+  DF<-DF %>%  dplyr::group_split(uniqueID) 
+  d_<-d_ %>% dplyr::group_split(uniqueID,dataset) 
+  d_1<-d_1 %>% dplyr::group_split(uniqueID,dataset) 
+  
+  #preallocate list
+  results<-vector(mode = "list", length(d_))
+  results_t<-vector(mode = "list",length(d_1))
+  results_n<-vector(mode = "list",length(DF))
+  
+  
+  results<-suppressWarnings(DLR(d_))#First guess at line regions
+  results_t<-suppressWarnings(DLR(d_1))
+  results_n<-suppressWarnings(DLR(DF))
+  
+  
+  
+  #reassign shared points between line regions
+  df_<-suppressWarnings(CP(results,d_))
+  df_1<-suppressWarnings(CP(results_t,d_1))
+  DFN<-suppressWarnings(CP(results_n,DF))# 
+  #remove results to save space 
+  rm(results,results_t,results_n,d_,d_1,DF)#10
+  
+  
+  
+  df_<-lapply(df_ ,function(x)x[order(x$C),])
+  df_1<-lapply(df_1,function(x)x[order(x$C),])
+  DFN<-lapply(DFN,function(x)x[order(x$C),])
+  
+  df_<-purrr::map2(df_,seq(df_),function(x,y)x %>% dplyr::mutate(N=y))
+  df_1<-purrr::map2(df_1,seq(df_1),function(x,y)x %>% dplyr::mutate(N=y))
+  DFN<-purrr::map2(DFN,seq(DFN),function(x,y)x %>% dplyr::mutate(N=y))
+  
+  #gettrilinear results
+  tlresults<-list()
+  tlresults_PI<-list()
+  #confidence intervals
+  tlresults<-tlstat(DFN,df_,df_1,norm=FALSE,Filters=FALSE,Ftest=TRUE)
+  
+  #return filtered lists
+  res<-tlf(tlresults,DFN,APfilt=FALSE,PF=FALSE)
+  i=which(res[[1]]$uniqueID %in% target)
+  plotTL1<-tlCI(i,res[[1]],res[[2]],res[[3]],overlay=TRUE,residuals=FALSE)
 
-#preallocate list
-results<-vector(mode = "list", length(d_))
-results_t<-vector(mode = "list",length(d_1))
-results_n<-vector(mode = "list",length(DF))
+  return(list(plotTL1))
+}
 
+plot<-purrr::map(df_norm,function(x) PlotTrilinear(x,"P36507"))
 
-results<-suppressWarnings(DLR(d_))#First guess at line regions
-results_t<-suppressWarnings(DLR(d_1))
-results_n<-suppressWarnings(DLR(DF))
-
-
-
-#reassign shared points between line regions
-df_<-suppressWarnings(CP(results,d_))
-df_1<-suppressWarnings(CP(results_t,d_1))
-DFN<-suppressWarnings(CP(results_n,DF))# 
-#remove results to save space 
-rm(results,results_t,results_n,d_,d_1,DF)#10
-
-
-
-df_<-lapply(df_ ,function(x)x[order(x$C),])
-df_1<-lapply(df_1,function(x)x[order(x$C),])
-DFN<-lapply(DFN,function(x)x[order(x$C),])
-
-df_<-purrr::map2(df_,seq(df_),function(x,y)x %>% dplyr::mutate(N=y))
-df_1<-purrr::map2(df_1,seq(df_1),function(x,y)x %>% dplyr::mutate(N=y))
-DFN<-purrr::map2(DFN,seq(DFN),function(x,y)x %>% dplyr::mutate(N=y))
-
-#gettrilinear results
-tlresults<-list()
-tlresults_PI<-list()
-#confidence intervals
-tlresults<-tlstat(DFN,df_,df_1,norm=FALSE,Filters=TRUE,Ftest=TRUE)
-
-#return filtered lists
-res<-tlf(tlresults,DFN,APfilt=FALSE,PF=FALSE)
-i=which(res[[1]]$uniqueID %in% "P36507")
-plotTL1<-tlCI(i,res[[1]],res[[2]],res[[3]],overlay=TRUE)
-i=which(res[[1]]$uniqueID %in% "Q02750")
-plotTL2<-tlCI(i,res[[1]],res[[2]],res[[3]],overlay=TRUE)
+plot<-purrr::map(df_norm,function(x) PlotTrilinear(x,"Q02750"))
 #saveIDs filtered
 saveRDS(res[[1]]$uniqueID,"proteins_trilinear_filters_Ftest_CFE.rds")
 pdf("Target_curves_trilinear_CnFE.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
