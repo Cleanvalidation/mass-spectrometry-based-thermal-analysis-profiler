@@ -729,20 +729,27 @@ find_pat = function(pat, x)
 #returns segmented data for vehicle and treated
 upMV <- function(df_,condition,N,plot_multiple=FALSE){
   if(isTRUE(plot_multiple)){
-    df_1<-df_ %>% dplyr::rename("uniqueID"="Accession","I"="value","C"="temperature")
+    df_1<-dplyr::bind_rows(df_)
+    df_1<-df_1%>% dplyr::rename("uniqueID"="Accession","I"="value","C"="temperature")
     df_1$rank<-ifelse(df_1$rank==1,"high",ifelse(df_1$rank==2,"medium","low"))
     df_1$rank<-factor(df_1$rank,levels=c("high","medium","low"))
+    df_1$uniqueID<-as.factor(df_1$uniqueID)
+    df_1$dataset<-as.factor(df_1$dataset)
+    df_1$sample_name<-as.factor(df_1$sample_name)
     df_1<-df_1%>% 
-      dplyr::group_split(uniqueID,sample_name)
-    df_1<-lapply(df_1,function(x) x[1,]) %>% dplyr::bind_rows(.)
+      dplyr::group_split(uniqueID,sample_id)
+    df_1<-lapply(df_1,function(x) x[1,]) 
+    df_1<-dplyr::bind_rows(df_1)
+   
     df_1$missing_pct<-as.numeric(df_1$missing_pct)
     df_1$missing_pct<-round(df_1$missing_pct,0)
-    df_1$dataset<-as.factor(df_1$dataset)
+
     
     df_1<-df_1 %>% dplyr::group_split(sample_name)
     df_1<-purrr::map(df_1,function(x)
       pivot_wider(x,names_from=c(missing_pct),values_from=missing_pct,values_fill=NA) %>%
-        dplyr::select(-uniqueID,-C,-I,-CC,-missing,-dataset,-sample_id))
+        dplyr::select(-C,-I,-CC,-missing,-dataset,-sample_id,-temp_ref,-id))
+    
     df_2<-purrr::map(df_1,function(x) x %>% dplyr::select(rank,sample_name))
     df_1<-purrr::map(df_1,function(x) 1+x[,lapply(x,class)=="numeric"])
     df<-lapply(df_1,function(x) colnames(x))
@@ -773,7 +780,7 @@ upMV <- function(df_,condition,N,plot_multiple=FALSE){
                                              height_ratio = 0.7,
                                              stripes='white',
                                              base_annotations=list(
-                                               '# of Proteins'=intersection_size(
+                                               '# of Replicates'=intersection_size(
                                                  counts=TRUE,
                                                )
                                              ),
@@ -810,7 +817,7 @@ upMV <- function(df_,condition,N,plot_multiple=FALSE){
                                              
                                              stripes='white',
                                              base_annotations=list(
-                                               '# of Proteins'=intersection_size(
+                                               '# of Replicates'=intersection_size(
                                                  counts=TRUE,
                                                )
                                              ),
@@ -917,7 +924,7 @@ upMV <- function(df_,condition,N,plot_multiple=FALSE){
              n_intersections=N,
              stripes='white',
              base_annotations=list(
-               '# of Proteins'=intersection_size(
+               '# of Replicates'=intersection_size(
                  counts=TRUE,
                )
              ),
@@ -950,7 +957,7 @@ upMV <- function(df_,condition,N,plot_multiple=FALSE){
               set_sizes=FALSE,
               stripes='white',
               base_annotations=list(
-                '# of Proteins'=intersection_size(
+                '# of Replicates'=intersection_size(
                   counts=TRUE,
                 )
               ),
@@ -991,7 +998,7 @@ upMV <- function(df_,condition,N,plot_multiple=FALSE){
                             set_sizes=FALSE,
                             stripes='white',
                             base_annotations=list(
-                              '# of Proteins'=intersection_size(
+                              '# of Replicates'=intersection_size(
                                 counts=TRUE,
                               )
                             ),
@@ -2067,6 +2074,39 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE){
                colour = "red",linetype=2)
     
     print(PLR)
+    
+    if(bootstrap==TRUE){
+      set.seed(233)
+      n<-length(Pred$I)
+      mean_orig_v<-mean(Pred$I)
+      mean_orig_t<-mean(Pred2$I)
+      N<-1000
+      for (i in 1:N){
+        bs_vehicle[i]<-sample(Pred$I,n,replace=TRUE)
+        mean_v[i]<-mean(bs_vehicle[i])
+        
+        bs_treated[i]<-sample(Pred2$I,n,replace=TRUE)
+        mean_t[i]<-mean(bs_treated[i])
+      }
+     mean_bs_v<-mean(mean_v)
+     mean_bs_t<-mean(mean_t)
+     bias_v<-mean_orig_v-mean_bs_v
+     bias_t<-mean_orig_t-mean_bs_t
+     
+     summary<-data.frame(uniqueID=rep(Pred$uniqueID[1],2),
+                         dataset=c(Pred$dataset[1],Pred2$dataset[1]),
+                         Orig_mean=c(mean_orig_v,mean_orig_t),
+                         BS_mean=c(mean_bs_v,mean_bs_t),
+                         bias_bs=c(bias_v,bias_t),
+                         sd_bs_v=sd(mean_v),
+                         sd_bs_t=sd(mean_t),
+                         CI_2.5_v=quantile(mean_v,0.025),
+                         CI_97.5_v=quantile(mean_v,0.975),
+                         CI_2.5_t=quantile(mean_t,0.025),
+                         CI_97.5_t=quantile(mean_t,0.975))
+                         
+      
+    }
   }
 }
 
