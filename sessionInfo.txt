@@ -1,0 +1,40 @@
+R version 4.0.2 (2020-06-22)
+Platform: x86_64-w64-mingw32/x64 (64-bit)
+Running under: Windows 10 x64 (build 19041)
+
+Matrix products: default
+
+locale:
+[1] LC_COLLATE=English_Puerto Rico.1252  LC_CTYPE=English_Puerto Rico.1252   
+[3] LC_MONETARY=English_Puerto Rico.1252 LC_NUMERIC=C                        
+[5] LC_TIME=English_Puerto Rico.1252    
+
+attached base packages:
+[1] stats     graphics  grDevices datasets  utils     methods   base     
+
+other attached packages:
+ [1] stringi_1.4.6    MSstatsTMT_1.6.3 forcats_0.5.0    stringr_1.4.0    dplyr_1.0.0      purrr_0.3.4     
+ [7] readr_1.3.1      tidyr_1.1.0      tibble_3.0.3     ggplot2_3.3.2    tidyverse_1.3.0 
+
+loaded via a namespace (and not attached):
+ [1] nlme_3.1-148          matrixStats_0.57.0    bitops_1.0-6          fs_1.4.2             
+ [5] lubridate_1.7.9       httr_1.4.2            numDeriv_2016.8-1.1   tools_4.0.2          
+ [9] backports_1.1.9       utf8_1.1.4            R6_2.4.1              KernSmooth_2.23-17   
+[13] DBI_1.1.0             mgcv_1.8-31           colorspace_1.4-1      withr_2.2.0          
+[17] tidyselect_1.1.0      compiler_4.0.2        preprocessCore_1.50.0 cli_2.0.2            
+[21] rvest_0.3.6           mice_3.11.0           xml2_1.3.2            caTools_1.18.0       
+[25] scales_1.1.1          minqa_1.2.4           pkgconfig_2.0.3       lme4_1.1-23          
+[29] dbplyr_1.4.4          limma_3.44.3          rlang_0.4.7           readxl_1.3.1         
+[33] rstudioapi_0.11       generics_0.0.2        jsonlite_1.7.1        gtools_3.8.2         
+[37] magrittr_1.5          rlist_0.4.6.1         Matrix_1.2-18         Rcpp_1.0.5           
+[41] munsell_0.5.0         fansi_0.4.1           lifecycle_0.2.0       MASS_7.3-51.6        
+[45] gplots_3.0.4          plyr_1.8.6            grid_4.0.2            blob_1.2.1           
+[49] parallel_4.0.2        gdata_2.18.0          ggrepel_0.8.2         crayon_1.3.4         
+[53] doSNOW_1.0.18         MSstats_3.20.2        lattice_0.20-41       haven_2.3.1          
+[57] splines_4.0.2         hms_0.5.3             pillar_1.4.6          boot_1.3-25          
+[61] reshape2_1.4.4        codetools_0.2-16      marray_1.66.0         reprex_0.3.0         
+[65] glue_1.4.2            data.table_1.12.8     renv_0.11.0           modelr_0.1.8         
+[69] vctrs_0.3.2           nloptr_1.2.2.2        foreach_1.5.0         cellranger_1.1.0     
+[73] gtable_0.3.0          assertthat_0.2.1      broom_0.7.0           pracma_2.2.9         
+[77] survival_3.1-12       minpack.lm_1.2-1      snow_0.4-3            lmerTest_3.1-2       
+[81] iterators_1.0.12      statmod_1.4.34        ellipsis_0.3.1       
