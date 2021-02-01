@@ -45,18 +45,22 @@ theme_set(theme_bw())
 #' @importFrom stringr stringr::str_extract
 #' @export
 #' 
-read_cetsa <- function(f,PSM=FALSE,Batch=TRUE){
-  file.list<-f
+read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,PSM=FALSE,Batch=TRUE){
+  file.list<-protein_path
   i=1
+  peptide_path<-as.character(peptide_path)
+  protein_path<-as.character(protein_path)
   find<-c('[:digit:][:digit:][:digit:][N|C]|[:digit:][:digit:][:digit:]')
   #if the input is peptides, f is a list and PSM = TRUE otherwise f is a data frame and PSM = false
   if (isTRUE(PSM)){
     df<-list()
     df1<-list()
-    for ( i in seq(file.list)){
-      
-      
-      df.raw <- readxl::read_excel(file.list[i])
+    df.raw<-data.frame()
+    setwd(peptide_path)
+    f<-list.files(peptide_path,pattern="PSMs")
+    for ( i in seq(f)){
+      #first get PSM file read
+      df.raw <- readxl::read_excel(f[i])
       df[[i]] <- df.raw%>%
         dplyr::select(names(df.raw)[stringr::str_detect(names(df.raw),'Master')],
                       tidyselect::starts_with('Abundance')|tidyselect::starts_with('1'),
@@ -72,19 +76,10 @@ read_cetsa <- function(f,PSM=FALSE,Batch=TRUE){
                       tidyselect::contains('File ID'),
                       tidyselect::contains('S/N'),
                       tidyselect::contains('Spectrum')) %>%
-        dplyr::rename("Accession"="Master Protein Accessions") 
-      
-    }
-    df2<-dplyr::bind_rows(df)
-    names(df2 )<-names(df2 ) %>% 
-      stringr::str_replace_all(" ","_")
-    if(any(stringr::str_detect(names(df2),'File_ID'))=="TRUE"){
-      df <-df2  %>% separate("File_ID",c("sample_id","Fraction"))
-      df1 <-df %>% 
-        dplyr::select(Accession,names(df )[str_detect(names(df ),'1')],
+        dplyr::rename("Accession"="Master Protein Accessions") %>% 
+        dplyr::select(Accession,
+                      tidyselect::starts_with('Abundance'),
                       tidyselect::starts_with('Annotated'),
-                      tidyselect::contains('sample_id'),
-                      tidyselect::contains('Fraction'),
                       tidyselect::contains('Isolation'),
                       tidyselect::contains('Ion'),
                       tidyselect::contains('Charge'),
@@ -95,42 +90,44 @@ read_cetsa <- function(f,PSM=FALSE,Batch=TRUE){
                       tidyselect::contains('Delta'),
                       tidyselect::contains('File ID'),
                       tidyselect::contains('S/N'),
-                      tidyselect::contains('Spectrum'))
-      names(df1 ) <- gsub("Abundance:_", "", names(df1 ))  
-      df2<-df1  %>%  pivot_longer(cols=starts_with("1"),names_to="temp_ref",values_to="value")
-      df2<-df2 %>% dplyr::mutate(missing=ifelse(is.na(value),1,0))
-      return(df2)
-    }else{
-      i<-1
-      file.list<-f
-      df2<-list()
-      df<-list()
-      df2[[i]]<-data.frame()
-      df[[i]]<-data.frame()
-      for ( i in seq(file.list)){
-        df[[i]]<- readxl::read_excel(file.list[i])
+                      tidyselect::contains('Spectrum'),
+                      -tidyselect::contains('Grouped')) %>% 
+        tidyr::gather('id', 'value', -Accession) %>% 
+        dplyr::mutate(temp_ref = stringr::str_extract_all(id,find))
+      
+    }
+    df2<-dplyr::bind_rows(df) %>% tidyr::unnest(temp_ref)
+    names(df2 )<-names(df2 ) %>% 
+      stringr::str_replace_all(" ","_")
+    #then link proteins to peptide sample_id
+    setwd(protein_path)
+    g<-list.files(protein_path,pattern=as.character(Prot_Pattern))
+    df<-list()
+    
+      for (i in seq(g)){
+        df[[i]]<- readxl::read_excel(g[i])
         
-        df2[[i]]<- df[[i]] %>% 
+        df[[i]]<- df[[i]] %>% 
           dplyr::select(Accession,tidyselect::starts_with('Abundance'),-tidyselect::contains('Grouped')) %>% 
           tidyr::gather('id', 'value', -Accession) %>%
           dplyr::mutate(sample_id = ifelse(!is.na(str_extract(id, str_c('F',"[:digit:][:digit:]"))),str_extract(id, str_c('F',"[:digit:][:digit:]")),stringr::str_extract_all(id,str_c('F','[:digit:]'))),
                         temp_ref = stringr::str_extract_all(id,find),
-                        missing=ifelse(is.na(value),1,0))
+                        missing=ifelse(is.na(value),1,0),
+                        Spectrum_File=g[i])
+        class(df[[i]]$sample_id)<-"character"
       }
-      df2<-dplyr::bind_rows(df2) %>% 
-        tidyr::unnest(cols = c(sample_id, temp_ref))
-      df2<-df2 %>% dplyr::group_split(Accession,sample_id) 
+      df<-dplyr::bind_rows(df) %>% 
+        tidyr::unnest(cols = temp_ref) %>%
+        dplyr::select(Accession,sample_id,Spectrum_File,value) %>%
+        dplyr::rename(Protein_value=value)
+     
+      df2<-df %>% dplyr::left_join(df2,by=c("Accession","Spectrum_File"))
       
-      df2<-purrr::map(df2,function(x){ x %>%  dplyr::mutate(missing_pct=100*sum(is.na(value))/length(value))})
-      df2<-dplyr::bind_rows(df2)
       
       return(df2)
-    }
-    
-    
-  }else{
+    }else{
     i<-1
-    file.list<-f
+    file.list<-g
     df2<-list()
     df<-list()
     df2[[i]]<-data.frame()
@@ -2998,18 +2995,12 @@ f<- list.files(pattern='*_0.xlsx')
 # f<-"~/Cliff prot pep/Proteins.xlsx"
 # f<-"C:/Users/figue/OneDrive - Northeastern University/CETSA R/CP_Exploris_20200811_DMSOvsMEKi_carrier_FAIMS_PhiSDM_PEPTIDES.xlsx"
 
-df_raw <- read_cetsa(f,PSM=FALSE,Batch=TRUE)
-
-
-
+df_raw <- read_cetsa("~/Cliff_new","~/Cliff_new/PSMs","_0",PSM=TRUE,Batch=FALSE)
 #new for PSMs
 #df_raw<-df_raw %>% dplyr::rename("sample_name"="Spectrum_File")
-
 #annotate protein data with missing values
 MID<-df_raw[is.na(df_raw$value),]
-
 #df.temps <- data.frame(temp_ref = c('126', '127N', '127C', '128N', '128C', '129N','129C', '130N', '130C', '131'), temperature = c(37, 40.1, 43.5, 47.5, 50.4, 54, 57, 60.8, 65, 67), stringsAsFactors = FALSE)
-
 #df.temps <- data.frame(temp_ref = unique(df_raw$temp_ref),temperature = c(40, 42.1, 43.8, 46.5, 50, 54, 57.3, 60.1, 62, 64), stringsAsFactors = FALSE)
 
 df.t <- function(n){
@@ -3027,13 +3018,18 @@ df.temps<-df.t(10)
 #df.temps <- data.frame(temp_ref = c('126', '127N', '127C', '128N', '128C', '129N','129C', '130N', '130C', '131'), temperature = c(67, 64, 60.4, 57.1, 53.8, 50.5, 47.2, 43.9, 40.6, 37.3), stringsAsFactors = FALSE)
 #df.samples <- data.frame(sample_id = c('F1', 'F2', 'F3','F4'), sample_name = c('DMSO_1','DMSO_2', '655_1','655_2'), stringsAsFactors = FALSE)
 
-df.s <- function(data_path,n,rep_,bio_,vehicle_name,treated_name,Batch=FALSE){#n is df_raw, rep is tech rep
+df.s <- function(data_path,n,rep_,bio_,vehicle_name,treated_name,Batch=FALSE,PSM=TRUE){#n is df_raw, rep is tech rep
   
   if(any(names(n)=="sample_name") & any(names(n)=="sample_id")){
     n<-n %>% dplyr::select(sample_id,sample_name) %>% unique(.)
     return(n)
   }
+  if(any(names(n)=="Spectrum_File") & any(names(n)=="sample_id")){
+    n<-n %>% dplyr::select(sample_id,Spectrum_File) %>% unique(.)
+    return(n)
+  }
   if(isTRUE(Batch)){
+    if (!isTRUE(PSM)){
     f<-data_path
     find<-c('[:upper:][[:digit:]]+')
     check<-list()
@@ -3044,6 +3040,8 @@ df.s <- function(data_path,n,rep_,bio_,vehicle_name,treated_name,Batch=FALSE){#n
     df.samples<-data.frame(sample_name=data.frame(f),sample_id=dplyr::bind_rows(check) )
     names(df.samples)<-c("sample_name","sample_id")
     return(df.samples)
+    }
+      
   }
   b<-2*rep_*bio_
   samples<-data.frame(sample_name=c(paste0(rep(as.factor(vehicle_name),rep_*bio_)),paste0(rep(as.factor(treated_name),rep_*bio_))),
