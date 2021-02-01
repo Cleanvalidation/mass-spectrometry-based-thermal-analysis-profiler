@@ -60,7 +60,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,PSM=FALSE,Batch=TR
     f<-list.files(peptide_path,pattern="PSMs")
     for ( i in seq(f)){
       #first get PSM file read
-      df.raw <- readxl::read_excel(f[i])
+      df.raw <- readxl::read_excel(path=f[i],.name_repair="unique")
       df[[i]] <- df.raw%>%
         dplyr::select(names(df.raw)[stringr::str_detect(names(df.raw),'Master')],
                       tidyselect::starts_with('Abundance')|tidyselect::starts_with('1'),
@@ -76,29 +76,26 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,PSM=FALSE,Batch=TR
                       tidyselect::contains('File ID'),
                       tidyselect::contains('S/N'),
                       tidyselect::contains('Spectrum')) %>%
-        dplyr::rename("Accession"="Master Protein Accessions") %>% 
-        dplyr::select(Accession,
-                      tidyselect::starts_with('Abundance'),
-                      tidyselect::starts_with('Annotated'),
-                      tidyselect::contains('Isolation'),
-                      tidyselect::contains('Ion'),
-                      tidyselect::contains('Charge'),
-                      tidyselect::contains('PEP'),
-                      tidyselect::contains('Modifications'),
-                      tidyselect::contains('Cleavages'),
-                      tidyselect::starts_with('XCorr'),
-                      tidyselect::contains('Delta'),
-                      tidyselect::contains('File ID'),
-                      tidyselect::contains('S/N'),
-                      tidyselect::contains('Spectrum'),
-                      -tidyselect::contains('Grouped')) %>% 
-        tidyr::gather('id', 'value', -Accession) %>% 
-        dplyr::mutate(temp_ref = stringr::str_extract_all(id,find))
+        dplyr::rename("Accession"="Master Protein Accessions")
       
     }
-    df2<-dplyr::bind_rows(df) %>% tidyr::unnest(temp_ref)
+    
+    df2<-dplyr::bind_rows(df) 
+    
     names(df2 )<-names(df2 ) %>% 
       stringr::str_replace_all(" ","_")
+    df3<-df2%>% 
+      dplyr::select(Accession,
+                    tidyselect::starts_with('Abundance'),
+                    Spectrum_File) %>% 
+      tidyr::gather('id', 'value', -Accession,-Spectrum_File,-Annotated_Sequence) %>% 
+      dplyr::mutate(temp_ref = stringr::str_extract_all(id,find)) %>% 
+      tidyr::unnest(cols="temp_ref") %>% 
+      dplyr::select(-id,Accession,Spectrum_File,Annotated_Sequence,temp_ref,value)
+    df2<-df2[,!str_detect(names(df2),'Abundance')]
+    df3<-df3 %>% dplyr::left_join(df2,by=c("Accession","Spectrum_File","Annotated_Sequence"))
+    
+    
     #then link proteins to peptide sample_id
     setwd(protein_path)
     g<-list.files(protein_path,pattern=as.character(Prot_Pattern))
@@ -2954,7 +2951,7 @@ sigfit<-function(SigF,i,MD=FALSE){
 }
 
 ###############################
-
+memory.limit(1759219000000)
 plan(multisession,workers=8)
 
 ##################################
