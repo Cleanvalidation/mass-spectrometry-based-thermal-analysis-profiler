@@ -28,6 +28,7 @@ library(ComplexUpset)
 library(patchwork)
 library(caret)
 library(ggpubr)
+library(memoise)
 
 theme_set(theme_bw())
 
@@ -55,6 +56,8 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,PSM=FALSE,Batch=TR
   if (isTRUE(PSM)){
     df<-list()
     df1<-list()
+    df3<-data.frame()
+    df2<-data.frame()
     df.raw<-data.frame()
     setwd(peptide_path)
     f<-list.files(peptide_path,pattern="PSMs")
@@ -80,20 +83,20 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,PSM=FALSE,Batch=TR
       
     }
     
-    df2<-dplyr::bind_rows(df) 
+    df2<-dplyr::bind_rows(df) #PSM data
     
     names(df2 )<-names(df2 ) %>% 
       stringr::str_replace_all(" ","_")
     df3<-df2%>% 
       dplyr::select(Accession,
                     tidyselect::starts_with('Abundance'),
-                    Spectrum_File) %>% 
+                    Spectrum_File,Annotated_Sequence) %>% 
       tidyr::gather('id', 'value', -Accession,-Spectrum_File,-Annotated_Sequence) %>% 
       dplyr::mutate(temp_ref = stringr::str_extract_all(id,find)) %>% 
       tidyr::unnest(cols="temp_ref") %>% 
       dplyr::select(-id,Accession,Spectrum_File,Annotated_Sequence,temp_ref,value)
     df2<-df2[,!str_detect(names(df2),'Abundance')]
-    df3<-df3 %>% dplyr::left_join(df2,by=c("Accession","Spectrum_File","Annotated_Sequence"))
+    df3<-df2 %>% dplyr::left_join(df3,by=c("Accession","Spectrum_File","Annotated_Sequence"))
     
     
     #then link proteins to peptide sample_id
@@ -117,9 +120,16 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,PSM=FALSE,Batch=TR
         tidyr::unnest(cols = temp_ref) %>%
         dplyr::select(Accession,sample_id,Spectrum_File,value) %>%
         dplyr::rename(Protein_value=value)
-     
-      df2<-df %>% dplyr::left_join(df2,by=c("Accession","Spectrum_File"))
+      df3<- df3 %>% dplyr::group_split(Spectrum_File)
       
+      
+      df3<-purrr::map(df3,function(x) x %>% dplyr::mutate(Spectrum_File=str_replace(x$Spectrum_File,"[[:digit:]]+.raw","0.xlsx")))
+
+      df3<-purrr::map(df3,function(x)x %>% dplyr::filter(Spectrum_File %in% df$Spectrum_File))
+      df3 <-purrr::map(df3,function(x) x %>% dplyr::right_join(df,by=c("Accession","Spectrum_File")))
+      df3<-dplyr::bind_rows(df3)
+
+      df2<-df2[!is.na(df2$Annotated_Sequence),]
       
       return(df2)
     }else{
@@ -2951,7 +2961,7 @@ sigfit<-function(SigF,i,MD=FALSE){
 }
 
 ###############################
-memory.limit(1759219000000)
+memory.limit(175921900000)#set for 16 GB RAM
 plan(multisession,workers=8)
 
 ##################################
@@ -2992,7 +3002,9 @@ f<- list.files(pattern='*_0.xlsx')
 # f<-"~/Cliff prot pep/Proteins.xlsx"
 # f<-"C:/Users/figue/OneDrive - Northeastern University/CETSA R/CP_Exploris_20200811_DMSOvsMEKi_carrier_FAIMS_PhiSDM_PEPTIDES.xlsx"
 
-df_raw <- read_cetsa("~/Cliff_new","~/Cliff_new/PSMs","_0",PSM=TRUE,Batch=FALSE)
+df_raw <- read_cetsa("~/Cliff_new","~/Cliff_new/PSMs","_0",PSM=TRUE,Batch=FALSE)                                                              
+
+ saveRDS(df_raw,"PSM_Cliff.rds")
 #new for PSMs
 #df_raw<-df_raw %>% dplyr::rename("sample_name"="Spectrum_File")
 #annotate protein data with missing values
