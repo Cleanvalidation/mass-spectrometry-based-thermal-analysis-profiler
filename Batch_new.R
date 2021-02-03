@@ -29,6 +29,7 @@ library(patchwork)
 library(caret)
 library(ggpubr)
 library(memoise)
+library(furrr)
 
 theme_set(theme_bw())
 
@@ -47,6 +48,7 @@ theme_set(theme_bw())
 #' @export
 #' 
 read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,PSM=FALSE,Batch=TRUE){
+  
   file.list<-protein_path
   i=1
   peptide_path<-as.character(peptide_path)
@@ -57,14 +59,15 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,PSM=FALSE,Batch=TR
     df<-list()
     df1<-list()
     df3<-data.frame()
-    df2<-data.frame()
+    df2<-list()
     df.raw<-data.frame()
-    setwd(peptide_path)
+    setwd(as.character(peptide_path))
+    
     f<-list.files(peptide_path,pattern="PSMs")
     for ( i in seq(f)){
       #first get PSM file read
       df.raw <- readxl::read_excel(path=f[i],.name_repair="unique")
-      df[[i]] <- df.raw%>%
+      df2[[i]] <- df.raw%>%
         dplyr::select(names(df.raw)[stringr::str_detect(names(df.raw),'Master')],
                       tidyselect::starts_with('Abundance')|tidyselect::starts_with('1'),
                       tidyselect::starts_with('Annotated'),
@@ -83,20 +86,31 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,PSM=FALSE,Batch=TR
       
     }
     
-    df2<-dplyr::bind_rows(df) #PSM data
-    
+    df2<-dplyr::bind_rows(df2) #PSM data
     names(df2 )<-names(df2 ) %>% 
       stringr::str_replace_all(" ","_")
-    df3<-df2%>% 
-      dplyr::select(Accession,
-                    tidyselect::starts_with('Abundance'),
-                    Spectrum_File,Annotated_Sequence) %>% 
-      tidyr::gather('id', 'value', -Accession,-Spectrum_File,-Annotated_Sequence) %>% 
-      dplyr::mutate(temp_ref = stringr::str_extract_all(id,find)) %>% 
-      tidyr::unnest(cols="temp_ref") %>% 
-      dplyr::select(-id,Accession,Spectrum_File,Annotated_Sequence,temp_ref,value)
+    df2<-df2 %>% dplyr::mutate(Spectrum_File=str_replace(df2$Spectrum_File,"[:punct:][[:digit:]]+.raw",paste0(Prot_Pattern,".xlsx")))
+    df2<-df2 %>% dplyr::group_split(Spectrum_File)
+    df2<-furrr::future_map(df2,.f=function(x) x %>%  
+                             dplyr::select(Accession,
+                                           tidyselect::starts_with('Abundance'),
+                                           Spectrum_File,Annotated_Sequence,
+                                           tidyselect::contains('Isolation'),
+                                           tidyselect::contains('Ion'),
+                                           tidyselect::contains('Charge'),
+                                           tidyselect::contains('PEP'),
+                                           tidyselect::contains('Modifications'),
+                                           tidyselect::contains('Cleavages'),
+                                           tidyselect::starts_with('XCorr'),
+                                           tidyselect::contains('Delta'),
+                                           tidyselect::contains('File ID'),
+                                           tidyselect::contains('S/N')) %>% 
+                             tidyr::gather('id', 'value', -Accession,-Spectrum_File,-Annotated_Sequence,-Modifications,-Charge,-"Average_Reporter_S/N",-XCorr,-Percolator_PEP,-"Isolation_Interference_[%]",-"#_Missed_Cleavages",-"Percolator_PEP",-"Ion_Inject_Time_[ms]",-"Average_Reporter_S/N",-"DeltaM_[ppm]") %>% 
+                             dplyr::mutate(temp_ref = stringr::str_extract_all(id,find)) %>% 
+                             tidyr::unnest(cols="temp_ref") %>% 
+                             dplyr::select(-id,Accession,Spectrum_File,Annotated_Sequence,temp_ref,value,Modifications,Charge,"Average_Reporter_S/N",XCorr,Percolator_PEP,"Isolation_Interference_[%]","#_Missed_Cleavages","Percolator_PEP","Ion_Inject_Time_[ms]","Average_Reporter_S/N","DeltaM_[ppm]"))
+    df2<-dplyr::bind_rows(df2)
     df2<-df2[,!str_detect(names(df2),'Abundance')]
-    df3<-df2 %>% dplyr::left_join(df3,by=c("Accession","Spectrum_File","Annotated_Sequence"))
     
     
     #then link proteins to peptide sample_id
@@ -104,35 +118,32 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,PSM=FALSE,Batch=TR
     g<-list.files(protein_path,pattern=as.character(Prot_Pattern))
     df<-list()
     
-      for (i in seq(g)){
-        df[[i]]<- readxl::read_excel(g[i])
-        
-        df[[i]]<- df[[i]] %>% 
-          dplyr::select(Accession,tidyselect::starts_with('Abundance'),-tidyselect::contains('Grouped')) %>% 
-          tidyr::gather('id', 'value', -Accession) %>%
-          dplyr::mutate(sample_id = ifelse(!is.na(str_extract(id, str_c('F',"[:digit:][:digit:]"))),str_extract(id, str_c('F',"[:digit:][:digit:]")),stringr::str_extract_all(id,str_c('F','[:digit:]'))),
-                        temp_ref = stringr::str_extract_all(id,find),
-                        missing=ifelse(is.na(value),1,0),
-                        Spectrum_File=g[i])
-        class(df[[i]]$sample_id)<-"character"
-      }
-      df<-dplyr::bind_rows(df) %>% 
-        tidyr::unnest(cols = temp_ref) %>%
-        dplyr::select(Accession,sample_id,Spectrum_File,value) %>%
-        dplyr::rename(Protein_value=value)
-      df3<- df3 %>% dplyr::group_split(Spectrum_File)
+    for (i in seq(g)){
+      df[[i]]<- readxl::read_excel(g[i])
       
-      
-      df3<-purrr::map(df3,function(x) x %>% dplyr::mutate(Spectrum_File=str_replace(x$Spectrum_File,"[[:digit:]]+.raw","0.xlsx")))
-
-      df3<-purrr::map(df3,function(x)x %>% dplyr::filter(Spectrum_File %in% df$Spectrum_File))
-      df3 <-purrr::map(df3,function(x) x %>% dplyr::right_join(df,by=c("Accession","Spectrum_File")))
-      df3<-dplyr::bind_rows(df3)
-
-      df2<-df2[!is.na(df2$Annotated_Sequence),]
-      
-      return(df2)
-    }else{
+      df[[i]]<- df[[i]] %>% 
+        dplyr::select(Accession,tidyselect::starts_with('Abundance'),-tidyselect::contains('Grouped')) %>% 
+        tidyr::gather('id', 'value', -Accession) %>%
+        dplyr::mutate(sample_id = ifelse(!is.na(str_extract(id, str_c('F',"[:digit:][:digit:]"))),str_extract(id, str_c('F',"[:digit:][:digit:]")),stringr::str_extract_all(id,str_c('F','[:digit:]'))),
+                      temp_ref = stringr::str_extract_all(id,find),
+                      missing=ifelse(is.na(value),1,0),
+                      Spectrum_File=g[i])
+      class(df[[i]]$sample_id)<-"character"
+    }
+    df<-dplyr::bind_rows(df) %>% 
+      tidyr::unnest(cols = temp_ref) %>%
+      dplyr::select(Accession,sample_id,Spectrum_File,value) %>%
+      dplyr::rename(Protein_value=value)
+    df3<- df2 %>% dplyr::group_split(Spectrum_File)
+    
+    df3<-furrr::future_map(df3,function(x)x %>% dplyr::filter(Spectrum_File %in% df$Spectrum_File))
+    df3 <-furrr::future_map(df3,function(x) x %>% dplyr::right_join(df,by=c("Accession","Spectrum_File")))
+    df3<-dplyr::bind_rows(df3)
+    
+    df2<-df3[!is.na(df3$Annotated_Sequence),]
+    
+    return(df2)
+  }else{
     i<-1
     file.list<-g
     df2<-list()
@@ -235,7 +246,7 @@ clean_cetsa <- function(df, temperatures = NULL, samples = NULL,PSM=FALSE) {
   
   df <- df %>%
     dplyr::left_join(temperatures, by = 'temp_ref')
- 
+  
   if(isTRUE(PSM) & any(str_detect(names(df),"Fraction")=="TRUE")){
     df <- df %>%
       dplyr::group_split(Accession, sample_id, temperature)
@@ -309,7 +320,7 @@ normalize_cetsa <- function(df, temperatures,PSM=FALSE,Batch=TRUE,filters=FALSE)
   if(nrow(df)==0){
     return(warning("Please disable filters, all data was filtered out."))
   }
-
+  
   ## split[[i]] by sample group and filter
   l.bytype <- split.data.frame(df.jointP, df.jointP$sample)
   
@@ -366,7 +377,7 @@ normalize_cetsa <- function(df, temperatures,PSM=FALSE,Batch=TRUE,filters=FALSE)
   if(isTRUE(filters)){
     df<-df %>% dplyr::select(-T10,-T7,-T9)
   }
-
+  
   return(df)
 }
 
@@ -731,42 +742,185 @@ find_pat = function(pat, x)
 ################################
 #df_ is the input from df_norm which includes missing percentages
 #returns segmented data for vehicle and treated
-upMV <- function(df_,condition,N,plot_multiple=FALSE){
+upMV <- function(df_,condition,N,plot_multiple=FALSE,PSMs=FALSE){
+  
   if(isTRUE(plot_multiple)){
-    df_1<-dplyr::bind_rows(df_)
-    df_1<-df_1%>% dplyr::rename("uniqueID"="Accession","I"="value","C"="temperature")
-    df_1$rank<-ifelse(df_1$rank==1,"high",ifelse(df_1$rank==2,"medium","low"))
-    df_1$rank<-factor(df_1$rank,levels=c("high","medium","low"))
-    df_1$uniqueID<-as.factor(df_1$uniqueID)
-    df_1$dataset<-as.factor(df_1$dataset)
-    df_1$sample_name<-as.factor(df_1$sample_name)
-    df_1<-df_1%>% 
-      dplyr::group_split(uniqueID,sample_id)
-    df_1<-lapply(df_1,function(x) x[1,]) 
-    df_1<-dplyr::bind_rows(df_1)
-   
-    df_1$missing_pct<-as.numeric(df_1$missing_pct)
-    df_1$missing_pct<-round(df_1$missing_pct,0)
-
     
-    df_1<-df_1 %>% dplyr::group_split(sample_name)
-    df_1<-purrr::map(df_1,function(x)
-      pivot_wider(x,names_from=c(missing_pct),values_from=missing_pct,values_fill=NA) %>%
-        dplyr::select(-C,-I,-CC,-missing,-dataset,-sample_id,-temp_ref,-id))
-    
-    df_2<-purrr::map(df_1,function(x) x %>% dplyr::select(rank,sample_name))
-    df_1<-purrr::map(df_1,function(x) 1+x[,lapply(x,class)=="numeric"])
-    df<-lapply(df_1,function(x) colnames(x))
-    df<-lapply(df,function(x) str_replace(x,x,
-                                          paste0("missing ",x,"%", sep = " ")))
-    
-    
-    
-    
-    df_1<-purrr::map2(df_1,df,function(x,y){setNames(x,y)})
-    df_1<-purrr::map2(df_1,df_2,function(x,y)cbind(x,y))
-    df_1<-purrr::map(df_1,function(x)x[!is.na(x$rank),])
-    
+    if(isTRUE(PSMs)){
+      
+      df_ <-df_ %>% dplyr::mutate(CC=ifelse(stringr::str_detect(Spectrum_File,"DMSO")==TRUE,0,1))#concentration values are defined in uM
+      
+      df_$dataset<-ifelse(df_$CC==0,"vehicle","treated")
+      
+      
+      df_$sample_name<-paste0(ifelse(str_detect(df_$Spectrum_File,"NOcarrier")==TRUE,"nC",ifelse(str_detect(df_$Spectrum_File,"carrier")==TRUE,"C",NA)),'_',
+                              ifelse(str_detect(df_$Spectrum_File,"NO_FAIMS")==TRUE,"nF",ifelse(str_detect(df_$Spectrum_File,"r_FAIMS")==TRUE,"F",NA)),'_',
+                              ifelse(str_detect(df_$Spectrum_File,"S_eFT")==TRUE,"E",ifelse(str_detect(df_$Spectrum_File,"S_Phi")==TRUE,"S",NA)))
+      df_<-df_%>% dplyr::rename("uniqueID"="Accession","I"="value","C"="temp_ref","S_N"="Average_Reporter_S/N","PEP"="Percolator_PEP",
+                                "Missed_Cleavages"="#_Missed_Cleavages","DeltaM"="DeltaM_[ppm]","IonInjTime"="Ion_Inject_Time_[ms]",
+                                "I_Interference"="Isolation_Interference_[%]")
+      
+      
+      saveRDS(df_,"df_raw_PSMs_Cliff.rds")
+      df_1<-dplyr::bind_rows(df_)
+      df_1$uniqueID<-as.factor(df_1$uniqueID)
+      df_1$dataset<-as.factor(df_1$dataset)
+      df_1$sample_name<-as.factor(df_1$sample_name)
+      df_1<-df_1%>% 
+        dplyr::group_split(uniqueID,sample_id,Annotated_Sequence)
+      df_1<-purrr::map(df_1,function(x) x %>% dplyr::mutate(missing_pct=(sum(100*is.na(x$I))/length(x$I))) %>% head(.,1)) 
+      df_1<-dplyr::bind_rows(df_1)
+      
+      rank<-df_1 %>% dplyr::filter(C=="126") %>% dplyr::mutate(rank=dplyr::ntile(I,3)) %>% 
+        dplyr::select("uniqueID","dataset","sample_name","rank","Annotated_Sequence")
+      df_1<-df_1 %>% dplyr::right_join(rank,by=c("uniqueID","dataset","sample_name","Annotated_Sequence"))
+      df_1$SNrank<-dplyr::ntile(df_1$S_N,3)
+      df_1$SNrank<-factor(df_1$SNrank,levels=c("high","medium","low"))
+      df_1<-df_1 %>% dplyr::mutate(rank=ifelse(df_1$rank==1,"high",ifelse(df_1$rank==2,"medium","low")),
+                                   SNrank=ifelse(df_1$SNrank==1,"high",ifelse(df_1$SNrank==2,"medium","low")))
+      
+      df_1$missing_pct<-round(df_1$missing_pct,1)
+      df_1<-df_1%>% 
+        dplyr::group_split(sample_id)
+      df_1<-purrr::map(df_1,function(x)
+        pivot_wider(x,names_from=c(missing_pct),values_from=missing_pct,values_fill=NA) %>%
+          dplyr::select(-uniqueID,-Spectrum_File,-Annotated_Sequence,-IonInjTime,-Missed_Cleavages,-S_N,-sample_id,-dataset,-C,-CC,-DeltaM,-PEP,-Modifications,-I_Interference,-Charge,-XCorr,-I,-Protein_value))
+      
+      df_2<-purrr::map(df_1,function(x) x %>% dplyr::select(SNrank,sample_name))
+      df_1<-purrr::map(df_1,function(x) 1+x[,sapply(x,class)=="numeric"])
+      df<-lapply(df_1,function(x) colnames(x))
+      df<-lapply(df,function(x) str_replace(x,x,
+                                            paste0("missing ",x,"%", sep = " ")))
+      
+      
+      
+      
+      check<-purrr::map2(df_1,df,function(x,y){setNames(x,y)})
+      df_1<-purrr::map2(df_1,df_2,function(x,y)cbind(x,y))
+      df_1<-purrr::map(df_1,function(x)x[!is.na(x$SNrank),])
+      
+      rating_scale = scale_fill_manual(name="Ranked S/N",
+                                       values=c(
+                                         'high'='#2ca25f', 'medium'='#99d8c9',
+                                         'low'='#e5f5f9'
+                                       ))
+      
+      show_hide_scale = scale_color_manual(values=c('show'='black', 'hide'='transparent'), guide=FALSE)
+      
+      check<-list()
+      check<- purrr::map(df_1,function(x)upset(x,names(x),
+                                               min_degree=1,
+                                               set_sizes=FALSE,
+                                               guides='collect',
+                                               n_intersections=N,
+                                               height_ratio = 0.7,
+                                               stripes='white',
+                                               base_annotations=list(
+                                                 '# of PSMs'=intersection_size(
+                                                   counts=TRUE,
+                                                 )
+                                               ),
+                                               annotations =list(
+                                                 "Bin %"=list(
+                                                   aes=aes(x=intersection, fill=x$SNrank),
+                                                   
+                                                   geom=list(
+                                                     geom_bar(stat='count', position='fill', na.rm=TRUE,show.legend=FALSE),
+                                                     
+                                                     geom_text(
+                                                       aes(
+                                                         label=!!aes_percentage(relative_to='intersection'),
+                                                         color=ifelse(!is.na(x$SNrank), 'show', 'hide')
+                                                       ),
+                                                       stat='count',
+                                                       position=position_fill(vjust = .5),
+                                                       
+                                                     ),
+                                                     
+                                                     scale_y_continuous(labels=scales::percent_format()),
+                                                     show_hide_scale,
+                                                     rating_scale
+                                                     
+                                                   )
+                                                 )
+                                               )
+                                               
+      )+ggtitle(paste0(x$sample_name[1])))
+      check1<-upset(df_1[[1]],names(df_1[[1]]),min_degree=1,
+                    set_sizes=FALSE,
+                    guides='collect',
+                    n_intersections=N,
+                    
+                    stripes='white',
+                    base_annotations=list(
+                      '# of PSMs'=intersection_size(
+                        counts=TRUE,
+                      )
+                    ),
+                    annotations =list(
+                      "Ranked Intensity  "=list(
+                        aes=aes(x=intersection, fill=df_1[[1]]$SNrank),
+                        
+                        geom=list(
+                          geom_bar(stat='count', position='fill', na.rm=TRUE),
+                          themes=theme(legend.position="bottom", legend.box = "horizontal"),
+                          geom_text(
+                            aes(
+                              label=!!aes_percentage(relative_to='intersection'),
+                              color=ifelse(!is.na(df_1[[1]]$SNrank), 'show', 'hide')
+                            ),
+                            stat='count',
+                            position=position_fill(vjust = .5),
+                            
+                          ),
+                          
+                          scale_y_continuous(labels=scales::percent_format()),
+                          show_hide_scale,
+                          rating_scale
+                          
+                        )
+                      )
+                    )
+                    
+      )+ggtitle(paste0(df_1[[1]]$sample_name[1]))
+      y<-get_legend(check1$patches$plots[[1]])
+      
+      P<-ggarrange(plotlist=check,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
+      return(print(P))
+      
+    }else{
+      df_1$rank<-ifelse(df_1$rank==1,"high",ifelse(df_1$rank==2,"medium","low"))
+      df_1$rank<-factor(df_1$rank,levels=c("high","medium","low"))
+      df_1$uniqueID<-as.factor(df_1$uniqueID)
+      df_1$dataset<-as.factor(df_1$dataset)
+      df_1$sample_name<-as.factor(df_1$sample_name)
+      df_1<-df_1%>% 
+        dplyr::group_split(uniqueID,sample_id)
+      df_1<-lapply(df_1,function(x) x[1,]) 
+      df_1<-dplyr::bind_rows(df_1)
+      
+      df_1$missing_pct<-as.numeric(df_1$missing_pct)
+      df_1$missing_pct<-round(df_1$missing_pct,0)
+      
+      
+      df_1<-df_1 %>% dplyr::group_split(sample_name)
+      df_1<-purrr::map(df_1,function(x)
+        pivot_wider(x,names_from=c(missing_pct),values_from=missing_pct,values_fill=NA) %>%
+          dplyr::select(-C,-I,-CC,-missing,-dataset,-sample_id,-temp_ref,-id))
+      
+      df_2<-purrr::map(df_1,function(x) x %>% dplyr::select(rank,sample_name))
+      df_1<-purrr::map(df_1,function(x) 1+x[,lapply(x,class)=="numeric"])
+      df<-lapply(df_1,function(x) colnames(x))
+      df<-lapply(df,function(x) str_replace(x,x,
+                                            paste0("missing ",x,"%", sep = " ")))
+      
+      
+      
+      
+      df_1<-purrr::map2(df_1,df,function(x,y){setNames(x,y)})
+      df_1<-purrr::map2(df_1,df_2,function(x,y)cbind(x,y))
+      df_1<-purrr::map(df_1,function(x)x[!is.na(x$rank),])
+    }
     rating_scale = scale_fill_manual(name="Ranked Intensity",
                                      values=c(
                                        'high'='#2ca25f', 'medium'='#99d8c9',
@@ -815,44 +969,44 @@ upMV <- function(df_,condition,N,plot_multiple=FALSE){
                                              
     )+ggtitle(paste0(x$sample_name[1])))
     check1<-upset(df_1[[1]],names(df_1[[1]]),min_degree=1,
-                                             set_sizes=FALSE,
-                                             guides='collect',
-                                             n_intersections=N,
-                                             
-                                             stripes='white',
-                                             base_annotations=list(
-                                               '# of Replicates'=intersection_size(
-                                                 counts=TRUE,
-                                               )
-                                             ),
-                                             annotations =list(
-                                               "Ranked Intensity  "=list(
-                                                 aes=aes(x=intersection, fill=df_1[[1]]$rank),
-                                                 
-                                                 geom=list(
-                                                   geom_bar(stat='count', position='fill', na.rm=TRUE),
-                                                   themes=theme(legend.position="bottom", legend.box = "horizontal"),
-                                                   geom_text(
-                                                     aes(
-                                                       label=!!aes_percentage(relative_to='intersection'),
-                                                       color=ifelse(!is.na(rank), 'show', 'hide')
-                                                     ),
-                                                     stat='count',
-                                                     position=position_fill(vjust = .5),
-                                                     
-                                                   ),
-                                                   
-                                                   scale_y_continuous(labels=scales::percent_format()),
-                                                   show_hide_scale,
-                                                   rating_scale
-                                                   
-                                                 )
-                                               )
-                                             )
-                                             
+                  set_sizes=FALSE,
+                  guides='collect',
+                  n_intersections=N,
+                  
+                  stripes='white',
+                  base_annotations=list(
+                    '# of Replicates'=intersection_size(
+                      counts=TRUE,
+                    )
+                  ),
+                  annotations =list(
+                    "Ranked Intensity  "=list(
+                      aes=aes(x=intersection, fill=df_1[[1]]$rank),
+                      
+                      geom=list(
+                        geom_bar(stat='count', position='fill', na.rm=TRUE),
+                        themes=theme(legend.position="bottom", legend.box = "horizontal"),
+                        geom_text(
+                          aes(
+                            label=!!aes_percentage(relative_to='intersection'),
+                            color=ifelse(!is.na(rank), 'show', 'hide')
+                          ),
+                          stat='count',
+                          position=position_fill(vjust = .5),
+                          
+                        ),
+                        
+                        scale_y_continuous(labels=scales::percent_format()),
+                        show_hide_scale,
+                        rating_scale
+                        
+                      )
+                    )
+                  )
+                  
     )+ggtitle(paste0(df_1[[1]]$sample_name[1]))
-   y<-get_legend(check1$patches$plots[[1]])
-   
+    y<-get_legend(check1$patches$plots[[1]])
+    
     P<-ggarrange(plotlist=check,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
     print(P)
   }else{
@@ -1981,7 +2135,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE){
     ggplot2::geom_point()+ ggplot2::ggtitle(paste(Df1$uniqueID[1],DF1$sample_name[1]))+
     ggplot2::xlab("Fitted Intensities")+ggplot2::ylab("Residuals")
   if(isTRUE(residuals)){
-  print(PLrs)
+    print(PLrs)
   }
   Tm_d<-round(round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1)-round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1),1)
   PLR_P1<-ggplot2::ggplot(Pred1, ggplot2::aes(x = C,y = fit,color=Treatment))+ggplot2::geom_point(Pred1, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +
@@ -2092,23 +2246,23 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE){
         bs_treated[i]<-sample(Pred2$I,n,replace=TRUE)
         mean_t[i]<-mean(bs_treated[i])
       }
-     mean_bs_v<-mean(mean_v)
-     mean_bs_t<-mean(mean_t)
-     bias_v<-mean_orig_v-mean_bs_v
-     bias_t<-mean_orig_t-mean_bs_t
-     
-     summary<-data.frame(uniqueID=rep(Pred$uniqueID[1],2),
-                         dataset=c(Pred$dataset[1],Pred2$dataset[1]),
-                         Orig_mean=c(mean_orig_v,mean_orig_t),
-                         BS_mean=c(mean_bs_v,mean_bs_t),
-                         bias_bs=c(bias_v,bias_t),
-                         sd_bs_v=sd(mean_v),
-                         sd_bs_t=sd(mean_t),
-                         CI_2.5_v=quantile(mean_v,0.025),
-                         CI_97.5_v=quantile(mean_v,0.975),
-                         CI_2.5_t=quantile(mean_t,0.025),
-                         CI_97.5_t=quantile(mean_t,0.975))
-                         
+      mean_bs_v<-mean(mean_v)
+      mean_bs_t<-mean(mean_t)
+      bias_v<-mean_orig_v-mean_bs_v
+      bias_t<-mean_orig_t-mean_bs_t
+      
+      summary<-data.frame(uniqueID=rep(Pred$uniqueID[1],2),
+                          dataset=c(Pred$dataset[1],Pred2$dataset[1]),
+                          Orig_mean=c(mean_orig_v,mean_orig_t),
+                          BS_mean=c(mean_bs_v,mean_bs_t),
+                          bias_bs=c(bias_v,bias_t),
+                          sd_bs_v=sd(mean_v),
+                          sd_bs_t=sd(mean_t),
+                          CI_2.5_v=quantile(mean_v,0.025),
+                          CI_97.5_v=quantile(mean_v,0.975),
+                          CI_2.5_t=quantile(mean_t,0.025),
+                          CI_97.5_t=quantile(mean_t,0.975))
+      
       
     }
   }
@@ -2962,7 +3116,7 @@ sigfit<-function(SigF,i,MD=FALSE){
 
 ###############################
 memory.limit(175921900000)#set for 16 GB RAM
-plan(multisession,workers=8)
+plan(multicore,workers=4)
 
 ##################################
 
@@ -3002,9 +3156,11 @@ f<- list.files(pattern='*_0.xlsx')
 # f<-"~/Cliff prot pep/Proteins.xlsx"
 # f<-"C:/Users/figue/OneDrive - Northeastern University/CETSA R/CP_Exploris_20200811_DMSOvsMEKi_carrier_FAIMS_PhiSDM_PEPTIDES.xlsx"
 
-df_raw <- read_cetsa("~/Cliff_new","~/Cliff_new/PSMs","_0",PSM=TRUE,Batch=FALSE)                                                              
+#df_raw <- read_cetsa("~/Cliff_new","~/Cliff_new/PSMs","_0",PSM=TRUE,Batch=FALSE)                                                              
 
- saveRDS(df_raw,"PSM_Cliff.rds")
+df_raw <- read_cetsa("~/Files/Scripts/Files/Proteins_Cliff","~/Files/Scripts/Files/PSMs_Cliff","_0",PSM=TRUE,Batch=FALSE)                                                              
+
+
 #new for PSMs
 #df_raw<-df_raw %>% dplyr::rename("sample_name"="Spectrum_File")
 #annotate protein data with missing values
@@ -3026,8 +3182,8 @@ df.temps<-df.t(10)
 # df.temps <- data.frame(temp_ref = c('126', '127N', '127C', '128N', '128C', '129N','129C', '130N', '130C', '131'), temperature = c(37.3, 40.6, 43.9, 47.2, 50.5, 53.8, 57.1, 60.4, 64, 67), stringsAsFactors = FALSE)
 #df.temps <- data.frame(temp_ref = c('126', '127N', '127C', '128N', '128C', '129N','129C', '130N', '130C', '131'), temperature = c(67, 64, 60.4, 57.1, 53.8, 50.5, 47.2, 43.9, 40.6, 37.3), stringsAsFactors = FALSE)
 #df.samples <- data.frame(sample_id = c('F1', 'F2', 'F3','F4'), sample_name = c('DMSO_1','DMSO_2', '655_1','655_2'), stringsAsFactors = FALSE)
-
-df.s <- function(data_path,n,rep_,bio_,vehicle_name,treated_name,Batch=FALSE,PSM=TRUE){#n is df_raw, rep is tech rep
+df_raw <- readRDS("~/Files/Scripts/Files/Proteins_Cliff/PSM_Cliff.rds")
+df.s <- function(data_path,n,rep_,bio_,vehicle_name,treated_name,Batch=FALSE,PSM=FALSE){#n is df_raw, rep is tech rep
   
   if(any(names(n)=="sample_name") & any(names(n)=="sample_id")){
     n<-n %>% dplyr::select(sample_id,sample_name) %>% unique(.)
@@ -3039,18 +3195,17 @@ df.s <- function(data_path,n,rep_,bio_,vehicle_name,treated_name,Batch=FALSE,PSM
   }
   if(isTRUE(Batch)){
     if (!isTRUE(PSM)){
-    f<-data_path
-    find<-c('[:upper:][[:digit:]]+')
-    check<-list()
-    check<-purrr::map(seq(f),function(x){
-      data.frame(sample_name= str_extract_all(names(read_xlsx(f[x]))[str_detect(names(read_xlsx(f[x])),"Abundance")],find)[[1]])
-    })
-    
-    df.samples<-data.frame(sample_name=data.frame(f),sample_id=dplyr::bind_rows(check) )
-    names(df.samples)<-c("sample_name","sample_id")
-    return(df.samples)
-    }
+      f<-data_path
+      find<-c('[:upper:][[:digit:]]+')
+      check<-list()
+      check<-purrr::map(seq(f),function(x){
+        data.frame(sample_name= str_extract_all(names(read_xlsx(f[x]))[str_detect(names(read_xlsx(f[x])),"Abundance")],find)[[1]])
+      })
       
+      df.samples<-data.frame(sample_name=data.frame(f),sample_id=dplyr::bind_rows(check) )
+      names(df.samples)<-c("sample_name","sample_id")
+      return(df.samples)
+    }
   }
   b<-2*rep_*bio_
   samples<-data.frame(sample_name=c(paste0(rep(as.factor(vehicle_name),rep_*bio_)),paste0(rep(as.factor(treated_name),rep_*bio_))),
@@ -3062,7 +3217,7 @@ df.s <- function(data_path,n,rep_,bio_,vehicle_name,treated_name,Batch=FALSE,PSM
   samples$sample_name<-as.factor(samples$sample_name)
   return(samples)
 }
-df.samples<-df.s(f,df_raw,3,2,"DMSO","TREATED",Batch=TRUE)
+df.samples<-df.s(f,df_raw,3,2,"DMSO","TREATED",Batch=TRUE,PSM=TRUE)
 
 #Convert to MSStatsTMT
 
@@ -3079,8 +3234,8 @@ editPSMs2$Condition<-ifelse(editPSMs2$Channel=="126","Norm",0)
 editPSMs2$BioReplicate<-ifelse(str_detect(editPSMs2$Run,"DMSO")=="TRUE","vehicle","treated")
 editPSMs2<-editPSMs2 %>% 
   dplyr::mutate(Mixture=paste0(ifelse(str_detect(Run,"NOcarrier"),"nC",ifelse(str_detect(Run,"carrier"),"C",NA)),'_',
-                                   ifelse(str_detect(Run,"NO_FAIMS"),"nF",ifelse(str_detect(Run,"r_FAIMS"),"F",NA)),'_',
-                                   ifelse(str_detect(Run,"S_eFT"),"E",ifelse(str_detect(Run,"S_Phi"),"S",NA))))
+                               ifelse(str_detect(Run,"NO_FAIMS"),"nF",ifelse(str_detect(Run,"r_FAIMS"),"F",NA)),'_',
+                               ifelse(str_detect(Run,"S_eFT"),"E",ifelse(str_detect(Run,"S_Phi"),"S",NA))))
 
 editPSMs2$TechRepMixture<-1
 editPSMs2<-editPSMs2 %>% dplyr::select(ProteinName,PeptideSequence,Charge,PSM,Mixture,TechRepMixture,Run,Channel,Condition,BioReplicate,Intensity)
@@ -3107,8 +3262,8 @@ df_clean$dataset<-ifelse(df_clean$CC==0,"vehicle","treated")
 
 
 df_clean$sample_name<-paste0(ifelse(str_detect(df_clean$sample_name,"NOcarrier")==TRUE,"nC",ifelse(str_detect(df_clean$sample_name,"carrier")==TRUE,"C",NA)),'_',
-                                                      ifelse(str_detect(df_clean$sample_name,"NO_FAIMS")==TRUE,"nF",ifelse(str_detect(df_clean$sample_name,"r_FAIMS")==TRUE,"F",NA)),'_',
-                                                      ifelse(str_detect(df_clean$sample_name,"S_eFT")==TRUE,"E",ifelse(str_detect(df_clean$sample_name,"S_Phi")==TRUE,"S",NA)))
+                             ifelse(str_detect(df_clean$sample_name,"NO_FAIMS")==TRUE,"nF",ifelse(str_detect(df_clean$sample_name,"r_FAIMS")==TRUE,"F",NA)),'_',
+                             ifelse(str_detect(df_clean$sample_name,"S_eFT")==TRUE,"E",ifelse(str_detect(df_clean$sample_name,"S_Phi")==TRUE,"S",NA)))
 df_<-df_clean %>%
   dplyr::ungroup() %>% 
   dplyr::group_split(sample_name)#split by method development parameters before curve fitting
@@ -3124,7 +3279,11 @@ df_<-df_clean %>% dplyr::rename("sample_id"="sample")%>%
   dplyr::select(-missing_pct,-value,-missing,-rank)
 df_<-df_raw%>% dplyr::right_join(df_,by=c("Accession","sample_id"))
 
-listUP<-upMV(df_,"C_F_S",5,plot_multiple=TRUE)
+########only for PSM data
+
+saveRDS(df_raw,"PSM_Cliff.rds")
+##
+listUP<-upMV(df_,"C_F_S",5,plot_multiple=TRUE,PSMs=TRUE)
 pdf("UpsetMV.pdf",pointsize= 14)
 listUP[[1]]
 
@@ -3198,7 +3357,7 @@ PlotTrilinear<-function(df_norm,target){
   res<-tlf(tlresults,DFN,APfilt=FALSE,PF=FALSE)
   i=which(res[[1]]$uniqueID %in% target)
   plotTL1<-tlCI(i,res[[1]],res[[2]],res[[3]],overlay=TRUE,residuals=FALSE)
-
+  
   return(list(plotTL1))
 }
 
