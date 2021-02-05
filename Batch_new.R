@@ -146,7 +146,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,PSM=FALSE,Batch=TR
     return(df2)
   }else{
     i<-1
-    file.list<-g
+    file.list<-f
     df2<-list()
     df<-list()
     df2[[i]]<-data.frame()
@@ -891,162 +891,10 @@ upPSM_SN<-function(df_){
   return(print(P))
   
 }
-listUP<-upPSM_SN(df_raw)
-
-upPSM_SN<-function(df_){
-  
-  df_ <-df_ %>% dplyr::mutate(CC=ifelse(stringr::str_detect(Spectrum_File,"DMSO")==TRUE,0,1))#concentration values are defined in uM
-  
-  df_$dataset<-ifelse(df_$CC==0,"vehicle","treated")
-  
-  
-  df_$sample_name<-paste0(ifelse(str_detect(df_$Spectrum_File,"NOcarrier")==TRUE,"nC",ifelse(str_detect(df_$Spectrum_File,"carrier")==TRUE,"C",NA)),'_',
-                          ifelse(str_detect(df_$Spectrum_File,"NO_FAIMS")==TRUE,"nF",ifelse(str_detect(df_$Spectrum_File,"r_FAIMS")==TRUE,"F",NA)),'_',
-                          ifelse(str_detect(df_$Spectrum_File,"S_eFT")==TRUE,"E",ifelse(str_detect(df_$Spectrum_File,"S_Phi")==TRUE,"S",NA)))
-  df_<-df_%>% dplyr::rename("uniqueID"="Accession","I"="value","C"="temp_ref","S_N"="Average_Reporter_S/N","PEP"="Percolator_PEP",
-                            "Missed_Cleavages"="#_Missed_Cleavages","DeltaM"="DeltaM_[ppm]","IonInjTime"="Ion_Inject_Time_[ms]",
-                            "I_Interference"="Isolation_Interference_[%]")
-  
-  
-  #saveRDS(df_,"df_raw_PSMs_Cliff.rds")
-  df_1<-dplyr::bind_rows(df_)
-  df_1$uniqueID<-as.factor(df_1$uniqueID)
-  df_1$dataset<-as.factor(df_1$dataset)
-  df_1$sample_name<-as.factor(df_1$sample_name)
-  df_1<-df_1%>% 
-    dplyr::group_split(uniqueID,sample_id,Annotated_Sequence)
-  df_1<-purrr::map(df_1,function(x) x %>% dplyr::mutate(missing_pct=(sum(100*is.na(x$I))/length(x$I))) %>% head(.,1)) 
-  df_1<-dplyr::bind_rows(df_1)
-  
-  rank<-df_1 %>% dplyr::filter(C=="126") %>% dplyr::mutate(rank=dplyr::ntile(I,3)) %>% 
-    dplyr::select("uniqueID","dataset","sample_name","rank","Annotated_Sequence")
-  df_1<-df_1 %>% dplyr::right_join(rank,by=c("uniqueID","dataset","sample_name","Annotated_Sequence"))
-  df_1$SNrank<-dplyr::ntile(df_1$S_N,3)
-  minSNrank<-min(df_1[df_1$SNrank==3,'S_N'],na.rm=TRUE)
-  maxSNrankL<-max(df_1[df_1$SNrank==1,'S_N'],na.rm=TRUE)
-  low<-paste0("low"," < ",as.character(maxSNrankL))
-  medium<-"medium"
-  high<-paste0("high"," > ",as.character(minSNrank))
-  df_1<-df_1 %>% dplyr::mutate(rank=ifelse(df_1$rank==1,"low",ifelse(df_1$rank==2,"medium","high")),
-                               SNrank=ifelse(df_1$SNrank==3,"high",ifelse(df_1$SNrank==2,"medium","low")))
-  
-  df_1$rank<-factor(df_1$rank,levels=c("high","medium","low"))
-  df_1$SNrank<-factor(df_1$SNrank,levels=c("high","medium","low"))
-  df_1$missing_pct<-round(df_1$missing_pct,1)
-  df_1$DeltaM<-round(df_1$DeltaM,1)
-  df_1<-df_1%>% 
-    dplyr::group_split(sample_id)
-  df_1<-purrr::map(df_1,function(x)
-    pivot_wider(x,names_from=c(Charge),values_from=Charge,values_fill=NA) %>%
-      dplyr::select(-uniqueID,-Spectrum_File,-Annotated_Sequence,-IonInjTime,-Missed_Cleavages,-S_N,-sample_id,-dataset,-C,-CC,-DeltaM,-PEP,-Modifications,-I_Interference,-missing_pct,-XCorr,-I,-Protein_value))
-  
-  df_2<-purrr::map(df_1,function(x) x %>% dplyr::select(SNrank,sample_name))
-  df_1<-purrr::map(df_1,function(x) 1+x[,sapply(x,class)=="numeric"])
-  df<-lapply(df_1,function(x) colnames(x))
-  df<-lapply(df,function(x) str_replace(x,x,
-                                        paste0("Charge: ","+",x, sep = " ")))
-  
-  
-  
-  
-  df_1<-purrr::map2(df_1,df,function(x,y){setNames(x,y)})
-  df_1<-purrr::map2(df_1,df_2,function(x,y)cbind(x,y))
-  df_1<-purrr::map(df_1,function(x)x[!is.na(x$SNrank),])
-  
-  
-  rating_scale = scale_fill_manual(name="Ranked S/N",
-                                   values=c("low" ='#fee6ce', "medium" ='#fdae6b', "high"  = '#e6550d'))
-  
-  show_hide_scale = scale_color_manual(values=c('show'='black', 'hide'='transparent'), guide=FALSE)
-  
-  check<-list()
-  check<- purrr::map(df_1,function(x)upset(x,names(x),
-                                           min_degree=1,
-                                           set_sizes=FALSE,
-                                           guides='collect',
-                                           n_intersections=N,
-                                           height_ratio = 0.7,
-                                           stripes='white',
-                                           base_annotations=list(
-                                             '# of PSMs'=intersection_size(
-                                               counts=TRUE,
-                                             )
-                                           ),
-                                           annotations =list(
-                                             "Bin %"=list(
-                                               aes=aes(x=intersection, fill=x$SNrank),
-                                               
-                                               geom=list(
-                                                 geom_bar(stat='count', position='fill', na.rm=TRUE,show.legend=FALSE),
-                                                 
-                                                 geom_text(
-                                                   aes(
-                                                     label=!!aes_percentage(relative_to='intersection'),
-                                                     color=ifelse(!is.na(x$SNrank), 'show', 'hide')
-                                                   ),
-                                                   stat='count',
-                                                   position=position_fill(vjust = .5),
-                                                   
-                                                 ),
-                                                 
-                                                 scale_y_continuous(labels=scales::percent_format()),
-                                                 show_hide_scale,
-                                                 rating_scale
-                                                 
-                                               )
-                                             )
-                                           )
-                                           
-  )+ggtitle(paste0(x$sample_name[1])))
-  check1<-upset(df_1[[1]],names(df_1[[1]]),min_degree=1,
-                set_sizes=FALSE,
-                guides='collect',
-                n_intersections=N,
-                
-                stripes='white',
-                base_annotations=list(
-                  '# of PSMs'=intersection_size(
-                    counts=TRUE,
-                  )
-                ),
-                annotations =list(
-                  "Ranked Intensity  "=list(
-                    aes=aes(x=intersection, fill=df_1[[1]]$SNrank),
-                    
-                    geom=list(
-                      geom_bar(stat='count', position='fill', na.rm=TRUE),
-                      themes=theme(legend.position="bottom", legend.box = "horizontal"),
-                      geom_text(
-                        aes(
-                          label=!!aes_percentage(relative_to='intersection'),
-                          color=ifelse(!is.na(df_1[[1]]$SNrank), 'show', 'hide')
-                        ),
-                        stat='count',
-                        position=position_fill(vjust = .5),
-                        
-                      ),
-                      
-                      scale_y_continuous(labels=scales::percent_format()),
-                      show_hide_scale,
-                      rating_scale
-                      
-                    )
-                  )
-                )
-                
-  )+ggtitle(paste0(df_1[[1]]$sample_name[1]))
-  y<-get_legend(check1$patches$plots[[1]])
-  data<-unlist(lapply(check,function(x) x$labels$title))
-  check<-check[order(data)]
-  P<-ggarrange(plotlist=check,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
-  
-  return(print(P))
-  
-}
-listUP<-upPSM_SN(df_raw)
+#listUP<-upPSM_SN(df_raw)
 #df_ is the input from df_norm which includes missing percentages
 #returns segmented data for vehicle and treated
-upMV <- function(df_,condition,N,plot_multiple=FALSE){
+upMV <- function(df_,condition,N,plot_multiple=FALSE,PSMs=FALSE){
   
   if(isTRUE(plot_multiple)){
     
@@ -1200,11 +1048,14 @@ upMV <- function(df_,condition,N,plot_multiple=FALSE){
       return(print(P))
       
     }else{
-      df_1$rank<-ifelse(df_1$rank==1,"high",ifelse(df_1$rank==2,"medium","low"))
-      df_1$rank<-factor(df_1$rank,levels=c("high","medium","low"))
+      df_1<-dplyr::bind_rows(df_)
+      df_1<-df_1%>% dplyr::rename("uniqueID"="Accession","I"="value","C"="temperature")
       df_1$uniqueID<-as.factor(df_1$uniqueID)
       df_1$dataset<-as.factor(df_1$dataset)
       df_1$sample_name<-as.factor(df_1$sample_name)
+      df_1$rank<-ifelse(df_1$rank==3,"high",ifelse(df_1$rank==2,"medium","low"))
+      df_1$rank<-factor(df_1$rank,levels=c("high","medium","low"))
+
       df_1<-df_1%>% 
         dplyr::group_split(uniqueID,sample_id)
       df_1<-lapply(df_1,function(x) x[1,]) 
@@ -1498,6 +1349,7 @@ upMV <- function(df_,condition,N,plot_multiple=FALSE){
     return(list(plot(p),plot(p2),plot(p3)))
   }
 }
+
 
 DLR<-function(d){
   #preallocate final result as a list
@@ -3425,6 +3277,187 @@ sigfit<-function(SigF,i,MD=FALSE){
   
 }
 
+#plot global histograms for variability 
+his_sp<-function(Df1,df.temps,MD=FALSE){
+  if(any(names(Df1)=="C")){
+    Df1<-dplyr::bind_rows(Df1) 
+    Df1<-Df1%>% dplyr::rename("temperature"="C")
+    
+  }
+  if(any(names(dplyr::bind_rows(Df1))=="sample_name.x")){
+    test<-dplyr::bind_rows(Df1) %>% dplyr::rename("sample_name"=ifelse(any(names(.)=="sample_name.x"),"sample_name.x","sample_name.y"))
+    test<-test%>% dplyr::select(Dataset,CV_pct,dataset,C,sample_name) %>% unique(.)
+    test<-test %>% dplyr::rename("temperature"="C")
+    test<-test %>% dplyr::left_join(df.temps,by="temperature")
+    
+    
+    test<-test %>% dplyr::mutate(carrier=ifelse(str_detect(test$sample_name,"NOcarrier"),"+ Carrier","- Carrier"),
+                                 FAIMS = ifelse(str_detect(test$sample_name,"NO_FAIMS"),"+ FAIMS","- FAIMS"),
+                                 Phi = ifelse(str_detect(test$sample_name,"PhiSDM"),"+ PhiSDM","- PhiSDM"))
+  }else{
+    test<-dplyr::bind_rows(Df1)
+    test<-test %>% unique(.)
+    if (any(names(test)=="C")){
+      test<-test %>% dplyr::rename("temperature"="C")
+    }
+    test<-test %>% dplyr::left_join(df.temps,by="temperature")
+  }
+  
+  
+  test<-test %>% dplyr::mutate(carrier=ifelse(str_detect(test$sample_name,"NOcarrier"),"+ Carrier","- Carrier"),
+                               FAIMS = ifelse(str_detect(test$sample_name,"NO_FAIMS"),"+ FAIMS","- FAIMS"),
+                               Phi = ifelse(str_detect(test$sample_name,"PhiSDM"),"+ PhiSDM","- PhiSDM"))
+  
+  if(isTRUE(MD)){
+    test$Dataset<-as.factor(test$Dataset)
+    
+    ggplot(test,aes(y=CV_pct,x=Dataset,fill=Dataset))+
+      facet_grid(c(~temperature,~carrier),scales="free_x")+
+      geom_violin(na.rm=TRUE,show.legend="FALSE",color=NA,aes(alpha=0.2))+theme_bw()+
+      geom_boxplot(width=0.1) +
+      ggplot2::ylab("RSD%")+
+      ggplot2::xlab("sample")+
+      theme(axis.title.x = element_text(face="bold",size="14",colour="white"),
+            axis.title.y = element_text(face="bold",size="14",colour="black"),
+            axis.text.x = element_text(angle = 90,face="bold",size="14",colour="black"),
+            axis.text.y = element_text(face="bold",size="14",colour="black"),
+            legend.text = element_text(face="bold",size="14",colour="black"),
+            legend.title = element_text(face="bold",size="14",colour="black"),
+            strip.text.x = element_text(size = 14, colour = "black"))+
+      ggplot2::ylim(0,200)
+  }else{  
+    
+    test$Dataset<-test$dataset
+    ggplot(test,aes(y=CV_pct,x=Dataset,fill=Dataset))+
+      facet_grid(~temperature)+
+      geom_violin(na.rm=TRUE,show.legend="FALSE",color=NA,aes(alpha=0.2))+theme_bw()+
+      geom_boxplot(width=0.1) +
+      ggplot2::ylab("RSD%")+
+      ggplot2::xlab("sample")+
+      theme(axis.title.x = element_text(face="bold",size="14",colour="white"),
+            axis.title.y = element_text(face="bold",size="14",colour="black"),
+            axis.text.x = element_text(angle = 90,face="bold",size="14",colour="black"),
+            axis.text.y = element_text(face="bold",size="14",colour="black"),
+            legend.text = element_text(face="bold",size="14",colour="black"),
+            legend.title = element_text(face="bold",size="14",colour="black"),
+            strip.text.x = element_text(size = 14, colour = "black"))+
+      ggplot2::ylim(0,200)
+    
+    
+  }
+}
+#plot global histograms for variability 
+Violin_panels<-function(df_raw,df.temps,MD=TRUE){
+  if(any(names(df_raw)=="C")){
+    Df1<-dplyr::bind_rows(df_raw) 
+    Df1<-Df1%>% dplyr::rename("temperature"="C")
+    
+  }
+  if(any(names(dplyr::bind_rows(Df1))=="sample_name.x")){
+    test<-dplyr::bind_rows(Df1) %>% dplyr::rename("sample_name"=ifelse(any(names(.)=="sample_name.x"),"sample_name.x","sample_name.y"))
+    test<-test%>% dplyr::select(Dataset,CV_pct,dataset,C,sample_name) %>% unique(.)
+    test<-test %>% dplyr::rename("temperature"="C")
+    test<-test %>% dplyr::left_join(df.temps,by="temperature")
+    test <-test %>% dplyr::mutate(CC=ifelse(stringr::str_detect(Spectrum_File,"DMSO")==TRUE,0,1))#concentration values are defined in uM
+    
+    test$dataset<-ifelse(test$CC==0,"vehicle","treated")
+    
+    
+    test$sample_name<-paste0(ifelse(str_detect(test$Spectrum_File,"NOcarrier")==TRUE,"nC",ifelse(str_detect(test$Spectrum_File,"carrier")==TRUE,"C",NA)),'_',
+                             ifelse(str_detect(test$Spectrum_File,"NO_FAIMS")==TRUE,"nF",ifelse(str_detect(test$Spectrum_File,"r_FAIMS")==TRUE,"F",NA)),'_',
+                             ifelse(str_detect(test$Spectrum_File,"S_eFT")==TRUE,"E",ifelse(str_detect(test$Spectrum_File,"S_Phi")==TRUE,"S",NA)))
+    test<-test %>% dplyr::rename("uniqueID"="Accession","I"="value","C"="temp_ref","S_N"="Average_Reporter_S/N","PEP"="Percolator_PEP",
+                                 "Missed_Cleavages"="#_Missed_Cleavages","DeltaM"="DeltaM_[ppm]","IonInjTime"="Ion_Inject_Time_[ms]",
+                                 "I_Interference"="Isolation_Interference_[%]")
+    
+    
+  }else{
+    test<-df_raw
+    test<-test %>% dplyr::left_join(df.temps,by="temp_ref")
+    test <-test %>% dplyr::mutate(CC=ifelse(stringr::str_detect(Spectrum_File,"DMSO")==TRUE,0,1))#concentration values are defined in uM
+    
+    test$dataset<-ifelse(test$CC==0,"vehicle","treated")
+    
+    
+    test$sample_name<-paste0(ifelse(str_detect(test$Spectrum_File,"NOcarrier")==TRUE,"nC",ifelse(str_detect(test$Spectrum_File,"carrier")==TRUE,"C",NA)),'_',
+                             ifelse(str_detect(test$Spectrum_File,"NO_FAIMS")==TRUE,"nF",ifelse(str_detect(test$Spectrum_File,"r_FAIMS")==TRUE,"F",NA)),'_',
+                             ifelse(str_detect(test$Spectrum_File,"S_eFT")==TRUE,"E",ifelse(str_detect(test$Spectrum_File,"S_Phi")==TRUE,"S",NA)))
+    test<-test %>% dplyr::rename("uniqueID"="Accession","I"="value","C"="temp_ref","S_N"="Average_Reporter_S/N","PEP"="Percolator_PEP",
+                                 "Missed_Cleavages"="#_Missed_Cleavages","DeltaM"="DeltaM_[ppm]","IonInjTime"="Ion_Inject_Time_[ms]",
+                                 "I_Interference"="Isolation_Interference_[%]")
+    
+    
+    
+  }
+  
+  
+  if(isTRUE(MD)){
+    test$sample_name<-as.factor(test$sample_name)
+    
+    P<-ggplot(test,aes(y=I_Interference,x=sample_name,fill=sample_name))+
+      geom_violin(na.rm=TRUE,show.legend="FALSE",color=NA,aes(alpha=0.2))+theme_bw()+
+      scale_fill_brewer(palette = "Dark2") +
+      geom_boxplot(width=0.1) +
+      ggplot2::ylab("Isolation Interference (%)")+
+      ggplot2::xlab("Method")+
+      theme(axis.title.x = element_text(face="bold",size="14",colour="white"),
+            axis.title.y = element_text(face="bold",size="14",colour="black"),
+            axis.text.x = element_text(angle = 90,face="bold",size="14",colour="black"),
+            axis.text.y = element_text(face="bold",size="14",colour="black"),
+            legend.text = element_text(face="bold",size="14",colour="black"),
+            legend.title = element_text(face="bold",size="14",colour="black"),
+            strip.text.x = element_text(size = 14, colour = "black"))+
+      ggplot2::ylim(0,100)+
+      guides(fill=guide_legend(title="Method"))
+    P<-ggplot(test,aes(y=IonInjTime,x=sample_name,fill=sample_name))+
+      geom_violin(na.rm=TRUE,show.legend="FALSE",color=NA,aes(alpha=0.2))+theme_bw()+
+      scale_fill_brewer(palette = "Dark2") +
+      geom_boxplot(width=0.1) +
+      ggplot2::ylab("Ion Injection Time (ms)")+
+      ggplot2::xlab("Method")+
+      theme(axis.title.x = element_text(face="bold",size="14",colour="white"),
+            axis.title.y = element_text(face="bold",size="14",colour="black"),
+            axis.text.x = element_text(angle = 90,face="bold",size="14",colour="black"),
+            axis.text.y = element_text(face="bold",size="14",colour="black"),
+            legend.text = element_text(face="bold",size="14",colour="black"),
+            legend.title = element_text(face="bold",size="14",colour="black"),
+            strip.text.x = element_text(size = 14, colour = "black"))+
+      ggplot2::ylim(0,75)+
+      guides(fill=guide_legend(title="Method"))
+    P<-ggplot(test,aes(y=PEP,x=sample_name,fill=sample_name))+
+      geom_violin(na.rm=TRUE,show.legend="FALSE",color=NA,aes(alpha=0.2))+theme_bw()+
+      scale_fill_brewer(palette = "Dark2") +
+      geom_boxplot(width=0.1) +
+      ggplot2::ylab("PEP Score")+
+      ggplot2::xlab("Method")+
+      theme(axis.title.x = element_text(face="bold",size="14",colour="white"),
+            axis.title.y = element_text(face="bold",size="14",colour="black"),
+            axis.text.x = element_text(angle = 90,face="bold",size="14",colour="black"),
+            axis.text.y = element_text(face="bold",size="14",colour="black"),
+            legend.text = element_text(face="bold",size="14",colour="black"),
+            legend.title = element_text(face="bold",size="14",colour="black"),
+            strip.text.x = element_text(size = 14, colour = "black"))+
+      guides(fill=guide_legend(title="Method"))
+    P<-ggplot(test,aes(y=DeltaM,x=sample_name,fill=sample_name))+
+      geom_violin(na.rm=TRUE,show.legend="FALSE",color=NA,aes(alpha=0.2))+theme_bw()+
+      geom_boxplot(width=0.1) +
+      scale_fill_brewer(palette = "Dark2") +
+      ggplot2::ylab(expression(paste(Delta, " M (ppm)")))+
+      ggplot2::xlab("Method")+
+      theme(axis.title.x = element_text(face="bold",size="14",colour="white"),
+            axis.title.y = element_text(face="bold",size="14",colour="black"),
+            axis.text.x = element_text(angle = 90,face="bold",size="14",colour="black"),
+            axis.text.y = element_text(face="bold",size="14",colour="black"),
+            legend.text = element_text(face="bold",size="14",colour="black"),
+            legend.title = element_text(face="bold",size="14",colour="black"),
+            strip.text.x = element_text(size = 14, colour = "black"))+
+      ggplot2::ylim(-15,15)+
+      guides(fill=guide_legend(title="Method"))
+    
+  }
+}
+#CV<-his_sp(res_sp[[3]],df.temps,MD=FALSE)
+
 ###############################
 memory.limit(175921900000)#set for 16 GB RAM
 plan(multicore,workers=4)
@@ -3467,9 +3500,9 @@ f<- list.files(pattern='*_0.xlsx')
 # f<-"~/Cliff prot pep/Proteins.xlsx"
 # f<-"C:/Users/figue/OneDrive - Northeastern University/CETSA R/CP_Exploris_20200811_DMSOvsMEKi_carrier_FAIMS_PhiSDM_PEPTIDES.xlsx"
 
-#df_raw <- read_cetsa("~/Cliff_new","~/Cliff_new/PSMs","_0",PSM=TRUE,Batch=FALSE)                                                              
+df_raw <- read_cetsa("~/Cliff_new","~/Cliff_new/PSMs","_0",PSM=FALSE,Batch=FALSE)                                                              
 
-df_raw <- read_cetsa("~/Files/Scripts/Files/Proteins_Cliff","~/Files/Scripts/Files/PSMs_Cliff","_0",PSM=TRUE,Batch=FALSE)                                                              
+#df_raw <- read_cetsa("~/Files/Scripts/Files/Proteins_Cliff","~/Files/Scripts/Files/PSMs_Cliff","_0",PSM=TRUE,Batch=FALSE)                                                              
 
 
 #new for PSMs
@@ -3528,7 +3561,7 @@ df.s <- function(data_path,n,rep_,bio_,vehicle_name,treated_name,Batch=FALSE,PSM
   samples$sample_name<-as.factor(samples$sample_name)
   return(samples)
 }
-df.samples<-df.s(f,df_raw,3,2,"DMSO","TREATED",Batch=TRUE,PSM=TRUE)
+df.samples<-df.s(f,df_raw,3,2,"DMSO","TREATED",Batch=TRUE,PSM=FALSE)
 
 #Convert to MSStatsTMT
 
@@ -3580,21 +3613,16 @@ df_<-df_clean %>%
   dplyr::group_split(sample_name)#split by method development parameters before curve fitting
 df_norm <- purrr::map(df_,function(x) normalize_cetsa(x, df.temps$temperature,Batch=TRUE,filters=FALSE)) #normalizes according to Franken et. al. without R-squared filter
 
-df_norm1<-df_norm
 
 
-df_v<-df_norm %>% dplyr::filter(dataset=="vehicle")
-df_t<-df_norm %>% dplyr::filter(dataset=="treated")
 ###Generate upset plots for missing value data###
 df_<-df_clean %>% dplyr::rename("sample_id"="sample")%>%
   dplyr::select(-missing_pct,-value,-missing,-rank)
 df_<-df_raw%>% dplyr::right_join(df_,by=c("Accession","sample_id"))
 
-########only for PSM data
 
-saveRDS(df_raw,"PSM_Cliff.rds")
 ##
-listUP<-upMV(df_,"C_F_S",3,plot_multiple=TRUE,PSMs=TRUE)
+listUP<-upMV(df_,"C_F_S",5,plot_multiple=TRUE)
 pdf("UpsetSN.pdf",pointsize= 14,paper= "a4r", width = 0.001, height = 0.001,)
 P
 
