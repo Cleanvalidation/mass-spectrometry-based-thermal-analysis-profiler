@@ -61,12 +61,13 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,PSM=FALSE,Batch=TR
     df3<-data.frame()
     df2<-list()
     df.raw<-data.frame()
-    setwd(as.character(peptide_path))
+    
+    setwd(peptide_path)
     
     f<-list.files(peptide_path,pattern="PSMs")
     for ( i in seq(f)){
       #first get PSM file read
-      df.raw <- readxl::read_excel(path=f[i],.name_repair="unique")
+      df.raw <- read_excel(path=f[i])
       df2[[i]] <- df.raw%>%
         dplyr::select(names(df.raw)[stringr::str_detect(names(df.raw),'Master')],
                       tidyselect::starts_with('Abundance')|tidyselect::starts_with('1'),
@@ -761,7 +762,7 @@ upMV <- function(df_,condition,N,plot_multiple=FALSE,PSMs=FALSE){
                                 "I_Interference"="Isolation_Interference_[%]")
       
       
-      saveRDS(df_,"df_raw_PSMs_Cliff.rds")
+      #saveRDS(df_,"df_raw_PSMs_Cliff.rds")
       df_1<-dplyr::bind_rows(df_)
       df_1$uniqueID<-as.factor(df_1$uniqueID)
       df_1$dataset<-as.factor(df_1$dataset)
@@ -775,35 +776,40 @@ upMV <- function(df_,condition,N,plot_multiple=FALSE,PSMs=FALSE){
         dplyr::select("uniqueID","dataset","sample_name","rank","Annotated_Sequence")
       df_1<-df_1 %>% dplyr::right_join(rank,by=c("uniqueID","dataset","sample_name","Annotated_Sequence"))
       df_1$SNrank<-dplyr::ntile(df_1$S_N,3)
-      df_1$SNrank<-factor(df_1$SNrank,levels=c("high","medium","low"))
-      df_1<-df_1 %>% dplyr::mutate(rank=ifelse(df_1$rank==1,"high",ifelse(df_1$rank==2,"medium","low")),
-                                   SNrank=ifelse(df_1$SNrank==1,"high",ifelse(df_1$SNrank==2,"medium","low")))
+      minSNrank<-min(df_1[df_1$SNrank==3,'S_N'],na.rm=TRUE)
+      maxSNrankL<-max(df_1[df_1$SNrank==1,'S_N'],na.rm=TRUE)
+      low<-paste0("low"," < ",as.character(maxSNrankL))
+      medium<-"medium"
+      high<-paste0("high"," > ",as.character(minSNrank))
+      df_1<-df_1 %>% dplyr::mutate(rank=ifelse(df_1$rank==1,"low",ifelse(df_1$rank==2,"medium","high")),
+                                   SNrank=ifelse(df_1$SNrank==3,"high",ifelse(df_1$SNrank==2,"medium","low")))
       
+      df_1$rank<-factor(df_1$rank,levels=c("high","medium","low"))
+      df_1$SNrank<-factor(df_1$SNrank,levels=c("high","medium","low"))
       df_1$missing_pct<-round(df_1$missing_pct,1)
+      df_1$DeltaM<-round(df_1$DeltaM,1)
       df_1<-df_1%>% 
         dplyr::group_split(sample_id)
       df_1<-purrr::map(df_1,function(x)
-        pivot_wider(x,names_from=c(missing_pct),values_from=missing_pct,values_fill=NA) %>%
-          dplyr::select(-uniqueID,-Spectrum_File,-Annotated_Sequence,-IonInjTime,-Missed_Cleavages,-S_N,-sample_id,-dataset,-C,-CC,-DeltaM,-PEP,-Modifications,-I_Interference,-Charge,-XCorr,-I,-Protein_value))
+        pivot_wider(x,names_from=c(Charge),values_from=Charge,values_fill=NA) %>%
+          dplyr::select(-uniqueID,-Spectrum_File,-Annotated_Sequence,-IonInjTime,-Missed_Cleavages,-S_N,-sample_id,-dataset,-C,-CC,-DeltaM,-PEP,-Modifications,-I_Interference,-missing_pct,-XCorr,-I,-Protein_value))
       
       df_2<-purrr::map(df_1,function(x) x %>% dplyr::select(SNrank,sample_name))
       df_1<-purrr::map(df_1,function(x) 1+x[,sapply(x,class)=="numeric"])
       df<-lapply(df_1,function(x) colnames(x))
       df<-lapply(df,function(x) str_replace(x,x,
-                                            paste0("missing ",x,"%", sep = " ")))
+                                            paste0("Charge: ","+",x, sep = " ")))
       
       
       
       
-      check<-purrr::map2(df_1,df,function(x,y){setNames(x,y)})
+      df_1<-purrr::map2(df_1,df,function(x,y){setNames(x,y)})
       df_1<-purrr::map2(df_1,df_2,function(x,y)cbind(x,y))
       df_1<-purrr::map(df_1,function(x)x[!is.na(x$SNrank),])
       
+      
       rating_scale = scale_fill_manual(name="Ranked S/N",
-                                       values=c(
-                                         'high'='#2ca25f', 'medium'='#99d8c9',
-                                         'low'='#e5f5f9'
-                                       ))
+                                       values=c("low" ='#fee6ce', "medium" ='#fdae6b', "high"  = '#e6550d'))
       
       show_hide_scale = scale_color_manual(values=c('show'='black', 'hide'='transparent'), guide=FALSE)
       
@@ -884,8 +890,10 @@ upMV <- function(df_,condition,N,plot_multiple=FALSE,PSMs=FALSE){
                     
       )+ggtitle(paste0(df_1[[1]]$sample_name[1]))
       y<-get_legend(check1$patches$plots[[1]])
-      
+      data<-unlist(lapply(check,function(x) x$labels$title))
+      check<-check[order(data)]
       P<-ggarrange(plotlist=check,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
+      
       return(print(P))
       
     }else{
@@ -3182,7 +3190,7 @@ df.temps<-df.t(10)
 # df.temps <- data.frame(temp_ref = c('126', '127N', '127C', '128N', '128C', '129N','129C', '130N', '130C', '131'), temperature = c(37.3, 40.6, 43.9, 47.2, 50.5, 53.8, 57.1, 60.4, 64, 67), stringsAsFactors = FALSE)
 #df.temps <- data.frame(temp_ref = c('126', '127N', '127C', '128N', '128C', '129N','129C', '130N', '130C', '131'), temperature = c(67, 64, 60.4, 57.1, 53.8, 50.5, 47.2, 43.9, 40.6, 37.3), stringsAsFactors = FALSE)
 #df.samples <- data.frame(sample_id = c('F1', 'F2', 'F3','F4'), sample_name = c('DMSO_1','DMSO_2', '655_1','655_2'), stringsAsFactors = FALSE)
-df_raw <- readRDS("~/Files/Scripts/Files/Proteins_Cliff/PSM_Cliff.rds")
+
 df.s <- function(data_path,n,rep_,bio_,vehicle_name,treated_name,Batch=FALSE,PSM=FALSE){#n is df_raw, rep is tech rep
   
   if(any(names(n)=="sample_name") & any(names(n)=="sample_id")){
@@ -3283,9 +3291,9 @@ df_<-df_raw%>% dplyr::right_join(df_,by=c("Accession","sample_id"))
 
 saveRDS(df_raw,"PSM_Cliff.rds")
 ##
-listUP<-upMV(df_,"C_F_S",5,plot_multiple=TRUE,PSMs=TRUE)
-pdf("UpsetMV.pdf",pointsize= 14)
-listUP[[1]]
+listUP<-upMV(df_,"C_F_S",3,plot_multiple=TRUE,PSMs=TRUE)
+pdf("UpsetSN.pdf",pointsize= 14,paper= "a4r", width = 0.001, height = 0.001,)
+P
 
 dev.off()
 
