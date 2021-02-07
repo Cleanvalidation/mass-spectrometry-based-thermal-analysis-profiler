@@ -146,7 +146,8 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,PSM=FALSE,Batch=TR
     return(df2)
   }else{
     i<-1
-    file.list<-f
+
+    file.list<-list.files(protein_path,pattern=Prot_Pattern)
     df2<-list()
     df<-list()
     df2[[i]]<-data.frame()
@@ -176,7 +177,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,PSM=FALSE,Batch=TR
   if(isTRUE(Batch)){
     
     i=1
-    file.list<-f
+    file.list<-list.files(protein_path,pattern=Prot_Pattern)
     df<-vector("list",length(file.list))
     df[[i]]<-data.frame()
     for( i in seq(file.list)){
@@ -192,6 +193,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,PSM=FALSE,Batch=TR
                         temp_ref = stringr::str_extract_all(id,find),
                         missing=ifelse(is.na(value),1,0))
       }else{
+        
         df[[i]] <- df.raw %>%
           dplyr::select(Accession,tidyselect::starts_with('Abundance')) %>%
           tidyr::gather('id', 'value', -Accession) %>%
@@ -2434,7 +2436,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE){
 
 #Spline functions
 spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE){
-  
+  if(any(class(df)=="list")){
   df<-df %>% purrr::keep(function(x) is.data.frame(x))
   df1<-df1 %>% purrr::keep(function(x) is.data.frame(x))
   DF<-DF %>% purrr::keep(function(x) is.data.frame(x))
@@ -2442,7 +2444,7 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE){
   df<-dplyr::bind_rows(df)
   df1<-dplyr::bind_rows(df1)
   DF<-dplyr::bind_rows(DF)
-  
+  }
   #plot spline results
   
   df1$I<-as.numeric(as.vector(df1$I))
@@ -2494,7 +2496,8 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE){
                                                    CV_pct = .$CV_pct,
                                                    AUC = pracma::trapz(.$M1[[1]]$fit),
                                                    rsq=summary(x$M1[[1]])$r.sq,
-                                                   n = ifelse(any(class(dplyr::first(.$M1))=="gam"),1,0)))
+                                                   n = ifelse(any(class(dplyr::first(.$M1))=="gam"),1,0),
+                                                   sample_name=.$sample_name))
     #m<-lapply(m,function(x) x %>% dplyr::mutate(sig = ifelse(sum[[1]]$p.pv[[1]]<0.05,list(mgcv::gam(I ~ s(C,k=k_[[1]]-1), data = x , method = "REML")),"ns")))
     m1 <- purrr::map(df1,function(x)x %>% dplyr::mutate(M1 = list(try(mgcv::gam(I ~ s(C,k=5), data = x , method = "REML")))))
     m1<-m1 %>% purrr::keep(function(x)any(class(dplyr::first(x$M1))=="gam"))
@@ -2506,7 +2509,8 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE){
                                                      CV_pct = .$CV_pct,
                                                      AUC = pracma::trapz(.$M1[[1]]$fit),
                                                      rsq=summary(x$M1[[1]])$r.sq,
-                                                     n = ifelse(any(class(dplyr::first(.$M1))=="gam"),1,0)))
+                                                     n = ifelse(any(class(dplyr::first(.$M1))=="gam"),1,0),
+                                                     sample_name=.$sample_name))
     #m1<-lapply(df1,function(x) x %>% dplyr::mutate(sig = ifelse(sum[[1]]$p.pv[[1]]<0.05,list(mgcv::gam(I ~ s(C,k=k_[[1]]-1), data = x , method = "REML")),"ns")))
     
     
@@ -2520,7 +2524,8 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE){
                                                      CV_pct=.$CV_pct,
                                                      AUC = pracma::trapz(.$M1[[1]]$fit),
                                                      rsq=summary(.$M1[[1]])$r.sq,
-                                                     n = ifelse(any(class(dplyr::first(.$M1))=="gam"),1,0)))
+                                                     n = ifelse(any(class(dplyr::first(.$M1))=="gam"),1,0),
+                                                     sample_name=.$sample_name))
     #mn<-lapply(mn,function(x) x %>% dplyr::mutate(sig = ifelse(sum[[1]]$p.pv[[1]]<0.05,list(mgcv::gam(I ~ s(C,k=k_[[1]]-1), data = x , method = "REML")),"ns")))
     #convert to df and split by uniqueID 
     mean1<-dplyr::bind_rows(m)
@@ -2671,7 +2676,12 @@ spf<-function(spresults,DFN,filters = TRUE){
     df2<-dplyr::bind_rows(DFN)  
     df2$C<-as.numeric(as.vector(df2$C)) 
     df2$I<-as.numeric(as.vector(df2$I))  
+    if(any(names(sp) %in% c("missing.x","LineRegion","N"))){
     df2<-sp %>% left_join(df2, by = c("uniqueID"="uniqueID","dataset"="dataset","C"="C","I"="I","CC"="CC","sample_name"="sample_name","LineRegion"="LineRegion","missing.x"="missing.x","missing_pct"="missing_pct","rank"="rank","N"="N","n"="n")) 
+    
+    }else{
+      df2<-sp %>% left_join(df2, by = c("uniqueID"="uniqueID","dataset"="dataset","C"="C","I"="I","CC"="CC","sample_name"="sample_name","missing_pct"="missing_pct","rank"="rank"))  
+    }
     Df1<-spresults
   }else{
     #Apply filters 
@@ -2703,9 +2713,12 @@ spf<-function(spresults,DFN,filters = TRUE){
     df2<-dplyr::bind_rows(DFN) 
     df2$C<-as.numeric(as.vector(df2$C))
     df2$I<-as.numeric(as.vector(df2$I))
-    df2<-sp %>% 
-      left_join(df2, by = c("uniqueID"="uniqueID","dataset"="dataset","C"="C","I"="I","CC"="CC","sample_name"="sample_name","LineRegion"="LineRegion","missing.x"="missing.x")) %>% 
-      dplyr::rename("missing"="missing.x")
+    if(any(names(sp) %in% c("missing.x","LineRegion","N"))){
+      df2<-sp %>% left_join(df2, by = c("uniqueID"="uniqueID","dataset"="dataset","C"="C","I"="I","CC"="CC","sample_name"="sample_name","LineRegion"="LineRegion","missing.x"="missing.x","missing_pct"="missing_pct","rank"="rank","N"="N","n"="n")) 
+      
+    }else{
+      df2<-sp %>% left_join(df2, by = c("uniqueID"="uniqueID","dataset"="dataset","C"="C","I"="I","CC"="CC","sample_name"="sample_name","missing_pct"="missing_pct","rank"="rank"))  
+    }
     Df1<-spresults[sp$id]
   }
   ret<-list()
@@ -2714,12 +2727,9 @@ spf<-function(spresults,DFN,filters = TRUE){
   ret[[3]]<-Df1
   return(ret)
 }
-rmvn <- function(n, mu, sig) { ## MVN random deviates
-  L <- mroot(sig)
-  m <- ncol(L)
-  t(mu + L %*% matrix(rnorm(m*n), m, n))
-}
-spCI<-function(i,df1,df2,Df1,overlay=TRUE,alpha){
+
+spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulations=FALSE){
+  df.temps<-length(unique(df.temps$temperature))
   null<-data.frame()
   i<-i
   
@@ -2784,7 +2794,7 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE,alpha){
   
   #get some parmeters
   Vb <- vcov(m)
-  newd <- with(BSVar, data.frame(C = seq(min(C), max(C), length = 20)))%>% as.data.frame(.)
+  newd <- with(BSVar, data.frame(C = seq(min(C), max(C), length = 30)))%>% as.data.frame(.)
   pred <- predict(m, newd, se.fit = TRUE)%>% as.data.frame(.)
   se.fit <- pred$se.fit
   #get some parmeters
@@ -2795,10 +2805,24 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE,alpha){
   #generate std
   set.seed(42)
   N <- 1000
-  #sample n from mvn dist
+  #sample n from mvn dist: generates random multivariate normal deviates
   BUdiff <- mgcv::rmvn(N, mu = rep(0, nrow(Vb)), Vb )
-  #sample n from mvn dist
+  #sample n from mvn dist generates random multivariate normal deviates
   BUdiff1<-  mgcv::rmvn(N, mu = rep(0, nrow(Vb1)),Vb1)
+  #random sampling######################################
+  Cg <- predict(m, newd, type = "lpmatrix")
+  fits <- Cg %*% t(BUdiff)
+  nrnd <- 30 #30 random samples
+  rnd <- sample(N, nrnd)
+  stackFits <- stack(as.data.frame(fits[, rnd]))
+  stackFits <- transform(stackFits, C = rep(newd$C, length(rnd)))
+ #simulations for treated
+  Cg1 <- predict(m1, newd1, type = "lpmatrix")
+  fits1 <- Cg1 %*% t(BUdiff1)
+  nrnd1 <- 30 #30 random samples
+  rnd1 <- sample(N, nrnd1)
+  stackFits1 <- stack(as.data.frame(fits1[, rnd1]))
+  stackFits1 <- transform(stackFits1, C = rep(newd1$C, length(rnd1)))
   #calculate deviation
   Cg <- predict(m, newd, type = "lpmatrix")
   simDev <- Cg %*% t(BUdiff)
@@ -2882,36 +2906,43 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE,alpha){
   fitted.values1<-data.frame(C=BSVar1$M1[[1]]$model$C,fit=predict.gam(BSVar1$M1[[1]],se.fit=TRUE))
   names(fitted.values1)<-c("C","fit","se.fit")
   #append missing value data
+  if(length(unique(miss_v$C))==10){
   BSVar$missing_v<-rep(max(miss_v$missing_pct,na.rm=TRUE),nrow(BSVar))
   BSVar$missing_t<-rep(max(miss_t$missing_pct,na.rm=TRUE),nrow(BSVar))
+  }else{
+    BSVar$missing_v<-rep((100*(df.temps-length(unique(miss_v$C)))/df.temps),nrow(BSVar))
+    BSVar$missing_t<-rep((100*(df.temps-length(unique(miss_t$C)))/df.temps),nrow(BSVar))
+  }
   #append Tm values on predicted data
   pred1$Tm<-round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1)-round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1)
-  
-  PLrs<-ggplot2::ggplot(Preds, ggplot2::aes(x =fit,y = rn,color=dataset)) +ggplot2::geom_point()+ 
-    ggplot2::ggtitle(paste(Df1[[i]]$uniqueID[1]," ",Df1[[i]]$dataset[1]))+ggplot2::xlab("Fitted Intensities")+ggplot2::ylab("Residuals")
-  print(PLrs)
+  if(isTRUE(residuals)){
+    PLrs<-ggplot2::ggplot(Preds, ggplot2::aes(x =fit,y = rn,color=dataset)) +ggplot2::geom_point()+ 
+      ggplot2::ggtitle(paste(Df1[[i]]$uniqueID[1]," ",Df1[[i]]$sample_name[1]))+ggplot2::xlab("Fitted Intensities")+ggplot2::ylab("Residuals")
+    print(PLrs)
+  }
   plot1<-ggplot2::ggplot(BSVar,ggplot2::aes(x =C,y = I,color=dataset))+
     ggplot2::geom_point(BSVar,mapping=ggplot2::aes(x=C,y=I,color = dataset))+
     ggplot2::geom_ribbon(data.frame(pred),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2 ) +
-    ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::ggtitle(c(as.character(df1),"alternative"))+
+    ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::ggtitle(c(as.character(df1)," "))+
     # ggplot2::annotate("text", x=50, y=1, label= paste("missing values: vehicle",vmissing[1]))+
     # ggplot2::annotate("text", x=50, y=0.9, label= paste("missing values treated",BSvar1$Dataset.x[1],":",tmissing[1]))                    
-    ggplot2::annotate("text", x=min(BSVar$C)+5, y=min(BSVar$I,na.rm=TRUE)+0.55, label= paste("\u03A3","RSS= ", abs(pred1$RSS[1])))+
-    ggplot2::annotate("text", x=min(BSVar$C)+5, y=min(BSVar$I,na.rm=TRUE)+0.45, label=  paste("\u0394", "AUC = ",pred1$AUC[1]))+
-    ggplot2::annotate("text", x=min(BSVar$C)+5, y=min(BSVar$I,na.rm=TRUE)+0.35, label= paste("\u0394","Tm = ",round(pred1$Tm[1],1),"\u00B0C"))+ 
-    ggplot2::annotate("text", x=min(BSVar$C)+5, y=min(BSVar$I)+0.25, label= paste("missing vehicle",round(BSVar$missing_v[1],0),"%"))+ 
-    ggplot2::annotate("text", x=min(BSVar$C)+5, y=min(BSVar$I)+0.15, label= paste("missing treated",round(BSVar$missing_t[1],0),"%"))+
+    ggplot2::annotate("text", x=min(BSVar$C)+5, y=min(BSVar$I,na.rm=TRUE)+0.75, label= paste("\u03A3","RSS= ", abs(pred1$RSS[1])))+
+    ggplot2::annotate("text", x=min(BSVar$C)+5, y=min(BSVar$I,na.rm=TRUE)+0.65, label=  paste("\u0394", "AUC = ",pred1$AUC[1]))+
+    ggplot2::annotate("text", x=min(BSVar$C)+5, y=min(BSVar$I,na.rm=TRUE)+0.55, label= paste("\u0394","Tm = ",round(pred1$Tm[1],1),"\u00B0C"))+ 
+    ggplot2::annotate("text", x=min(BSVar$C)+5, y=min(BSVar$I)+0.35, label= paste("missing vehicle",round(BSVar$missing_v[1],0),"%"))+ 
+    ggplot2::annotate("text", x=min(BSVar$C)+5, y=min(BSVar$I)+0.25, label= paste("missing treated",round(BSVar$missing_t[1],0),"%"))+
     annotate("text",
              x = 2+round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
              y = 0.55,
              label=paste0(round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1)),
              colour="blue"
     )+
-    annotate("segment", x = min(fitted.values$C), xend = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1), y = 0.5, yend = 0.5,
+    annotate("segment", x = min(fitted.values$C), xend = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
+             y = 0.5, yend = 0.5,
              colour = "blue",linetype=2)+
-    annotate("segment", x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
+    annotate("segment", x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
+             xend = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
              colour = "blue",linetype=2)
-  
   
   plot<-plot1+
     ggplot2::geom_point(BSvar1,mapping=ggplot2::aes(x=C,y=I,color = dataset))+
@@ -2928,7 +2959,15 @@ spCI<-function(i,df1,df2,Df1,overlay=TRUE,alpha){
              colour = "red",linetype=2)+
     annotate("segment", x = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
              colour = "red",linetype=2)
-  
+  if(isTRUE(simulations)){
+    plot<-plot+
+      geom_path(lwd = 2) +
+      geom_path(data = stackFits, mapping = aes(y = values, x = C, group = ind),
+                alpha = 0.4, colour = "#91bfdb") +
+      geom_path(data = stackFits1, mapping = aes(y = values, x = C, group = ind),
+                alpha = 0.4, colour = "#fa9fb5") 
+    
+  }
   print(plot)  
 }
 
@@ -3623,12 +3662,12 @@ df_<-df_raw%>% dplyr::right_join(df_,by=c("Accession","sample_id"))
 
 ##
 listUP<-upMV(df_,"C_F_S",5,plot_multiple=TRUE)
-pdf("UpsetSN.pdf",pointsize= 14,paper= "a4r", width = 0.001, height = 0.001,)
-P
+pdf("UpsetMV.pdf",pointsize= 14,paper= "a4r", width = 0.001, height = 0.001,)
+listUP
 
 dev.off()
 
-
+df_norm1<-df_norm
 df_norm<-purrr::map(df_norm1,function(x)x %>% dplyr::filter(uniqueID %in% c("P36507","Q02750")))
 
 
@@ -3715,22 +3754,27 @@ dev.off()
 #df2<-original data in order  
 #Df1 <- ordered spline results 
 ###############################
-#get spline results
-spresults<-list()
-spresults_PI<-list()
+plot_Splines<-function(x,Protein,df.temps){
+  
+  DFN<-x %>% dplyr::filter(uniqueID %in% as.character(Protein))
+  df_<-x %>% dplyr::filter(uniqueID %in% as.character(Protein),dataset=="vehicle")
+  df_1<-x %>% dplyr::filter(uniqueID %in% as.character(Protein),dataset=="treated")
+  #get spline results
+  spresults<-list()
+  spresults_PI<-list()
+  
+  spresults<-spstat(DFN,df_,df_1,Ftest=FALSE)
+  
+  res_sp<-spf(spresults,DFN,filters=FALSE)
+  #saveIDs filtered
+  saveRDS(res_sp[[1]]$uniqueID,"proteins_splines_no_filters_noFtest_CFE.rds")
+  saveRDS(res_sp[[3]],paste0("protein_data_splines",as.character(unique(res_sp[[3]][[1]]$sample_name[[1]])),".rds"))
+  i=which(res_sp[[1]]$uniqueID %in% Protein)
+  #generate 95%CI for splines
+  Pred1<-spCI(i,res_sp[[1]],res_sp[[2]],res_sp[[3]],df.temps,overlay=TRUE,alpha=0.05)
+}
+plotS <- purrr::map(df_norm,function(x) plot_Splines(x,"P36507",df.temps))
 
-spresults<-spstat(DFN,df_,df_1,Ftest=FALSE)
-
-res_sp<-spf(spresults,DFN,filters=FALSE)
-#saveIDs filtered
-saveRDS(res_sp[[1]]$uniqueID,"proteins_splines_no_filters_noFtest_CFE.rds")
-saveRDS(res_sp[[3]],paste0("protein_data_splines",as.character(unique(res_sp[[3]][[1]]$sample_name[[1]])),".rds"))
-i=which(res_sp[[1]]$uniqueID %in% "P36507")
-#generate 95%CI for splines
-Pred1<-spCI(i,res_sp[[1]],res_sp[[2]],res_sp[[3]],overlay=TRUE,alpha=0.05)
-i=which(res_sp[[1]]$uniqueID %in% "Q02750")
-#generate 95%CI for splines
-Pred2<-spCI(i,res_sp[[1]],res_sp[[2]],res_sp[[3]],overlay=TRUE,alpha=0.05)
 pdf("Target_curves_splines_CnFE.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
 Pred1
 Pred2
