@@ -2917,13 +2917,13 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
   pred1$Tm<-round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1)-round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1)
   if(isTRUE(residuals)){
     PLrs<-ggplot2::ggplot(Preds, ggplot2::aes(x =fit,y = rn,color=dataset)) +ggplot2::geom_point()+ 
-      ggplot2::ggtitle(paste(Df1[[i]]$uniqueID[1]," ",Df1[[i]]$sample_name[1]))+ggplot2::xlab("Fitted Intensities")+ggplot2::ylab("Residuals")
+      ggplot2::ggtitle(paste(Df1[[i]]$uniqueID[1]," ",df2$sample_name[1]))+ggplot2::xlab("Fitted Intensities")+ggplot2::ylab("Residuals")
     print(PLrs)
   }
   plot1<-ggplot2::ggplot(BSVar,ggplot2::aes(x =C,y = I,color=dataset))+
     ggplot2::geom_point(BSVar,mapping=ggplot2::aes(x=C,y=I,color = dataset))+
     ggplot2::geom_ribbon(data.frame(pred),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2 ) +
-    ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::ggtitle(c(as.character(df1)," "))+
+    ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+
     # ggplot2::annotate("text", x=50, y=1, label= paste("missing values: vehicle",vmissing[1]))+
     # ggplot2::annotate("text", x=50, y=0.9, label= paste("missing values treated",BSvar1$Dataset.x[1],":",tmissing[1]))                    
     ggplot2::annotate("text", x=min(BSVar$C)+5, y=min(BSVar$I,na.rm=TRUE)+0.75, label= paste("\u03A3","RSS= ", abs(pred1$RSS[1])))+
@@ -2958,7 +2958,7 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
     annotate("segment", x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), y = 0.5, yend = 0.5,
              colour = "red",linetype=2)+
     annotate("segment", x = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
-             colour = "red",linetype=2)
+             colour = "red",linetype=2)+ ggplot2::ggtitle(paste0(as.character(df1[1])," ",df2$sample_name[1]))
   if(isTRUE(simulations)){
     plot<-plot+
       geom_path(lwd = 2) +
@@ -3767,9 +3767,7 @@ plot_Splines<-function(x,Protein,df.temps){
   
   res_sp<-spf(spresults,DFN,filters=FALSE)
   #saveIDs filtered
-  saveRDS(res_sp[[1]]$uniqueID,"proteins_splines_no_filters_noFtest_CFE.rds")
-  saveRDS(res_sp[[3]],paste0("protein_data_splines",as.character(unique(res_sp[[3]][[1]]$sample_name[[1]])),".rds"))
-  i=which(res_sp[[1]]$uniqueID %in% Protein)
+  i<-which(res_sp[[1]]$uniqueID %in% Protein)
   #generate 95%CI for splines
   Pred1<-spCI(i,res_sp[[1]],res_sp[[2]],res_sp[[3]],df.temps,overlay=TRUE,alpha=0.05)
 }
