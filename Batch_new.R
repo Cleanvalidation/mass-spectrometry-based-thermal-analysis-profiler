@@ -2309,7 +2309,8 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE){
              x = 2+round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1),
              y = 0.55,
              label=paste0(round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1)),
-             colour="blue"
+             colour="blue",
+             size=3.5
     )+
     annotate("segment", x = min(Pred1$C), xend = round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1), y = 0.5, yend = 0.5,
              colour = "blue",linetype=2)+
@@ -2324,7 +2325,8 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE){
              x = 2+round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1),
              y = 0.55,
              label=paste0(round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1)),
-             colour="red"
+             colour="red",
+             size=3.5
     )+
     annotate("segment", x = round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), y = 0.5, yend = 0.5,
              colour = "red",linetype=2)+
@@ -2347,27 +2349,36 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE){
     miss_t<-data.frame(NA)
     miss_v<-DF1%>% dplyr::filter(dataset=="vehicle")
     miss_t<-DF1 %>% dplyr::filter(dataset=="treated")
-    Pred2$missing_v<-rep(round(miss_v$missing_pct[1],0),nrow(Pred2))
-    Pred2$missing_t<-rep(round(miss_t$missing_pct[1],0),nrow(Pred2))
+    if(length(unique(miss_v$C))==10){
+      Pred1$missing_v<-rep(max(miss_v$missing_pct,na.rm=TRUE),nrow(Pred1))
+    }else{
+      Pred1$missing_v<-rep((100*(df.temps-length(unique(miss_v$C)))/df.temps),nrow(Pred1))
+    }
+    if(length(unique(miss_t$C))==10){
+      Pred2$missing_t<-rep(max(miss_t$missing_pct,na.rm=TRUE),nrow(Pred2))
+    }else{
+      Pred2$missing_t<-rep((100*(df.temps-length(unique(miss_t$C)))/df.temps),nrow(Pred2))
+    }
     
-    Pred1$missing_v<-rep(miss_v$missing_pct[1],nrow(Pred1))
-    Pred1$missing_t<-rep(miss_t$missing_pct[1],nrow(Pred1))
-    
+    Pred1$missing_v<-round(Pred1$missing_v,0)
+    Pred2$missing_t<-round(Pred2$missing_t,0)
     
     PLR_P2<-PLR_P1+ggplot2::geom_point(Pred2, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +
       ggplot2::geom_ribbon(data=Pred2,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+
-      ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::ggtitle(paste(Df1$uniqueID[1],DF1$sample_name[1]))+
+      ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ 
+      ggplot2::ggtitle(paste(Df1$uniqueID[1],DF1$sample_name[1]))+
       ggplot2::annotate("text", x=min(Pred2$C)+5, y= 0.55, label= paste("\u03A3","RSS= ",round(sum(unlist(Df1[stringr::str_detect(tolower(Df1$dataset), pattern = "vehicle"),'rss']))+
-                                                                                                 sum(unlist(Df1[stringr::str_detect(tolower(Df1$dataset), pattern = "treated"),'rss'])),3)))+
-      ggplot2::annotate("text", x=min(Pred2$C)+5, y= 0.45, label=  paste("\u0394", "AUC = ",AUCd))+ 
-      ggplot2::annotate("text", x=min(Pred2$C)+5, y= 0.35, label= paste("\u0394","Tm = ",round(Tm_d,1),"\u00B0C"))+ 
-      ggplot2::annotate("text", x=min(Pred2$C)+5, y= 0.25, label= paste("missing vehicle",Pred2$missing_v[1],"%"))+ 
-      ggplot2::annotate("text", x=min(Pred2$C)+5, y= 0.15, label= paste("missing treated",Pred2$missing_t[1],"%"))+
+                                                                                                 sum(unlist(Df1[stringr::str_detect(tolower(Df1$dataset), pattern = "treated"),'rss'])),3)),size=3.5)+
+      ggplot2::annotate("text", x=min(Pred2$C)+5, y= 0.45, label=  paste("\u0394", "AUC = ",AUCd),size=3.5)+ 
+      ggplot2::annotate("text", x=min(Pred2$C)+5, y= 0.35, label= paste("\u0394","Tm = ",round(Tm_d,1),"\u00B0C"),size=3.5)+ 
+      ggplot2::annotate("text", x=min(Pred2$C)+5, y= 0.25, label= paste("missing  ",Pred1$missing_v[1],"%"),colour="#00BFC4",size=3.5)+ 
+      ggplot2::annotate("text", x=min(Pred2$C)+5, y= 0.15, label= paste("missing  ",Pred2$missing_t[1],"%"),colour="#F8766D",size=3.5)+
       annotate("text",
                x = 2+round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1),
                y = 0.55,
                label=paste0(round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1)),
-               colour="red"
+               colour="red",
+               size=3.5
       )+
       annotate("segment", x = round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), y = 0.5, yend = 0.5,
                colour = "red",linetype=2)+
@@ -2377,10 +2388,23 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE){
     par(mfrow=c(2,2))
     print(PLR_P2)
   }else if(overlay=="FALSE"){
+    miss_v<-data.frame(NA)
+    miss_t<-data.frame(NA)
     miss_v<-DF1%>% dplyr::filter(dataset=="vehicle")
     miss_t<-DF1 %>% dplyr::filter(dataset=="treated")
-    Pred2$missing_v<-rep(round(miss_v$missing_pct[1],0),nrow(Pred2))
-    Pred2$missing_t<-rep(round(miss_t$missing_pct[1],0),nrow(Pred2))
+    if(length(unique(miss_v$C))==10){
+      Pred1$missing_v<-rep(max(miss_v$missing_pct,na.rm=TRUE),nrow(Pred1))
+    }else{
+      Pred1$missing_v<-rep((100*(df.temps-length(unique(miss_v$C)))/df.temps),nrow(Pred1))
+    }
+    if(length(unique(miss_t$C))==10){
+      Pred2$missing_t<-rep(max(miss_t$missing_pct,na.rm=TRUE),nrow(Pred2))
+    }else{
+      Pred2$missing_t<-rep((100*(df.temps-length(unique(miss_t$C)))/df.temps),nrow(Pred2))
+    }
+    
+    Pred1$missing_v<-round(Pred1$missing_v,0)
+    Pred2$missing_t<-round(Pred2$missing_t,0)
     PLR<-PLR_P2+
       facet_wrap("Treatment") + 
       ggplot2::annotate("text", x=min(Pred$C), y=min(Pred2$I)+0.45, label= paste("missing % v",Pred2$missing_v[1]))+ 
@@ -2924,18 +2948,17 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
     ggplot2::geom_point(BSVar,mapping=ggplot2::aes(x=C,y=I,color = dataset))+
     ggplot2::geom_ribbon(data.frame(pred),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2 ) +
     ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+
-    # ggplot2::annotate("text", x=50, y=1, label= paste("missing values: vehicle",vmissing[1]))+
-    # ggplot2::annotate("text", x=50, y=0.9, label= paste("missing values treated",BSvar1$Dataset.x[1],":",tmissing[1]))                    
-    ggplot2::annotate("text", x=min(BSVar$C)+5, y=min(BSVar$I,na.rm=TRUE)+0.75, label= paste("\u03A3","RSS= ", abs(pred1$RSS[1])))+
-    ggplot2::annotate("text", x=min(BSVar$C)+5, y=min(BSVar$I,na.rm=TRUE)+0.65, label=  paste("\u0394", "AUC = ",pred1$AUC[1]))+
-    ggplot2::annotate("text", x=min(BSVar$C)+5, y=min(BSVar$I,na.rm=TRUE)+0.55, label= paste("\u0394","Tm = ",round(pred1$Tm[1],1),"\u00B0C"))+ 
-    ggplot2::annotate("text", x=min(BSVar$C)+5, y=min(BSVar$I)+0.35, label= paste("missing vehicle",round(BSVar$missing_v[1],0),"%"))+ 
-    ggplot2::annotate("text", x=min(BSVar$C)+5, y=min(BSVar$I)+0.25, label= paste("missing treated",round(BSVar$missing_t[1],0),"%"))+
+    ggplot2::annotate("text", x=min(BSVar$C)+5, y=min(BSVar$I,na.rm=TRUE)+0.43, label= paste("\u03A3","RSS= ", abs(pred1$RSS[1])),size=3.5)+
+    ggplot2::annotate("text", x=min(BSVar$C)+5, y=min(BSVar$I,na.rm=TRUE)+0.33, label=  paste("\u0394", "AUC = ",pred1$AUC[1]),size=3.5)+
+    ggplot2::annotate("text", x=min(BSVar$C)+5, y=min(BSVar$I,na.rm=TRUE)+0.23, label= paste("\u0394","Tm = ",round(pred1$Tm[1],1),"\u00B0C"),size=3.5)+ 
+    ggplot2::annotate("text", x=min(BSVar$C)+5, y=min(BSVar$I)+0.13, label= paste("missing",round(BSVar$missing_v[1],0),"%"),size=3.5,colour="#00BFC4")+ 
+    ggplot2::annotate("text", x=min(BSVar$C)+5, y=min(BSVar$I)+0.03, label= paste("missing",round(BSVar$missing_t[1],0),"%"),size=3.5,colour="#F8766D")+
     annotate("text",
              x = 2+round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
              y = 0.55,
              label=paste0(round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1)),
-             colour="blue"
+             colour="blue",
+             size=3.5
     )+
     annotate("segment", x = min(fitted.values$C), xend = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
              y = 0.5, yend = 0.5,
@@ -2953,12 +2976,14 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
                                               x = 2+round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1),
                                               y = 0.55,
                                               label=paste0(round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1)),
-                                              colour="red"
+                                              colour="red",
+                                              size=3.5
     )+
     annotate("segment", x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), y = 0.5, yend = 0.5,
              colour = "red",linetype=2)+
     annotate("segment", x = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
-             colour = "red",linetype=2)+ ggplot2::ggtitle(paste0(as.character(df1[1])," ",df2$sample_name[1]))
+             colour = "red",linetype=2)+ ggplot2::ggtitle(paste0(as.character(df1[1])," ",df2$sample_name[1]))+
+    ylim(-0.1,1.2)
   if(isTRUE(simulations)){
     plot<-plot+
       geom_path(lwd = 2) +
@@ -3770,8 +3795,15 @@ plot_Splines<-function(x,Protein,df.temps){
   i<-which(res_sp[[1]]$uniqueID %in% Protein)
   #generate 95%CI for splines
   Pred1<-spCI(i,res_sp[[1]],res_sp[[2]],res_sp[[3]],df.temps,overlay=TRUE,alpha=0.05)
+  
 }
 plotS <- purrr::map(df_norm,function(x) plot_Splines(x,"P36507",df.temps))
+
+y<-get_legend(plotS[[1]]$patches$plots[[1]])
+data<-unlist(lapply(plotS,function(x) x$labels$title))
+plotS<-plotS[order(data)]
+P<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
+
 
 pdf("Target_curves_splines_CnFE.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
 Pred1
