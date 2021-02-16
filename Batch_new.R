@@ -2633,8 +2633,10 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE){
       #make predictions,if the model fits
       rss0<-purrr::map2(rss0,mean3,function(x,y) x %>% dplyr::mutate(fit=list(mgcv::predict.gam(y$M1[[1]],newdata=data.frame(C=y$newdata[[1]]),se.fit=TRUE,newdata.guaranteed = TRUE))))
       rss1<-purrr::map(rss1,function(x) x %>% dplyr::mutate(fit_v=list(NA),fit_t=list(NA)))
-      rss1<-purrr::map2(rss1,mean1,function(x,y) x %>% dplyr::mutate(fit_v=list(try(mgcv::predict.gam(y$M1[[1]],newdata=data.frame(C=y$newdata[[1]]),se.fit=TRUE,newdata.guaranteed = TRUE)))))
-      rss1<-purrr::map2(rss1,mean1_1,function(x,y) x %>% dplyr::mutate(fit_t=list(try(mgcv::predict.gam(y$M1[[1]],newdata=data.frame(C=y$newdata[[1]]),se.fit=TRUE,newdata.guaranteed = TRUE)))))
+      rss1<-purrr::map2(rss1,mean1,function(x,y) x %>% dplyr::mutate(fit_v=list(ifelse(class(try(mgcv::predict.gam(y$M1[[1]],newdata=data.frame(C=y$newdata[[1]]),
+                                                                                                                   se.fit=TRUE,newdata.guaranteed = TRUE)))=='try-error',NA,
+                                                                                       mgcv::predict.gam(y$M1[[1]],newdata=data.frame(C=y$newdata[[1]]),se.fit=TRUE,newdata.guaranteed = TRUE)))))
+
       #bind predicted values to main data frame
       mean3<-purrr::map2(mean3,rss0,function(x,y)cbind(x,y))
       mean1<-purrr::map2(mean1,rss1,function(x,y)cbind(x,y))
@@ -2653,68 +2655,61 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE){
       d1<-purrr::map2(pA,pN,function(x,y)data.frame(d1=x$pA-y$pN0))
       d2<-purrr::map(pA,function(x)data.frame(d2=x$nA-x$pA))
      
-      
-       #DoF 'new_k' < k
-      d1<-purrr::map2(pA,pN,function(x,y)data.frame(d1=x$pA1-y$pN1))
-      d2<-purrr::map2(n1,pA,function(x,y)data.frame(d2=x$n1_1-y$pA1))
-      
       #delta RSS
-      rssDiff<-purrr::map2(rss0,rss1,function(x,y) x$RSS1-y$RSS1 %>% as.data.frame(.))
-      #bind rows
-      rssDiff<-dplyr::bind_rows(rssDiff)$.
+      rssDiff<-purrr::map2(rss0,rss1,function(x,y) data.frame(dRSS=x$RSS0-y$RSS ))
+      
       
       # rss0<-dplyr::bind_rows(rss0)$RSS1
       # rss1<-dplyr::bind_rows(rss1)$RSS1
-      d2<-dplyr::bind_rows(d2)$d2
-      d1<-dplyr::bind_rows(d1)$d1
-      #F-test
-      Fvals<-(rssDiff/rss1)*(d2/d1)
-      #append results to data
-      ResF<-purrr::map2(mean1,Fvals,function(x,y) x %>% dplyr::mutate(Fvals=y))
-      ResF<-purrr::map2(ResF,rss0,function(x,y) x %>% dplyr::mutate(rss0=y))
-      ResF<-purrr::map2(ResF,rss1,function(x,y) x %>% dplyr::mutate(rss1=y))
-      ResF<-purrr::map2(ResF,rssDiff,function(x,y) x %>% dplyr::mutate(rssDiff=y))
-      ResF<-purrr::map2(ResF,d1,function(x,y) x %>% dplyr::mutate(d1=y))
-      ResF<-purrr::map2(ResF,d2,function(x,y) x %>% dplyr::mutate(d2=y))
       
-      #convert to df
-      mean1<-dplyr::bind_rows(mean1)
-      ResF<-dplyr::bind_rows(ResF)
+      d2<-lapply(d2,function(x) x$d2[1])
+      d1<-lapply(d1,function(x) x$d1[1])
+      #RSS1 numerator
+      Fvals<-purrr::map2(rssDiff,d1,function(x,y) data.frame(fNum=x$dRSS/y[1]))
+      #Rss denominator
+      Fd<-purrr::map2(rss1,d2,function(x,y) data.frame(fDen=x$RSS/y[1]))
+      
+      Fvals<-purrr::map2(Fvals,Fd,function(x,y) data.frame(fStatistic=x$fNum/y$fDen))
+      Fvals<-purrr::map2(Fvals,d1,function(x,y) x %>% dplyr::mutate(df1=y[1]))
+      Fvals<-purrr::map2(Fvals,d2,function(x,y) x %>% dplyr::mutate(df2=y[1]))
+      Fvals<-purrr::map2(Fvals,rssDiff,function(x,y) cbind(x,y))
+      #add p-vals
+      Fvals<-purrr::map(Fvals,function(x) x %>% dplyr::mutate(pValue = 1 - pf(fStatistic, df1 = x$df1, df2 = x$df2),
+                                                              pAdj = p.adjust(pValue,"BH")))
+      Fvals<-purrr::map2(Fvals,mean1,function(x,y) x %>% dplyr::mutate(uniqueID=y$uniqueID[1]))
+      
+      
+      mean1<-purrr::map(mean1,function(x) x[!duplicated(names(x))])
+
       #convert results to list
-      testResults<-mean1 %>% dplyr::select(-M1,-sig)
-      testResults<-testResults%>% dplyr::left_join(ResF,by="uniqueID")
-      
-      #p-val
-      
-      testResults<-testResults %>%
-        dplyr::mutate(pV = as.numeric(1-pf(Fvals,df1=d1[1],df2=max(d2))))
-      testResults<-testResults %>% dplyr::mutate(pAdj = p.adjust(.$pV,method="BH"))
-      
+      testResults<-purrr::map2(mean1,Fvals,function(x,y)x%>% dplyr::right_join(y,by=c("uniqueID")))
+      testResults<-purrr::map(testResults,function(x) x[1,])
+      testResults<-dplyr::bind_rows(testResults)
+      mean1<-dplyr::bind_rows(mean1)
       ggplot(testResults)+
-        geom_density(aes(x=Fvals),fill = "steelblue",alpha = 0.5) +
-        geom_line(aes(x=Fvals,y= df(Fvals,df1=d1,df2=d2)),color="darkred",size = 1.5) +
+        geom_density(aes(x=fStatistic),fill = "steelblue",alpha = 0.5) +
+        geom_line(aes(x=fStatistic,y= df(fStatistic,df1=df1,df2=df2)),color="darkred",size = 1.5) +
         theme_bw() +
-        coord_cartesian(xlim=c(0,10))+
         ggplot2::xlab("F-values")
       #scale variables
-      M<-median(testResults$rssDiff,na.rm=TRUE)
-      V<-mad(testResults$rssDiff,na.rm=TRUE)
+      M<-median(testResults$dRSS,na.rm=TRUE)
+      V<-mad(testResults$dRSS,na.rm=TRUE)
       #alternative scaling factor sig0-sq
       altScale<-0.5*V/M
       #filter out negative delta rss
-      testResults<-testResults %>% dplyr::filter(rssDiff>0)
+      testResults<-testResults %>% dplyr::filter(dRSS>0)
       #effective degrees of freedom
-      ed1<-MASS::fitdistr(x=testResults$rssDiff, densfun = "chi-squared", start = list(df=2))[["estimate"]]
-      ed2<-MASS::fitdistr(x=testResults$rss1, densfun = "chi-squared", start = list(df=2))[["estimate"]]
+      ed1<-MASS::fitdistr(x=testResults$dRSS, densfun = "chi-squared", start = list(df=2))[["estimate"]]
+      ed2<-MASS::fitdistr(x=testResults$RSS, densfun = "chi-squared", start = list(df=2))[["estimate"]]
       #scale data
       testScaled <-testResults %>%
-        dplyr::mutate(rssDiff = .$rssDiff/altScale,
-                      rss1 =.$rss1/altScale,
+        dplyr::mutate(rssDiff = .$dRSS/altScale,
+                      rss1 =.$RSS/altScale,
                       d1=ed1,
                       d2=ed2)
       #
       #new F-test
-      testScaled<-testScaled %>% dplyr::mutate(Fvals=(rssDiff/rss1)*(d2/d1))
+      testScaled<-testScaled %>% dplyr::mutate(Fvals=(dRSS/rss1)*(d2/d1))
       Fvals<-testScaled$Fvals
       d1<-testScaled$d1
       d2<-testScaled$d2
@@ -2728,9 +2723,9 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE){
         ggplot2::xlab("F-values")
       #Define checked as filtered protein IDs
       check<-testScaled$uniqueID
-      test<-testScaled %>% dplyr::filter(.$pV<0.10)
-      test$d1<-MASS::fitdistr(x=test$rssDiff, densfun = "chi-squared", start = list(df=1))[["estimate"]]
-      test$d2<-MASS::fitdistr(x=test$rss1, densfun = "chi-squared", start = list(df=1))[["estimate"]]
+      test<-testScaled %>% dplyr::filter(.$pValue<0.10)
+      test$d1<-MASS::fitdistr(x=test$dRSS, densfun = "chi-squared", start = list(df=1))[["estimate"]]
+      test$d2<-MASS::fitdistr(x=test$RSS, densfun = "chi-squared", start = list(df=1))[["estimate"]]
       
       ggplot(test)+
         geom_density(aes(x=Fvals),fill = "steelblue",alpha = 0.5) +
@@ -3902,7 +3897,7 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE){
   Pred1<-spCI(i,res_sp[[1]],res_sp[[2]],res_sp[[3]],df.temps,overlay=TRUE,alpha=0.05)
   }
 }
-plotS <- purrr::map(df_norm1,function(x) plot_Splines(x,"P36507",df.temps,MD=TRUE))
+plotS <- purrr::map(df_norm1[[1]],function(x) plot_Splines(x,"P36507",df.temps,MD=TRUE))
 check<-ggplot2::ggplot_build(plotS[[1]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plotS,function(x) x$labels$title))
