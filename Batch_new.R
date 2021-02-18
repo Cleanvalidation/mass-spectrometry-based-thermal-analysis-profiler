@@ -3962,31 +3962,27 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,filters=TRUE){
     
     spresults<-spstat(DFN,df_,df_1,Ftest=TRUE,show_results=FALSE,norm=FALSE,filters=TRUE)
     
-
-    # #saveIDs filtered
-    # i<-which(res_sp[[1]]$uniqueID %in% Protein)
-    # #generate 95%CI for splines
-    # Pred1<-spCI(i,res_sp[[1]],res_sp[[2]],res_sp[[3]],df.temps,overlay=TRUE,alpha=0.05)
-
-    return(spresults)
+    
   }else{
-  DFN<-x %>% dplyr::filter(uniqueID %in% as.character(Protein))
-  df_<-x %>% dplyr::filter(uniqueID %in% as.character(Protein),dataset=="vehicle")
-  df_1<-x %>% dplyr::filter(uniqueID %in% as.character(Protein),dataset=="treated")
-  #get spline results
-  spresults<-list()
-  spresults_PI<-list()
-  
-  spresults<-spstat(DFN,df_,df_1,Ftest=TRUEshow_results=FALSE,norm=FALSE,filters=TRUE)
-  
-  res_sp<-spf(spresults[[1]],DFN,filters=FALSE)
-  #saveIDs filtered
-  i<-which(res_sp[[1]]$uniqueID %in% Protein)
-  #generate 95%CI for splines
-  Pred1<-spCI(i,res_sp[[1]],res_sp[[2]],res_sp[[3]],df.temps,overlay=TRUE,alpha=0.05)
+    DFN<-x %>% dplyr::filter(uniqueID %in% as.character(Protein))
+    df_<-x %>% dplyr::filter(uniqueID %in% as.character(Protein),dataset=="vehicle")
+    df_1<-x %>% dplyr::filter(uniqueID %in% as.character(Protein),dataset=="treated")
+    #get spline results
+    spresults<-list()
+    spresults_PI<-list()
+    
+    spresults<-spstat(DFN,df_,df_1,Ftest=TRUEshow_results=FALSE,norm=FALSE,filters=TRUE)
+    
+    res_sp<-spf(spresults[[1]],DFN,filters=FALSE)
+    #saveIDs filtered
+    i<-which(res_sp[[1]]$uniqueID %in% Protein)
+    #generate 95%CI for splines
+    Pred1<-spCI(i,res_sp[[1]],res_sp[[2]],res_sp[[3]],df.temps,overlay=TRUE,alpha=0.05)
   }
+  return(spresults)
 }
-plotS <- purrr::map(df_norm1[[1]],function(x) plot_Splines(x,"P36507",df.temps,MD=TRUE))
+
+plotS <- purrr::map(df_norm1,function(x) plot_Splines(x,"P36507",df.temps,MD=TRUE,filters=TRUE))
 check<-ggplot2::ggplot_build(plotS[[1]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plotS,function(x) x$labels$title))
