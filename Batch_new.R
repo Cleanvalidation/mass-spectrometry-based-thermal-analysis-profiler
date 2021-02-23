@@ -3064,10 +3064,12 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
   }
   if(isTRUE(CI)){
     BSVar <-df2 %>% subset(uniqueID == df1 & dataset== "vehicle")%>%dplyr::group_by(C)# %>% dplyr::mutate(I=mean(I))
-    BSVar1 <-Df1[[i]] %>% subset(uniqueID == df1 & dataset== "treated")%>%dplyr::group_by(C)# %>% dplyr::mutate(I=mean(I))
+    BSVar1 <-df2 %>% subset(uniqueID == df1 & dataset== "treated")%>%dplyr::group_by(C)# %>% dplyr::mutate(I=mean(I))
     
-    BSVar<-BSVar[duplicated(BSVar$C),]
-    BSVar1<-BSVar1[duplicated(BSVar1$C),]
+    BSVar<-BSVar[!duplicated(BSVar$I),]
+    BSVar1<-BSVar1[!duplicated(BSVar1$I),]
+    
+   
     #fit penalized splines
     m <- mgcv::gam(I ~ s(C,k=5), data = BSVar , method = "ML")
     m1<-  mgcv::gam(I ~ s(C,k=5), data =BSVar1, method = "ML")
@@ -3087,7 +3089,15 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
     #get some parmeters
     Vb1<- vcov(m1) 
     newd1<- with(BSVar1,data.frame(C = seq(min(C), max(C), length = 10)))%>% as.data.frame(.)
-    BSVar1 <- BSVar1 %>% dplyr::mutate(fit=list(predict(m, newd, se.fit = TRUE)))
+    BSVar1 <- BSVar1 %>% dplyr::mutate(fit=list(predict(m1, newd1, se.fit = TRUE)))
+    if (any(names(BSVar)=="sample.x")){
+      BSVar<-BSVar %>% dplyr::rename("sample"="sample.x")
+      
+    }
+    if (any(names(BSVar1)=="sample.x")){
+      BSVar1<-BSVar1 %>% dplyr::rename("sample"="sample.x")
+      
+    }
     
     #append missing value data
     if(length(unique(miss_v$C))==df.temps & length(miss_v$C)>df.temps){
@@ -3114,8 +3124,8 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
       id<-data.frame(sample=as.factor(unique(BSVar$sample)),replicate=as.factor(seq(unique(BSVar$sample))))
       id1<-data.frame(sample=as.factor(unique(BSVar1$sample)),replicate=as.factor(seq(unique(BSVar1$sample))))
       
-      BSVar<-BSVar %>% dplyr::right_join(id,by="sample")
-      BSVar1<-BSVar1 %>% dplyr::right_join(id1,by="sample")
+      BSVar<-BSVar %>%  dplyr::right_join(id,by="sample")
+      BSVar1<-BSVar1%>% dplyr::right_join(id1,by="sample")
       
       plot1<-ggplot2::ggplot(BSVar,ggplot2::aes(x =C,y = I,color=dataset))+
         ggplot2::geom_point(BSVar,mapping=ggplot2::aes(x=C,y=I,color = dataset,shape=replicate))+
@@ -3143,15 +3153,15 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
 
       plot<-plot1+
         ggplot2::geom_point(BSVar1,mapping=ggplot2::aes(x=C,y=I,color = dataset,shape=replicate))+
-        ggplot2::geom_ribbon(data.frame(fit_t),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2 ) +
+        ggplot2::geom_ribbon(data.frame(fit_t),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=dataset), alpha = 0.2 ) +
         ggplot2::labs(y = "Relative Solubility",
                       x = "Temperature (\u00B0C)")+
-        coord_cartesian(xlim = c(37,67))+annotate("text",
-                                                  x = 2+round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1),
-                                                  y = 0.55,
-                                                  label=paste0(round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1)),
-                                                  colour="red",
-                                                  size=3.5
+        annotate("text",
+                 x = 2+round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1),
+                 y = 0.55,
+                 label=paste0(round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1)),
+                 colour="red",
+                 size=3.5
         )+
         annotate("segment", x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), y = 0.5, yend = 0.5,
                  colour = "red",linetype=2)+
@@ -3818,7 +3828,7 @@ f<- list.files(pattern='*_0.xlsx')
 df_raw <- read_cetsa("~/Cliff_new","~/Cliff_new/PSMs","_0",PSM=FALSE,Batch=FALSE)                                                              
 
 #df_raw <- read_cetsa("~/Files/Scripts/Files/Proteins_Cliff","~/Files/Scripts/Files/PSMs_Cliff","_0",PSM=TRUE,Batch=FALSE)                                                              
-df_raw <- read_cetsa("~/Cliff prot pep","~/Cliff prot pep","Proteins",PSM=TRUE,Batch=FALSE)                                                              
+#df_raw <- read_cetsa("~/Cliff prot pep","~/Cliff prot pep","Proteins",PSM=TRUE,Batch=FALSE)                                                              
 
 
 #new for PSMs
