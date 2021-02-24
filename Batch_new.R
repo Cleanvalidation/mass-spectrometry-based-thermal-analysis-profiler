@@ -2128,15 +2128,18 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps){
   null<-Df1 %>% subset(dataset == "null")
   
   pred1<-predict(null$M1[[1]], interval="confidence") %>% as.data.frame(.)
+
   if(nrow(null)==2|nrow(null)==3){
     pred2<-predict(null$M1[[2]], interval="confidence")%>% as.data.frame(.)
     pred2<-na.omit(pred2)
+
   }else{
     pred2<-data.frame()
   }
   if(nrow(null)==3){
     pred3<-predict(null$M1[[3]], interval="confidence")%>% as.data.frame(.)
     pred3<-na.omit(pred3)
+ 
   }else{
     pred3<-data.frame()
   }
@@ -2185,15 +2188,18 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps){
   vehicle<-Df1 %>% subset(dataset == "vehicle")
   
   pred1<-predict(vehicle$M1[[1]], interval="confidence")%>% as.data.frame(.)
+ 
   if(nrow(vehicle)==2|nrow(vehicle)==3){
     pred2<-predict(vehicle$M1[[2]], interval="confidence")%>% as.data.frame(.)
     pred2<-na.omit(pred2)
+   
   }else{
     pred2<-data.frame()
   }
   if(nrow(vehicle)==3){
     pred3<-predict(vehicle$M1[[3]], interval="confidence")%>% as.data.frame(.)
     pred3<-na.omit(pred3)
+    
   }else{
     pred3<-data.frame()
   }
@@ -2218,7 +2224,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps){
   #Pred<-Pred[1:length(DF1$C),]##############
   Pred1<-data.frame(Pred1,DF_f$C[1:nrow(Pred1)],DF_f$I[1:nrow(Pred1)])################
   names(Pred1)<-c("fit","lower","upper","C","I")
-  
+ 
   Pred1$Treatment<-vehicle$dataset[1]##################
   Pred1<-na.omit(Pred1)
   rownames(Pred1)<-1:nrow(Pred1)
@@ -2269,7 +2275,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps){
   #Pred<-Pred[1:length(DF1$C),]##############
   Pred2<-data.frame(Pred2,DF_f1$C[1:nrow(Pred2)],DF_f1$I[1:nrow(Pred2)])################
   names(Pred2)<-c("fit","lower","upper","C","I")
-  
+
   Pred2$Treatment<-treated$dataset[1]##################
   Pred2<-na.omit(Pred2)
   rownames(Pred2)<-as.vector(1:nrow(Pred2))
@@ -2284,7 +2290,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps){
     rn<-data.frame(residuals=c(residuals(null$M1[[1]]),residuals(null$M1[[2]])))
   }
   Pred<-cbind(Pred,rn[1:nrow(Pred),])
-  names(Pred)<- names(Pred)<-c("fit","lower","upper","C","I","Treatment",'residuals')
+  names(Pred)<-c("fit","lower","upper","C","I","Treatment",'residuals')
   rn<-data.frame(residuals(vehicle$M1[[1]]))
   if(nrow(vehicle)==3){
     rn<-data.frame(c(residuals(vehicle$M1[[1]]),residuals(vehicle$M1[[2]]),residuals(vehicle$M1[[3]])))
@@ -2293,14 +2299,19 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps){
   }
   Pred1<-cbind(Pred1,rn[1:nrow(Pred1),])
   names(Pred1)<- c("fit","lower","upper","C","I","Treatment",'residuals')
+
+  Pred1$uniqueID<-vehicle$uniqueID[1]
   rn<-data.frame(residuals(treated$M1[[1]]))
   if(nrow(treated)==3){
     rn<-data.frame(c(residuals(treated$M1[[1]]),residuals(treated$M1[[2]]),residuals(treated$M1[[3]])))
   }else{
     rn<-data.frame(c(residuals(treated$M1[[1]]),residuals(treated$M1[[2]])))
   }
+ 
   Pred2<-cbind(Pred2,rn[1:nrow(Pred2),])
   names(Pred2)<- names(Pred2)<-c("fit","lower","upper","C","I","Treatment",'residuals')
+  
+  Pred2$uniqueID<-treated$uniqueID[1]
   Preds<-rbind(Pred1,Pred2)
   Preds$C<-as.numeric(as.vector(Preds$C))
   Preds$I<-as.numeric(as.vector(Preds$I))
@@ -2315,7 +2326,19 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps){
     print(PLrs)
   }
   Tm_d<-round(round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1)-round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1),1)
-  PLR_P1<-ggplot2::ggplot(Pred1, ggplot2::aes(x = C,y = fit,color=Treatment))+ggplot2::geom_point(Pred1, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +
+  #add shape parameters
+  #group_split to generate replicates
+  Pred1<-Pred1 %>% dplyr::group_split(C)
+  Pred2<-Pred2 %>% dplyr::group_split(C)
+  #mutate
+  Pred1 <-lapply(Pred1,function(x) x %>% dplyr::mutate(replicate=as.factor(row.names(.))))
+  Pred2 <-lapply(Pred2,function(x) x %>% dplyr::mutate(replicate=as.factor(row.names(.))))
+  #bind rows
+  Pred1<-dplyr::bind_rows(Pred1)
+  Pred2<-dplyr::bind_rows(Pred2)
+  
+  PLR_P1<-ggplot2::ggplot(Pred1, ggplot2::aes(x = C,y = fit,color=Treatment))+
+    ggplot2::geom_point(Pred1, mapping=ggplot2::aes(x = C,y = I,color=Treatment,shape=replicate)) +
     ggplot2::geom_ribbon(data=Pred1,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+
     annotate("text",
              x = 2+round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1),
@@ -2330,7 +2353,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps){
              colour = "blue",linetype=2)
   
   
-  PLR_P2<-PLR_P1+ggplot2::geom_point(Pred2, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +
+  PLR_P2<-PLR_P1+ggplot2::geom_point(Pred2, mapping=ggplot2::aes(x = C,y = I,color=Treatment,shape=replicate)) +
     ggplot2::geom_ribbon(data=Pred2,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+
     ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+
     annotate("text",
@@ -2378,8 +2401,19 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps){
     
     Pred1$missing_v<-round(Pred1$missing_v,0)
     Pred2$missing_t<-round(Pred2$missing_t,0)
+    #add shape parameters
+    #group_split to generate replicates
+    Pred1<-Pred1 %>% dplyr::group_split(C)
+    Pred2<-Pred2 %>% dplyr::group_split(C)
+    #mutate
+    Pred1 <-lapply(Pred1,function(x) x %>% dplyr::mutate(replicate=as.factor(row.names(.))))
+    Pred2 <-lapply(Pred2,function(x) x %>% dplyr::mutate(replicate=as.factor(row.names(.))))
+    #bind rows
+    Pred1<-dplyr::bind_rows(Pred1)
+    Pred2<-dplyr::bind_rows(Pred2)
+
     
-    PLR_P2<-PLR_P1+ggplot2::geom_point(Pred2, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +
+    PLR_P2<-PLR_P1+ggplot2::geom_point(Pred2, mapping=ggplot2::aes(x = C,y = I,color=Treatment,shape=replicate)) +
       ggplot2::geom_ribbon(data=Pred2,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+
       ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ 
       ggplot2::ggtitle(paste(Df1$uniqueID[1],str_replace(DF1$sample_name[1],"S",paste0("\u03A6"))))+
@@ -2425,6 +2459,26 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps){
     
     Pred1$missing_v<-round(Pred1$missing_v,0)
     Pred2$missing_t<-round(Pred2$missing_t,0)
+    #add shape parameters
+    #group_split to generate replicates
+    Pred1<-Pred1 %>% dplyr::group_split(C)
+    Pred2<-Pred2 %>% dplyr::group_split(C)
+    #mutate
+    Pred1 <-lapply(Pred1,function(x) x %>% dplyr::mutate(replicate=as.factor(row.names(.))))
+    Pred2 <-lapply(Pred2,function(x) x %>% dplyr::mutate(replicate=as.factor(row.names(.))))
+    #bind rows
+    Pred1<-dplyr::bind_rows(Pred1)
+    Pred2<-dplyr::bind_rows(Pred2)
+    #add shape parameters
+    #group_split to generate replicates
+    Pred1<-Pred1 %>% dplyr::group_split(C)
+    Pred2<-Pred2 %>% dplyr::group_split(C)
+    #mutate
+    Pred1 <-lapply(Pred1,function(x) x %>% dplyr::mutate(replicate=as.factor(row.names(.))))
+    Pred2 <-lapply(Pred2,function(x) x %>% dplyr::mutate(replicate=as.factor(row.names(.))))
+    #bind rows
+    Pred1<-dplyr::bind_rows(Pred1)
+    Pred2<-dplyr::bind_rows(Pred2)
     PLR<-PLR_P2+
       facet_wrap("Treatment") + 
       ggplot2::annotate("text", x=min(Pred$C), y=min(Pred2$I)+0.45, label= paste("missing % v",Pred2$missing_v[1]))+ 
@@ -3967,6 +4021,7 @@ df_norm<-purrr::map(df_norm1,function(x)x %>% dplyr::filter(uniqueID %in% c("P36
 
 
 PlotTrilinear<-function(df_norm,target,df.temps){
+  
   ##SCRIPT STARTS HERE
   DF<-df_norm %>% dplyr::group_split(uniqueID) #split null dataset only by protein ID
   d_<-df_norm %>% dplyr::filter(CC == 0) %>% dplyr::group_split(uniqueID,dataset) #split vehicle dataset
@@ -4118,7 +4173,7 @@ data<-unlist(lapply(plotS,function(x) x$labels$title))
 plotS<-plotS[order(data)]
 P1<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"Q02750",df.temps)))
+plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,filters=FALSE,CI=TRUE)))
 check<-ggplot2::ggplot_build(plotS2[[1]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plotS2,function(x) x$labels$title))
