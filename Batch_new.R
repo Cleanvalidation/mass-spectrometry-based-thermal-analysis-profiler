@@ -2605,7 +2605,7 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE,filters=TRUE)
                                                           RSSt=deviance(y$M1[[1]]),
                                                           RSS1=deviance(x$M1[[1]])+deviance(y$M1[[1]])
     ))
-    m1<-purrr::map2(m,m1,function(x,y) x %>% dplyr::mutate(RSSv=deviance(x$M1[[1]]),
+    m1<-purrr::map2(m,m1,function(x,y) y %>% dplyr::mutate(RSSv=deviance(x$M1[[1]]),
                                                            RSSt=deviance(y$M1[[1]]),
                                                            RSS1=deviance(x$M1[[1]])+deviance(y$M1[[1]])
     ))
@@ -2619,6 +2619,11 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE,filters=TRUE)
     mean1<-dplyr::bind_rows(m)
     mean1_1<-dplyr::bind_rows(m1)
     mean3<-dplyr::bind_rows(mn)
+    #equal column names
+    mean1<-mean1  %>% dplyr::mutate(rss=RSS1)%>% dplyr::select(-RSSv,-RSSt,-RSS1)
+    mean1_1<-mean1_1  %>% dplyr::mutate(rss=RSS1)%>% dplyr::select(-RSSv,-RSSt,-RSS1)
+    mean3<-mean3  %>% dplyr::mutate(rss=RSS0)%>% dplyr::select(-RSS0)
+    
     #filter out proteins with neg RSSdiff
     if(isTRUE(Filters)){
       check<-check %>% dplyr::filter(rssDiff>0,missing_pct<=20,rsq>0.8)
@@ -2641,13 +2646,14 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE,filters=TRUE)
     mean1_1<-mean1_1 %>% dplyr::group_split(uniqueID)
     mean3<-mean3 %>% dplyr::group_split(uniqueID)
     
+
     #Cliff
     results<-dplyr::bind_rows(mean1,mean1_1,mean3)
 
     if(isTRUE(Ftest)){
       
        #Calculate rss0 and rss1 null vs alt
-      rss0<-purrr::map(mean3,function(x)data.frame(RSS0=x$RSS0,
+      rss0<-purrr::map(mean3,function(x)data.frame(RSS0=x$rss,
                                                    se0=summary.gam(x$M1[[1]])$se[1],#standard error
                                                    pN0=summary.gam(x$M1[[1]])$edf[1],#effective degrees of freedom
                                                    rsq0=summary.gam(x$M1[[1]])$r.sq[1],#r-squared
@@ -2666,7 +2672,7 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE,filters=TRUE)
       #make predictions to generate point confidence intervals
     
       
-      rss1<-purrr::map2(mean1,mean1_1,function(x,y)data.frame(RSS=x$RSS1,
+      rss1<-purrr::map2(mean1,mean1_1,function(x,y)data.frame(RSS=x$rss,
                                                               se=summary.gam(x$M1[[1]])$se[1],#standard error
                                                               pN1=summary.gam(x$M1[[1]])$edf[1],#effective degrees of freedom
                                                               rsq=summary.gam(x$M1[[1]])$r.sq[1],#r-squared
@@ -2709,10 +2715,6 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE,filters=TRUE)
       #delta RSS
       rssDiff<-purrr::map2(rss0,rss1,function(x,y) data.frame(dRSS=x$RSS0-y$RSS))
       
-      
-      # rss0<-dplyr::bind_rows(rss0)$RSS1
-      # rss1<-dplyr::bind_rows(rss1)$RSS1
-      
       d2<-lapply(d2,function(x) x$d2[1])
       d1<-lapply(d1,function(x) x$d1[1])
       #RSS1 numerator
@@ -2753,7 +2755,7 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE,filters=TRUE)
       testResults<-testResults %>% dplyr::filter(dRSS>0)
       #effective degrees of freedom
       ed1<-MASS::fitdistr(x=testResults$dRSS, densfun = "chi-squared", start = list(df=2))[["estimate"]]
-      ed2<-MASS::fitdistr(x=testResults$RSS, densfun = "chi-squared", start = list(df=2))[["estimate"]]
+      ed2<-MASS::fitdistr(x=testResults$rss, densfun = "chi-squared", start = list(df=2))[["estimate"]]
       #scale data
       testScaled <-testResults %>%
         dplyr::mutate(rssDiff = .$dRSS/altScale,
@@ -2795,6 +2797,7 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE,filters=TRUE)
       mean1_1<-mean1_1 %>% dplyr::filter(mean1_1$uniqueID %in% test$uniqueID)
       mean3<-dplyr::bind_rows(mean3)
       mean3<-mean3 %>% dplyr::filter(mean3$uniqueID %in% test$uniqueID)
+
       results<-dplyr::bind_rows(mean1,mean1_1,mean3) %>% dplyr::group_split(uniqueID)
       if(isTRUE(show_results)){
         return(testScaled)
@@ -2819,10 +2822,10 @@ spf<-function(spresults,DFN,filters = TRUE){
     df2$C<-as.numeric(as.vector(df2$C)) 
     df2$I<-as.numeric(as.vector(df2$I))  
     if(any(names(sp) %in% c("missing.x","LineRegion","N"))){
-    df2<-sp %>% left_join(df2, by = c("uniqueID"="uniqueID","dataset"="dataset","C"="C","I"="I","CC"="CC","sample_name"="sample_name","LineRegion"="LineRegion","missing.x"="missing.x","missing_pct"="missing_pct","rank"="rank","N"="N","n"="n")) 
-    
+      df2<-sp %>% left_join(df2, by = c("uniqueID"="uniqueID","dataset"="dataset","C"="C","I"="I","CC"="CC","sample_name"="sample_name","sample"="sample","LineRegion"="LineRegion","missing.x"="missing.x","missing_pct"="missing_pct","rank"="rank","N"="N","n"="n")) 
+      
     }else{
-      df2<-sp %>% left_join(df2, by = c("uniqueID"="uniqueID","dataset"="dataset","C"="C","I"="I","CC"="CC","sample_name"="sample_name","missing_pct"="missing_pct","rank"="rank"))  
+      df2<-sp %>% left_join(df2, by = c("uniqueID"="uniqueID","sample"="sample","dataset"="dataset","C"="C","I"="I","CC"="CC","sample_name"="sample_name","missing_pct"="missing_pct","rank"="rank","missing"="missing"))  
     }
     Df1<-spresults
   }else{
@@ -2912,6 +2915,8 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
   BSVarN<-df2 %>% subset(uniqueID == df1 ) %>%dplyr::group_by(C)# %>%  dplyr::mutate(I=mean(I))
   BSVar <-df2 %>% subset(uniqueID == df1 & dataset== "vehicle")%>%dplyr::group_by(C)# %>% dplyr::mutate(I=mean(I))
   BSVar1 <-df2 %>% subset(uniqueID == df1 & dataset== "treated")%>%dplyr::group_by(C)# %>% dplyr::mutate(I=mean(I))
+
+  
   BSVarN<-BSVarN %>% dplyr::mutate(dataset="null") 
   BSVar<-BSVar %>% dplyr::mutate(dataset="vehicle")
   BSVar1<-BSVar1 %>% dplyr::mutate(dataset="treated")
@@ -3020,8 +3025,9 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
     pred1$AUC<-round(pred1$AUC,3)
   }else{
     pred1$AUC<-round(pracma::trapz(pred1$fit)-pracma::trapz(pred$fit),2) #AUC diff in fit
+    pred1$AUC<-round(pred1$AUC,3)
   }
-  pred1$RSS<- deviance(m1)-deviance(m)#RSS diff(+ stabilized)
+  pred1$RSS<- deviance(m1)+deviance(m)
   
   pred1$RSS<- round(pred1$RSS,3)
   #Residuals
@@ -3169,7 +3175,7 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
                  colour = "red",linetype=2)+ ggplot2::ggtitle(paste0(as.character(df1[1])," ",str_replace(df2$sample_name[1],"S",paste0("\u03A6"))))+
         ylim(-0.4,1.4)+xlim(37,68)+
         theme(legend.position="bottom")
-   
+   return(plot)
   }else{
     plot1<-ggplot2::ggplot(BSVar,ggplot2::aes(x =C,y = I,color=dataset))+
       ggplot2::geom_point(BSVar,mapping=ggplot2::aes(x=C,y=I,color = dataset,shape=replicate))+
@@ -3223,7 +3229,7 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
       theme(legend.position="bottom")
     
   }
-  print(plot)  
+  return(plot) 
 }
 
 ##################################################
@@ -4075,7 +4081,7 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,filters=TRUE,show_results=TRU
     i<-which(res_sp[[1]]$uniqueID %in% Protein)
     #generate 95%CI for splines
     Pred1<-spCI(i,res_sp[[1]],res_sp[[2]],res_sp[[3]],df.temps,overlay=TRUE,alpha=0.05,CI=CI)
-  
+    return(Pred1)
     
   }else{
     DFN<-x %>% dplyr::filter(uniqueID %in% as.character(Protein))
@@ -4105,6 +4111,7 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,filters=TRUE,show_results=TRU
 }
 
 plotS <- purrr::map(df_norm,function(x) plot_Splines(x,"P36507",df.temps,MD=TRUE,filters=FALSE,CI=TRUE))
+
 check<-ggplot2::ggplot_build(plotS[[1]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plotS,function(x) x$labels$title))
