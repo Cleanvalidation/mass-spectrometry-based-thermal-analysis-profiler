@@ -157,11 +157,22 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,PSM=FALSE,Batch=TR
     for ( i in seq(file.list)){
       df<- readxl::read_excel(file.list[i])
       df2[[i]] <- df %>% 
-        dplyr::select(Accession,tidyselect::starts_with('Abundance'),-tidyselect::contains('Grouped')) %>% 
+        dplyr::select(Accession,tidyselect::starts_with('Abundance'),-tidyselect::contains('Grouped'),tidyselect::contains("Molecular"),tidyselect::contains("Cellular"),tidyselect::contains("pI"),tidyselect::contains("MW"),tidyselect::contains("Modifications"),tidyselect::contains("CV"))
+      names(df2[[i]])<-str_replace_all(names(df2[[i]]),c(" ","  "," C",paste0(" [:punct:]")),"_")
+      if (any(names(df2[[i]]) =="Cellular Component")){
+        df2[[i]]<-df2[[i]] %>% dplyr::rename("Cell_Component"="Cellular Component","MW_kDa"="MW_kDa]")
+        df2[[i]]<- df2[[i]]%>% tidyr::gather(key="id", value='value', -Accession,-Cell_Component,-MW_kDa,-Molecular_Function,-"calc. pI",-Modifications) %>% 
+          dplyr::mutate(sample_id = ifelse(!is.na(str_extract(id, str_c('F',"[:digit:][:digit:]"))),str_extract(id, str_c('F',"[:digit:][:digit:]")),stringr::str_extract_all(id,str_c('F','[:digit:]'))),
+                        temp_ref = stringr::str_extract_all(id,find),
+                        missing=ifelse(is.na(value),1,0))%>% tidyr::unnest(cols = c(sample_id, temp_ref))
+      }else{
+      
+      df2[[i]]<- df2[[i]]%>% 
         tidyr::gather('id', 'value', -Accession) %>%
         dplyr::mutate(sample_id = ifelse(!is.na(str_extract(id, str_c('F',"[:digit:][:digit:]"))),str_extract(id, str_c('F',"[:digit:][:digit:]")),stringr::str_extract_all(id,str_c('F','[:digit:]'))),
                       temp_ref = stringr::str_extract_all(id,find),
                       missing=ifelse(is.na(value),1,0))%>% tidyr::unnest(cols = c(sample_id, temp_ref))
+      }
     }
     df2<-dplyr::bind_rows(df2)
     
@@ -192,14 +203,6 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,PSM=FALSE,Batch=TR
           tidyr::gather('id', 'value', -Accession) %>%
           dplyr::mutate(sample_id = as.factor(paste("F",as.character(i),sep="")),
                         temp_ref = stringr::str_extract_all(id,find),
-                        missing=ifelse(is.na(value),1,0))
-      }else{
-        
-        df[[i]] <- df.raw %>%
-          dplyr::select(Accession,tidyselect::starts_with('Abundance')) %>%
-          tidyr::gather('id', 'value', -Accession) %>%
-          dplyr::mutate(sample_id = ifelse(!is.na(str_extract(id, str_c('F',"[:digit:][:digit:]"))),str_extract(id, str_c('F',"[:digit:][:digit:]")),stringr::str_extract_all(id,str_c('F','[:digit:]'))),
-                        temp_ref = as.factor(unlist(stringr::str_extract_all(id,find))),
                         missing=ifelse(is.na(value),1,0))
       }
     }
@@ -3912,6 +3915,13 @@ f<- list.files(pattern='*_0.xlsx')
 
 df_raw <- read_cetsa("~/Cliff_new","~/Cliff_new/PSMs","_0",PSM=FALSE,Batch=FALSE)                                                              
 df_raw1<-df_raw
+#only for PSMs
+data<-df_raw %>% 
+  dplyr::mutate(sample_name=paste0(ifelse(str_detect(Spectrum_File,"NOcarrier"),"nC",ifelse(str_detect(Spectrum_File,"carrier"),"C",NA)),'_',
+                                   ifelse(str_detect(Spectrum_File,"NO_FAIMS"),"nF",ifelse(str_detect(Spectrum_File,"r_FAIMS"),"F",NA)),'_',
+                                   ifelse(str_detect(Spectrum_File,"S_eFT"),"E",ifelse(str_detect(Spectrum_File,"S_Phi"),"S",NA))),
+                CC=ifelse(str_detect(Spectrum_File,"DMSO"),0,1),
+  ) %>% dplyr::filter(sample_name=="C_F_S")
 #df_raw <- read_cetsa("~/Files/Scripts/Files/Proteins_Cliff","~/Files/Scripts/Files/PSMs_Cliff","_0",PSM=TRUE,Batch=FALSE)                                                              
 #df_raw <- read_cetsa("~/Cliff prot pep","~/Cliff prot pep","Proteins",PSM=TRUE,Batch=FALSE)                                                              
 
@@ -3969,7 +3979,7 @@ filter_PSMs<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaM_ppm){
   #right_join
   Result <- data.frame(merge(df_,rank, all.y=TRUE))
 }
-df_raw<-filter_PSMs(df_raw,50,0.01,1,50,3,1,4,10)
+df_raw<-filter_PSMs(df_raw,50,0.01,2,50,3,1,4,10)
 #new for PSMs
 #df_raw<-df_raw %>% dplyr::rename("sample_name"="Spectrum_File")
 #annotate protein data with missing values
@@ -4097,6 +4107,21 @@ dev.off()
 
 df_norm1<-df_norm
 df_norm<-purrr::map(df_norm1,function(x)x %>% dplyr::filter(uniqueID %in% c("P36507","Q02750")))
+
+df_norm<-dplyr::bind_rows(df_norm) %>% dplyr::group_split(uniqueID,C,dataset,sample_name)
+df_norm<-lapply(df_norm,function(x) x %>% dplyr::mutate(replicate=as.factor(rownames(.)),
+                                                        dataset=as.factor(dataset)))
+df_norm<-dplyr::bind_rows(df_norm)
+
+df_norm<-df_norm %>% dplyr::group_split(sample_name)
+MEK<-lapply(df_norm,function(x) x %>% dplyr::filter(uniqueID=="P36507"))
+
+##LMER
+model1<-lapply(MEK,function(x) lmer(I~1+C+replicate+dataset+(1|replicate)+(1|replicate:dataset),data=x))
+model2<-lapply(MEK,function(x) lmer(I~1+C+dataset+(1|replicate)+(1|replicate:dataset),data=x))
+model3<-lapply(MEK,function(x) lmer(I~1+C+dataset+(1|replicate:dataset),data=x))
+model4<-lapply(MEK,function(x) lmer(I~1+C+dataset+(1|dataset),data=x))
+model5<-lapply(MEK,function(x) lmer(I~1+C+dataset+(1|dataset)+(1|C),data=x))
 
 
 PlotTrilinear<-function(df_norm,target,df.temps){
