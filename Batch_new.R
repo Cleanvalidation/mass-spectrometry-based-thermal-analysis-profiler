@@ -280,20 +280,20 @@ clean_cetsa <- function(df, temperatures = NULL, samples = NULL,PSM=FALSE) {
       df<-df[!is.na(df$Accession),]
       
     }else{
+      df$I<-as.numeric(df$I)
       df <- df %>%
         #dplyr::select(Accession, sample_id, temperature,value,rank,missing,missing_pct,sample_name) %>% 
         dplyr::filter(!is.na(temperature),!is.na(value)) %>%
         dplyr::group_by(uniqueID,sample_id) %>%
-        dplyr::mutate(rank=rank,value = value / value[temperature == min(temperature)]) %>% unique(.) %>% 
+        dplyr::mutate(rank=rank,I = I / I[temperature == min(temperature,na.rm=TRUE)]) %>% unique(.) %>% 
         dplyr::rename("sample"="sample_id")
       df<-df[!is.na(df$uniqueID),]
-      df<-df %>% dplyr::mutate(missing=ifelse(is.na(value),1,0))
+      
       
     }
   }
   return(df)
 }
-
 #' normalize CETSA data
 #'
 #' Normalize data according to Pelago paper.
