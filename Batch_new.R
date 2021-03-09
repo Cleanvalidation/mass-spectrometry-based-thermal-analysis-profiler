@@ -270,14 +270,26 @@ clean_cetsa <- function(df, temperatures = NULL, samples = NULL,PSM=FALSE) {
     df<-df[!is.na(df$Accession),]
     
   }else{
-    df <- df %>%
-      dplyr::select(Accession, sample_id, temperature,value,rank,missing,missing_pct,sample_name) %>% 
-      dplyr::filter(!is.na(temperature),!is.na(value)) %>%
-      dplyr::group_by(Accession,sample_id) %>%
-      dplyr::mutate(rank=rank,missing=missing,value = value / value[temperature == min(temperature)]) %>% unique(.) %>% 
-      dplyr::rename("sample"="sample_id")
-    df<-df[!is.na(df$Accession),]
-    
+    if(any(names(df)=="Accession")){
+      df <- df %>%
+        #dplyr::select(Accession, sample_id, temperature,value,rank,missing,missing_pct,sample_name) %>% 
+        dplyr::filter(!is.na(temperature),!is.na(value)) %>%
+        dplyr::group_by(Accession,sample_id) %>%
+        dplyr::mutate(rank=rank,missing=missing,value = value / value[temperature == min(temperature)]) %>% unique(.) %>% 
+        dplyr::rename("sample"="sample_id")
+      df<-df[!is.na(df$Accession),]
+      
+    }else{
+      df <- df %>%
+        #dplyr::select(Accession, sample_id, temperature,value,rank,missing,missing_pct,sample_name) %>% 
+        dplyr::filter(!is.na(temperature),!is.na(value)) %>%
+        dplyr::group_by(uniqueID,sample_id) %>%
+        dplyr::mutate(rank=rank,value = value / value[temperature == min(temperature)]) %>% unique(.) %>% 
+        dplyr::rename("sample"="sample_id")
+      df<-df[!is.na(df$uniqueID),]
+      df<-df %>% dplyr::mutate(missing=ifelse(is.na(value),1,0))
+      
+    }
   }
   return(df)
 }
@@ -1362,8 +1374,467 @@ upMV <- function(df_,condition,N,plot_multiple=FALSE,PSMs=FALSE){
     return(list(plot(p),plot(p2),plot(p3)))
   }
 }
-
-
+#returns segmented data for vehicle and treated
+upGO <- function(df_,condition,N,plot_multiple=FALSE,PSMs=FALSE){
+  
+  if(isTRUE(plot_multiple)){
+    
+    if(isTRUE(PSMs)){
+      
+      df_ <-df_ %>% dplyr::mutate(CC=ifelse(stringr::str_detect(Spectrum_File,"DMSO")==TRUE,0,1))#concentration values are defined in uM
+      
+      df_$dataset<-ifelse(df_$CC==0,"vehicle","treated")
+      
+      
+      df_$sample_name<-paste0(ifelse(str_detect(df_$Spectrum_File,"NOcarrier")==TRUE,"nC",ifelse(str_detect(df_$Spectrum_File,"carrier")==TRUE,"C",NA)),'_',
+                              ifelse(str_detect(df_$Spectrum_File,"NO_FAIMS")==TRUE,"nF",ifelse(str_detect(df_$Spectrum_File,"r_FAIMS")==TRUE,"F",NA)),'_',
+                              ifelse(str_detect(df_$Spectrum_File,"S_eFT")==TRUE,"E",ifelse(str_detect(df_$Spectrum_File,"S_Phi")==TRUE,"S",NA)))
+      df_<-df_%>% dplyr::rename("uniqueID"="Accession","I"="value","C"="temp_ref","S_N"="Average_Reporter_S/N","PEP"="Percolator_PEP",
+                                "Missed_Cleavages"="#_Missed_Cleavages","DeltaM"="DeltaM_[ppm]","IonInjTime"="Ion_Inject_Time_[ms]",
+                                "I_Interference"="Isolation_Interference_[%]")
+      
+      
+      #saveRDS(df_,"df_raw_PSMs_Cliff.rds")
+      df_1<-dplyr::bind_rows(df_)
+      df_1$uniqueID<-as.factor(df_1$uniqueID)
+      df_1$dataset<-as.factor(df_1$dataset)
+      df_1$sample_name<-as.factor(df_1$sample_name)
+      df_1<-df_1%>% 
+        dplyr::group_split(uniqueID,sample_id,Annotated_Sequence)
+      df_1<-purrr::map(df_1,function(x) x %>% dplyr::mutate(missing_pct=(sum(100*is.na(x$I))/length(x$I))) %>% head(.,1)) 
+      df_1<-dplyr::bind_rows(df_1)
+      
+      rank<-df_1 %>% dplyr::filter(C=="126") %>% dplyr::mutate(rank=dplyr::ntile(I,3)) %>% 
+        dplyr::select("uniqueID","dataset","sample_name","rank","Annotated_Sequence")
+      df_1<-df_1 %>% dplyr::right_join(rank,by=c("uniqueID","dataset","sample_name","Annotated_Sequence"))
+      df_1$SNrank<-dplyr::ntile(df_1$S_N,3)
+      minSNrank<-min(df_1[df_1$SNrank==3,'S_N'],na.rm=TRUE)
+      maxSNrankL<-max(df_1[df_1$SNrank==1,'S_N'],na.rm=TRUE)
+      low<-paste0("low"," < ",as.character(maxSNrankL))
+      medium<-"medium"
+      high<-paste0("high"," > ",as.character(minSNrank))
+      df_1<-df_1 %>% dplyr::mutate(rank=ifelse(df_1$rank==1,"low",ifelse(df_1$rank==2,"medium","high")),
+                                   SNrank=ifelse(df_1$SNrank==3,"high",ifelse(df_1$SNrank==2,"medium","low")))
+      
+      df_1$rank<-factor(df_1$rank,levels=c("high","medium","low"))
+      df_1$SNrank<-factor(df_1$SNrank,levels=c("high","medium","low"))
+      df_1$missing_pct<-round(df_1$missing_pct,1)
+      df_1$DeltaM<-round(df_1$DeltaM,1)
+      df_1<-df_1%>% 
+        dplyr::group_split(sample_id)
+      df_1<-purrr::map(df_1,function(x)
+        pivot_wider(x,names_from=c(Charge),values_from=Charge,values_fill=NA) %>%
+          dplyr::select(-uniqueID,-Spectrum_File,-Annotated_Sequence,-IonInjTime,-Missed_Cleavages,-S_N,-sample_id,-dataset,-C,-CC,-DeltaM,-PEP,-Modifications,-I_Interference,-missing_pct,-XCorr,-I,-Protein_value))
+      
+      df_2<-purrr::map(df_1,function(x) x %>% dplyr::select(SNrank,sample_name))
+      df_1<-purrr::map(df_1,function(x) 1+x[,sapply(x,class)=="numeric"])
+      df<-lapply(df_1,function(x) colnames(x))
+      df<-lapply(df,function(x) str_replace(x,x,
+                                            paste0("Charge: ","+",x, sep = " ")))
+      
+      
+      
+      
+      df_1<-purrr::map2(df_1,df,function(x,y){setNames(x,y)})
+      df_1<-purrr::map2(df_1,df_2,function(x,y)cbind(x,y))
+      df_1<-purrr::map(df_1,function(x)x[!is.na(x$SNrank),])
+      
+      
+      rating_scale = scale_fill_manual(name="Ranked S/N",
+                                       values=c("low" ='#fee6ce', "medium" ='#fdae6b', "high"  = '#e6550d'))
+      
+      show_hide_scale = scale_color_manual(values=c('show'='black', 'hide'='transparent'), guide=FALSE)
+      
+      check<-list()
+      check<- purrr::map(df_1,function(x)upset(x,names(x),
+                                               min_degree=1,
+                                               set_sizes=FALSE,
+                                               guides='collect',
+                                               n_intersections=N,
+                                               height_ratio = 0.7,
+                                               stripes='white',
+                                               base_annotations=list(
+                                                 '# of PSMs'=intersection_size(
+                                                   counts=TRUE,
+                                                 )
+                                               ),
+                                               annotations =list(
+                                                 "Bin %"=list(
+                                                   aes=aes(x=intersection, fill=x$SNrank),
+                                                   
+                                                   geom=list(
+                                                     geom_bar(stat='count', position='fill', na.rm=TRUE,show.legend=FALSE),
+                                                     
+                                                     geom_text(
+                                                       aes(
+                                                         label=!!aes_percentage(relative_to='intersection'),
+                                                         color=ifelse(!is.na(x$SNrank), 'show', 'hide')
+                                                       ),
+                                                       stat='count',
+                                                       position=position_fill(vjust = .5),
+                                                       
+                                                     ),
+                                                     
+                                                     scale_y_continuous(labels=scales::percent_format()),
+                                                     show_hide_scale,
+                                                     rating_scale
+                                                     
+                                                   )
+                                                 )
+                                               )
+                                               
+      )+ggtitle(str_replace(x$sample_name[1],"S",paste0("\u03A6"))))
+      check1<-upset(df_1[[1]],names(df_1[[1]]),min_degree=1,
+                    set_sizes=FALSE,
+                    guides='collect',
+                    n_intersections=N,
+                    
+                    stripes='white',
+                    base_annotations=list(
+                      '# of PSMs'=intersection_size(
+                        counts=TRUE,
+                      )
+                    ),
+                    annotations =list(
+                      "Ranked Intensity  "=list(
+                        aes=aes(x=intersection, fill=df_1[[1]]$SNrank),
+                        
+                        geom=list(
+                          geom_bar(stat='count', position='fill', na.rm=TRUE),
+                          themes=theme(legend.position="bottom", legend.box = "horizontal"),
+                          geom_text(
+                            aes(
+                              label=!!aes_percentage(relative_to='intersection'),
+                              color=ifelse(!is.na(df_1[[1]]$SNrank), 'show', 'hide')
+                            ),
+                            stat='count',
+                            position=position_fill(vjust = .5),
+                            
+                          ),
+                          
+                          scale_y_continuous(labels=scales::percent_format()),
+                          show_hide_scale,
+                          rating_scale
+                          
+                        )
+                      )
+                    )
+                    
+      )+ggtitle(paste0(df_1[[1]]$sample_name[1]))
+      y<-get_legend(check1$patches$plots[[1]])
+      data<-unlist(lapply(check,function(x) x$labels$title))
+      check<-check[order(data)]
+      P<-ggarrange(plotlist=check,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
+      
+      return(print(P))
+      
+    }else{
+      df_1<-dplyr::bind_rows(df_)
+     
+      df_1$uniqueID<-as.factor(df_1$uniqueID)
+      df_1$dataset<-as.factor(df_1$dataset)
+      df_1$sample_name<-as.factor(df_1$sample_name)
+      df_1$Modifications<-as.factor(df_1$Modifications)
+      df_1$Molecular_Function<-as.factor(df_1$Molecular_Function)
+      df_1$Cell_Component<-as.factor(df_1$Cell_Component)
+      
+      df_1$rank<-ifelse(df_1$rank==3,"high",ifelse(df_1$rank==2,"medium","low"))
+      df_1$rank<-factor(df_1$rank,levels=c("high","medium","low"))
+      
+      df_1<-df_1%>% 
+        dplyr::group_split(uniqueID,sample_id)
+      df_1<-lapply(df_1,function(x) x[1,]) 
+      df_1<-dplyr::bind_rows(df_1)
+      
+      df_1$missing_pct<-as.numeric(df_1$missing_pct)
+      df_1$missing_pct<-round(df_1$missing_pct,0)
+      
+      
+      df_1<-df_1 %>% dplyr::group_split(sample_name)
+      df_1<-purrr::map(df_1,function(x)
+        pivot_wider(x,names_from=c(missing_pct),values_from=missing_pct,values_fill=NA) %>%
+          dplyr::select(-C,-I,-CC,-missing,-dataset,-sample_id,-temp_ref,-id))
+      
+      df_2<-purrr::map(df_1,function(x) x %>% dplyr::select(rank,sample_name))
+      df_1<-purrr::map(df_1,function(x) 1+x[,lapply(x,class)=="numeric"])
+      df<-lapply(df_1,function(x) colnames(x))
+      df<-lapply(df,function(x) str_replace(x,x,
+                                            paste0("missing ",x,"%", sep = " ")))
+      
+      
+      
+      
+      df_1<-purrr::map2(df_1,df,function(x,y){setNames(x,y)})
+      df_1<-purrr::map2(df_1,df_2,function(x,y)cbind(x,y))
+      df_1<-purrr::map(df_1,function(x)x[!is.na(x$rank),])
+    }
+    rating_scale = scale_fill_manual(name="Ranked Intensity",
+                                     values=c(
+                                       'high'='#2ca25f', 'medium'='#99d8c9',
+                                       'low'='#e5f5f9'
+                                     ))
+    
+    show_hide_scale = scale_color_manual(values=c('show'='black', 'hide'='transparent'), guide=FALSE)
+    
+    check<-list()
+    check<- purrr::map(df_1,function(x)upset(x,names(x),
+                                             min_degree=1,
+                                             set_sizes=FALSE,
+                                             guides='collect',
+                                             n_intersections=N,
+                                             height_ratio = 0.7,
+                                             stripes='white',
+                                             base_annotations=list(
+                                               '# of Replicates'=intersection_size(
+                                                 counts=TRUE,
+                                               )
+                                             ),
+                                             annotations =list(
+                                               "Bin %"=list(
+                                                 aes=aes(x=intersection, fill=x$rank),
+                                                 
+                                                 geom=list(
+                                                   geom_bar(stat='count', position='fill', na.rm=TRUE,show.legend=FALSE),
+                                                   
+                                                   geom_text(
+                                                     aes(
+                                                       label=!!aes_percentage(relative_to='intersection'),
+                                                       color=ifelse(!is.na(rank), 'show', 'hide')
+                                                     ),
+                                                     stat='count',
+                                                     position=position_fill(vjust = .5),
+                                                     
+                                                   ),
+                                                   
+                                                   scale_y_continuous(labels=scales::percent_format()),
+                                                   show_hide_scale,
+                                                   rating_scale
+                                                   
+                                                 )
+                                               )
+                                             )
+                                             
+    )+ggtitle(str_replace(x$sample_name[1],"S",paste0("\u03A6"))))
+    check1<-upset(df_1[[1]],names(df_1[[1]]),min_degree=1,
+                  set_sizes=FALSE,
+                  guides='collect',
+                  n_intersections=N,
+                  
+                  stripes='white',
+                  base_annotations=list(
+                    '# of Replicates'=intersection_size(
+                      counts=TRUE,
+                    )
+                  ),
+                  annotations =list(
+                    "Ranked Intensity  "=list(
+                      aes=aes(x=intersection, fill=df_1[[1]]$rank),
+                      
+                      geom=list(
+                        geom_bar(stat='count', position='fill', na.rm=TRUE),
+                        themes=theme(legend.position="bottom", legend.box = "horizontal"),
+                        geom_text(
+                          aes(
+                            label=!!aes_percentage(relative_to='intersection'),
+                            color=ifelse(!is.na(rank), 'show', 'hide')
+                          ),
+                          stat='count',
+                          position=position_fill(vjust = .5),
+                          
+                        ),
+                        
+                        scale_y_continuous(labels=scales::percent_format()),
+                        show_hide_scale,
+                        rating_scale
+                        
+                      )
+                    )
+                  )
+                  
+    )+ggtitle(paste0(df_1[[1]]$sample_name[1]))
+    y<-get_legend(check1$patches$plots[[1]])
+    
+    P<-ggarrange(plotlist=check,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
+    print(P)
+  }else{
+    ########Plot separately
+    
+    df_<-df_ %>% subset(sample_name== condition) 
+    
+    df_<-df_ %>% dplyr::rename("uniqueID"="Accession","C"="temperature","I"="value")
+    
+    df_$rank<-ifelse(df_$rank==1,"high",ifelse(df_$rank==2,"medium","low"))
+    df_$rank<-factor(df_$rank,levels=c("high","medium","low"))
+    df_<-df_ %>% dplyr::filter(sample_name==condition)%>%
+      dplyr::group_split(uniqueID) 
+    df_<-lapply(df_,function(x) x[1,]) %>% dplyr::bind_rows(.)
+    df_$missing_pct<-as.numeric(df_$missing_pct)
+    df_$missing_pct<-round(df_$missing_pct,0)
+    df_$dataset<-as.factor(df_$dataset)
+    
+    d2<-dplyr::bind_rows(df_)%>% dplyr::filter(dataset=="vehicle") 
+    d2$uniqueID<-as.factor(d2$uniqueID)
+    d2$sample_name<-as.factor(d2$sample_name)
+    d2$C<-as.factor(d2$C)
+    d2$rank<-as.factor(d2$rank)
+    
+    
+    d1<-dplyr::bind_rows(df_)%>% dplyr::filter(dataset=="treated") 
+    d1$uniqueID<-as.factor(d1$uniqueID)
+    d1$sample_name<-as.factor(d1$sample_name)
+    d1$C<-as.factor(d1$C)
+    d1$rank<-as.factor(d1$rank)
+    
+    
+    d3<-rbind(d1,d2)
+    
+    d3<-tidyr::pivot_wider(d3,names_from=c(missing_pct),values_from=missing_pct,values_fill=NA)
+    d1<-pivot_wider(d1,names_from=c(missing_pct),values_from=missing_pct,values_fill=NA)
+    d2<-pivot_wider(d2,names_from=c(missing_pct),values_from=missing_pct,values_fill=NA)
+    
+    d1<-d1%>% dplyr::select(-uniqueID,-C,-I,-CC,-missing,-dataset,-sample_id,-sample_name)
+    d2<-d2 %>% dplyr::select(-uniqueID,-C,-I,-CC,-missing,-dataset,-sample_id,-sample_name)
+    d3<-d3 %>% dplyr::select(-uniqueID,-C,-I,-CC,-missing,-dataset,-sample_id,-sample_name)
+    
+    rd1<-d1$rank
+    rd2<-d2$rank
+    rd3<-d3$rank
+    
+    d1<-1+d1[,lapply(d1,class)=="numeric"]
+    d2<-1+d2[,lapply(d2,class)=="numeric"]
+    d3<-1+d3[,lapply(d3,class)=="numeric"]
+    
+    d1$rank<-rd1
+    d2$rank<-rd2
+    d3$rank<-rd3
+    
+    colnames(d1) <- paste("missing ", colnames(d1),"%", sep = " ")
+    colnames(d2) <- paste("missing ", colnames(d2),"%", sep = " ")
+    colnames(d3) <- paste("missing ", colnames(d3),"%", sep = " ")
+    
+    rating_scale = scale_fill_manual(name="Ranked Intensity",
+                                     values=c(
+                                       'high'='#2ca25f', 'medium'='#99d8c9',
+                                       'low'='#e5f5f9'
+                                     ))
+    show_hide_scale = scale_color_manual(values=c('show'='black', 'hide'='transparent'), guide=FALSE)
+    
+    d1$rank<-rd1
+    d2$rank<-rd2
+    d3$rank<-rd3
+    
+    p<-upset(d2,names(d2),
+             min_degree=1,
+             set_sizes=FALSE,
+             n_intersections=N,
+             stripes='white',
+             base_annotations=list(
+               '# of Replicates'=intersection_size(
+                 counts=TRUE,
+               )
+             ),
+             annotations =list(
+               "Ranked Intensity %"=list(
+                 aes=aes(x=intersection, fill=d2$rank),
+                 geom=list(
+                   geom_bar(stat='count', position='fill', na.rm=TRUE),
+                   geom_text(
+                     aes(
+                       label=!!aes_percentage(relative_to='intersection'),
+                       color=ifelse(!is.na(rank), 'show', 'hide')
+                     ),
+                     stat='count',
+                     position=position_fill(vjust = .5)
+                   ),
+                   scale_y_continuous(labels=scales::percent_format()),
+                   
+                   show_hide_scale,
+                   rating_scale
+                 )
+               )
+             )
+             
+    )+ggtitle(str_replace(d2$condition[1],"S",paste0("\u03A6")))
+    
+    p2<-upset(d1,names(d1),name="Sample bins",
+              min_degree=1,
+              n_intersections=N,
+              set_sizes=FALSE,
+              stripes='white',
+              base_annotations=list(
+                '# of Replicates'=intersection_size(
+                  counts=TRUE,
+                )
+              ),
+              annotations =list(
+                "Ranked Intensity %"=list(
+                  aes=aes(x=intersection, fill=d1$rank),
+                  geom=list(
+                    geom_bar(stat='count', position='fill', na.rm=TRUE),
+                    
+                    geom_text(
+                      aes(
+                        label=!!aes_percentage(relative_to='intersection'),
+                        color=ifelse(!is.na(rank), 'show', 'hide')
+                      ),
+                      stat='count',
+                      position=position_fill(vjust = .5)
+                    ),
+                    scale_y_continuous(labels=scales::percent_format()),
+                    
+                    show_hide_scale,
+                    rating_scale
+                  )
+                )
+              )
+              
+    )+ggtitle(str_replace(d2$condition[1],"S",paste0("\u03A6")))+ guides(color=guide_legend(title="Ranked Intensity"))
+    
+    
+    d<-names(d3)[which(!names(d3)=="rank")]
+    dr<-which(names(d3)=="rank")
+    d3<-d3 %>% dplyr::select(-rank)
+    d<-as.numeric(unlist(str_extract_all(d,"[[:digit:]]+")))
+    ints<-names(d3)[c(order(d,decreasing=FALSE))] %>% as.list(.)
+    d3$rank<-rd3
+    
+    p3<-ComplexUpset::upset(d3,names(d3), 
+                            n_intersections=N,
+                            set_sizes=FALSE,
+                            stripes='white',
+                            base_annotations=list(
+                              '# of Replicates'=intersection_size(
+                                counts=TRUE,
+                              )
+                            ),
+                            annotations =list(
+                              "Ranked Intensity %"=list(
+                                aes=aes(x=intersection, fill=d3$rank),
+                                geom=list(
+                                  geom_bar(stat='count', position='fill', na.rm=TRUE),
+                                  
+                                  geom_text(
+                                    aes(
+                                      label=!!aes_percentage(relative_to='intersection'),
+                                      color=ifelse(!is.na(rank), 'show', 'hide')
+                                    ),
+                                    stat='count',
+                                    position=position_fill(vjust = .5)
+                                  ),
+                                  scale_y_continuous(labels=scales::percent_format()),
+                                  
+                                  show_hide_scale,
+                                  rating_scale
+                                )
+                              )
+                            ) 
+                            
+    )+ggtitle(str_replace(d2$condition[1],"S",paste0("\u03A6")))+ guides(color=guide_legend(title="Ranked Intensity"))
+    
+    return(list(plot(p),plot(p2),plot(p3)))
+  }
+}
+#Trilinear functions
 DLR<-function(d){
   #preallocate final result as a list
   
@@ -1491,8 +1962,6 @@ DLR<-function(d){
   df_0<-df_0 %>% dplyr::group_split(uniqueID)
   return(df_0)
 }
-
-
 #this function takes original data with replicates as an input
 CP<-function(df_0,d){ #df_0 is the result data frame and d is the orginal data with replicates
   df_0<-purrr::map(df_0, function(x) x %>% dplyr::select(-missing,-CI))
@@ -4104,6 +4573,9 @@ pdf("UpsetMV.pdf",pointsize= 14,paper= "a4r", width = 0.001, height = 0.001)
 listUP
 
 dev.off()
+##GO Terms
+##
+listUP<-upGO(dplyr::bind_rows(df_norm),"C_F_S",5,plot_multiple=TRUE,PSMs=FALSE)
 
 df_norm1<-df_norm
 df_norm<-purrr::map(df_norm1,function(x)x %>% dplyr::filter(uniqueID %in% c("P36507","Q02750")))
@@ -4124,13 +4596,17 @@ model4<-lapply(MEK,function(x) lmer(I~1+C+dataset+(1|dataset),data=x))
 model5<-lapply(MEK,function(x) lmer(I~1+C+dataset+(1|dataset)+(1|C),data=x))
 
 
-PlotTrilinear<-function(df_norm,target,df.temps){
-  
+PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,PSM=FALSE){
+  if(any(class(df_norm)=="list")){
+    df_norm<-dplyr::bind_rows(df_norm)
+  }
   ##SCRIPT STARTS HERE
   DF<-df_norm %>% dplyr::group_split(uniqueID) #split null dataset only by protein ID
   d_<-df_norm %>% dplyr::filter(CC == 0) %>% dplyr::group_split(uniqueID,dataset) #split vehicle dataset
   d_1<-df_norm %>% dplyr::filter(CC > 0) %>% dplyr::group_split(uniqueID,dataset) #split treated dataset
-  
+  if(length(d_1)==0){
+    d_1<-d_
+  }
   
   #convert to data frame for uniqueID presence
   DF<-dplyr::bind_rows(DF)
@@ -4183,37 +4659,35 @@ PlotTrilinear<-function(df_norm,target,df.temps){
   tlresults<-list()
   tlresults_PI<-list()
   #confidence intervals
-  tlresults<-tlstat(DFN,df_,df_1,norm=FALSE,Filters=FALSE,Ftest=TRUE)
+  tlresults<-tlstat(DFN,df_,df_1,norm=FALSE,Filters=filt,Ftest=Ft)
   
   #return filtered lists
   res<-tlf(tlresults,DFN,APfilt=FALSE,PF=FALSE)
   i=which(res[[1]]$uniqueID %in% target)
-  plotTL1<-tlCI(i,res[[1]],res[[2]],res[[3]],overlay=TRUE,residuals=FALSE,df.temps=df.temps)
+  plotTL1<-tlCI(i,res[[1]],res[[2]],res[[3]],overlay=TRUE,residuals=FALSE,df.temps=df.temps,PSMs=PSM)
   
-  return(list(plotTL1))
+  return(plotTL1)
 }
 
-plot<-purrr::map(df_norm,function(x) PlotTrilinear(x,"P36507",df.temps))
-check<-ggplot2::ggplot_build(plot[[1]][[1]])
+plot<-purrr::map(df_norm,function(x) try(PlotTrilinear(x,"P36507",df.temps,Ft=FALSE,filt=FALSE,PSM=FALSE)))
+check<-ggplot2::ggplot_build(plot[[1]])
 y<-get_legend(check$plot)
-data<-lapply(plot,function(x) x[[1]]$labels$title)
-plot<-plot[order(unlist(data))]
-plot<-lapply(plot,function(x)x[[1]])
+data<-order(unlist(lapply(plot,function(x) x$labels$title)))
+plot<-plot[data]
 P1<-ggarrange(plotlist=plot,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-plot<-purrr::map(df_norm,function(x) PlotTrilinear(x,"Q02750",df.temps))
+plot<-purrr::map(df_norm,function(x) try(PlotTrilinear(x,"Q02750",df.temps,Ft=FALSE,filt=FALSE,PSM=TRUE)))
 check<-ggplot2::ggplot_build(plot[[1]][[1]])
 y<-get_legend(check$plot)
-data<-lapply(plot,function(x) x[[1]]$labels$title)
-plot<-plot[order(unlist(data))]
-plot<-lapply(plot,function(x)x[[1]])
+data<-order(unlist(lapply(plot,function(x) x$labels$title)))
+plot<-plot[data]
 P2<-ggarrange(plotlist=plot,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
 #saveIDs filtered
 saveRDS(res[[1]]$uniqueID,"proteins_trilinear_filters_Ftest_CFE.rds")
-pdf("Target_curves_trilinear.pdf",encoding="CP1253.enc",compress=FALSE,pointsize= 14,paper= "a4r", width = 0.001, height = 0.001)
-P1
-P2
+pdf("Target_curves_trilinear_CnFE.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
+plotTL1
+plotTL2
 dev.off()
 
 
@@ -4221,17 +4695,22 @@ dev.off()
 #df2<-original data in order  
 #Df1 <- ordered spline results 
 ###############################
-plot_Splines<-function(x,Protein,df.temps,MD=FALSE,filters=TRUE,show_results=TRUE,CI=TRUE){
+plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=TRUE,fT=FALSE,show_results=FALSE,PSM=FALSE){
   if(isTRUE(MD)){
+    
     DFN<-x 
     df_<-x %>% dplyr::filter(dataset=="vehicle")
     df_1<-x %>% dplyr::filter(dataset=="treated")
+    
+    if(nrow(df_1)==0){
+      df_1<-df_
+    }
     #get spline results
     spresults<-list()
     spresults_PI<-list()
     
-    spresults<-spstat(DFN,df_,df_1,Ftest=FALSE,norm=FALSE,filters=filters)
-    if(any(class(spresults)=="list")){
+    spresults<-spstat(DFN,df_,df_1,Ftest=fT,norm=FALSE,filters=Filters)
+    if(class(spresults)=="list"){
       res_sp<-spf(spresults[[1]],DFN,filters=FALSE)
     }else{
       res_sp<-spf(spresults,DFN,filters=FALSE)
@@ -4239,8 +4718,8 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,filters=TRUE,show_results=TRU
     #saveIDs filtered
     i<-which(res_sp[[1]]$uniqueID %in% Protein)
     #generate 95%CI for splines
-    Pred1<-spCI(i,res_sp[[1]],res_sp[[2]],res_sp[[3]],df.temps,overlay=TRUE,alpha=0.05,CI=CI)
-    return(Pred1)
+    Pred1<-spCI(i,res_sp[[1]],res_sp[[2]],res_sp[[3]],df.temps,overlay=TRUE,alpha=0.05,PSMs=PSM)
+    
     
   }else{
     DFN<-x %>% dplyr::filter(uniqueID %in% as.character(Protein))
@@ -4250,16 +4729,16 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,filters=TRUE,show_results=TRU
     spresults<-list()
     spresults_PI<-list()
     
-    spresults<-spstat(DFN,df_,df_1,Ftest=TRUE,norm=FALSE,filters=filters)
+    spresults<-spstat(DFN,df_,df_1,Ftest=fT,norm=FALSE,filters=Filters)
     if(class(spresults)=="list"){
-      res_sp<-spf(spresults[[1]],DFN,filters=FALSE)
+      res_sp<-spf(spresults[[1]],DFN,filters=Filters)
     }else{
-      res_sp<-spf(spresults,DFN,filters=FALSE)
+      res_sp<-spf(spresults,DFN,filters=Filters)
     }
     #saveIDs filtered
     i<-which(res_sp[[1]]$uniqueID %in% Protein)
     #generate 95%CI for splines
-    Pred1<-spCI(i,res_sp[[1]],res_sp[[2]],res_sp[[3]],df.temps,overlay=TRUE,alpha=0.05,CI=CI)
+    Pred1<-spCI(i,res_sp[[1]],res_sp[[2]],res_sp[[3]],df.temps,overlay=TRUE,alpha=0.05)
     return(Pred1)
   }
   if(isTRUE(show_results)){
@@ -4269,15 +4748,14 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,filters=TRUE,show_results=TRU
   }
 }
 
-plotS <- purrr::map(df_norm,function(x) plot_Splines(x,"P36507",df.temps,MD=TRUE,filters=FALSE,CI=TRUE))
-
+plotS <- furrr::future_map(df_norm,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,PSM=TRUE)))
 check<-ggplot2::ggplot_build(plotS[[1]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plotS,function(x) x$labels$title))
 plotS<-plotS[order(data)]
 P1<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,filters=FALSE,CI=TRUE)))
+plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,PSM=TRUE)))
 check<-ggplot2::ggplot_build(plotS2[[1]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plotS2,function(x) x$labels$title))
