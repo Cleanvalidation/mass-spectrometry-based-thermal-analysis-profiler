@@ -247,9 +247,12 @@ clean_cetsa <- function(df, temperatures = NULL, samples = NULL,PSM=FALSE) {
   if (is.null(temperatures)) {return(warning('No temperature data'))}
   if (is.null(samples)) {return(warning('No sample data'))}
   
-  df <- df %>%
-    dplyr::left_join(samples, by = c('sample_id' = 'sample_id'))
-  
+  if(any(names(df)=="sample_name")){
+    
+  }else{
+    df <- df %>%
+      dplyr::left_join(samples, by = c('sample_id' = 'sample_id'))
+  }
   
   df <- df %>%
     dplyr::left_join(temperatures, by = 'temp_ref')
@@ -320,12 +323,15 @@ clean_cetsa <- function(df, temperatures = NULL, samples = NULL,PSM=FALSE) {
 #' @export
 normalize_cetsa <- function(df, temperatures,PSM=FALSE,Batch=TRUE,filters=FALSE) {
   temperatures <- sort(temperatures)
+  if(any(names(df)=="uniqueID")){
+    df<-df %>% dplyr::rename("Accession"="uniqueID","value"="I")
+  }
   df$Accession<-as.factor(df$Accession)
   
   df.jointP <- suppressWarnings(df %>%
                                   dplyr::group_split(Accession,sample) %>% 
                                   purrr::map(function(x) x %>% dplyr::mutate(n=dplyr::n()) %>% 
-                                               dplyr::mutate(.,T7 = try(mean(value[x$temperature == temperatures[7]]/value[temperature == temperatures[1]])),
+                                               dplyr::mutate(.,T7 = try(mean(value[temperature == temperatures[7]]/value[temperature == temperatures[1]])),
                                                              T9 = try(mean(value[temperature == temperatures[9]]/value[temperature == temperatures[1]])),
                                                              T10 = try(mean(value[temperature == temperatures[10]]/value[temperature == temperatures[1]])))))
   df.jointP<- dplyr::bind_rows(df.jointP)
@@ -399,7 +405,6 @@ normalize_cetsa <- function(df, temperatures,PSM=FALSE,Batch=TRUE,filters=FALSE)
   
   return(df)
 }
-
 #
 #' fit curves to CETSA data
 #'
@@ -1963,7 +1968,7 @@ DLR<-function(d){
   return(df_0)
 }
 #this function takes original data with replicates as an input
-CP<-function(df_0,d){ #df_0 is the result data frame and d is the orginal data with replicates
+CP<-function(df_0,d,PSM=FALSE){#df_0 is the result data frame and d is the orginal data with replicates
   df_0<-purrr::map(df_0, function(x) x %>% dplyr::select(-missing,-CI))
   
   #remove data points with missing data for replicates
@@ -1999,12 +2004,42 @@ CP<-function(df_0,d){ #df_0 is the result data frame and d is the orginal data w
   #remove NA values
   Split<-dplyr::bind_rows(Split)
   df_0<-dplyr::bind_rows(df_0)
-  #Join df_0 with the subset of values
-  dap<-df_0 %>% dplyr::left_join(Split,by=c("C"="C","uniqueID"="uniqueID","dataset"="dataset","I"="I","sample_name"="sample_name","CC"="CC","n"="n","sample"="sample","missing_pct"="missing_pct","rank"="rank"))
-  dap<-dap %>% dplyr::group_split(uniqueID)
-  dap<-purrr::map(dap,function(x)x %>% dplyr::mutate(LineRegion=ifelse(.$C<=tail(.$C[.$LineRegion.x==1],1),1,ifelse(.$C<=tail(.$C[.$LineRegion.x==2],1),2,3))) %>% dplyr::select(-LineRegion.x,-LineRegion.y,-missing.y))
-  
-  return(dap)
+  if(isTRUE(PSM)){
+    if(!any(names(df_0)=="missing_pct")){
+      df.temps<-length(unique(df.temps$temperature))
+      #missing values
+      miss_v<-data.frame(NA)
+      #max replicates
+      roundUpNice <- function(x, nice=c(1,2,4,5,6,8,10)) {
+        if(length(x) != 1) stop("'x' must be of length 1")
+        10^floor(log10(x)) * nice[[which(x <= 10^floor(log10(x)) * nice)[[1]]]]
+      }
+      
+      num<-roundUpNice(length(unique(df_0$C)))
+      #append missing value data
+      if(length(unique(miss_v$C))==df.temps & length(miss_v$C)>df.temps){
+        
+      }else{
+        df_0$missing_pct<-(100*(num-length(unique(df_0$C)))/num)
+      }
+      
+    }
+    #Join df_0 with the subset of values
+    dap<-df_0 %>% dplyr::left_join(Split,by=c("C"="C","uniqueID"="uniqueID","dataset"="dataset","I"="I","sample_name"="sample_name","CC"="CC","n"="n","sample"="sample","rank"="rank","IonInjTime"="IonInjTime","XCorr"="XCorr","temp_ref"="temp_ref",
+                                              "Modifications"="Modifications","Missed_Cleavages"="Missed_Cleavages","DeltaM"="DeltaM","Protein_value"="Protein_value","I_Interference"="I_Interference","Annotated_Sequence"="Annotated_Sequence","Spectrum_File"="Spectrum_File",
+                                              "S_N"="S_N","PEP"="PEP","Charge"="Charge"))
+    dap<-dap %>% dplyr::group_split(uniqueID)
+    dap<-purrr::map(dap,function(x)x %>% dplyr::mutate(LineRegion=ifelse(.$C<=tail(.$C[.$LineRegion.x==1],1),1,ifelse(.$C<=tail(.$C[.$LineRegion.x==2],1),2,3))) %>% dplyr::select(-LineRegion.x,-LineRegion.y))
+    
+    return(dap)
+  }else{
+    #Join df_0 with the subset of values
+    dap<-df_0 %>% dplyr::left_join(Split,by=c("C"="C","uniqueID"="uniqueID","dataset"="dataset","I"="I","sample_name"="sample_name","CC"="CC","n"="n","sample"="sample","missing_pct"="missing_pct","rank"="rank"))
+    dap<-dap %>% dplyr::group_split(uniqueID)
+    dap<-purrr::map(dap,function(x)x %>% dplyr::mutate(LineRegion=ifelse(.$C<=tail(.$C[.$LineRegion.x==1],1),1,ifelse(.$C<=tail(.$C[.$LineRegion.x==2],1),2,3))) %>% dplyr::select(-LineRegion.x,-LineRegion.y,-missing.y))
+    
+    return(dap)
+  }
 }
 #Trilinear functions
 tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
@@ -4639,9 +4674,9 @@ PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,PSM=FALSE){
   
   
   #reassign shared points between line regions
-  df_<-suppressWarnings(CP(results,d_))
-  df_1<-suppressWarnings(CP(results_t,d_1))
-  DFN<-suppressWarnings(CP(results_n,DF))# 
+  df_<-suppressWarnings(CP(results,d_,PSM=PSM))
+  df_1<-suppressWarnings(CP(results_t,d_1,PSM=PSM))
+  DFN<-suppressWarnings(CP(results_n,DF,PSM=PSM))# 
   #remove results to save space 
   rm(results,results_t,results_n,d_,d_1,DF)#10
   
@@ -4715,10 +4750,11 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=TRUE,fT=FALSE,show_re
     }else{
       res_sp<-spf(spresults,DFN,filters=FALSE)
     }
+    
     #saveIDs filtered
     i<-which(res_sp[[1]]$uniqueID %in% Protein)
     #generate 95%CI for splines
-    Pred1<-spCI(i,res_sp[[1]],res_sp[[2]],res_sp[[3]],df.temps,overlay=TRUE,alpha=0.05,PSMs=PSM)
+    Pred1<-spCI(i,res_sp[[1]],res_sp[[2]],res_sp[[3]],df.temps,overlay=TRUE,alpha=0.05)
     
     
   }else{
@@ -4755,7 +4791,7 @@ data<-unlist(lapply(plotS,function(x) x$labels$title))
 plotS<-plotS[order(data)]
 P1<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,PSM=TRUE)))
+plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,PSM=FALSE)))
 check<-ggplot2::ggplot_build(plotS2[[1]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plotS2,function(x) x$labels$title))
