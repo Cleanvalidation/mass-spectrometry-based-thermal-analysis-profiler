@@ -2167,6 +2167,9 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
       mean1<-suppressWarnings(mean1 %>% purrr::keep(function(x) any(unlist(x$slope)<0)))
       mean1_1<-suppressWarnings(mean1_1 %>% purrr::keep(function(x) any(unlist(x$slope)<0)))
       mean3<-suppressWarnings(mean3 %>% purrr::keep(function(x) any(unlist(x$slope)<0)))
+      if(length(mean1)==0 &length(mean1_1)==0){
+        warning("Please disable filters, all data was filtered out.")
+      }
     }
     #convert to df and split by uniqueID 
     mean1<-dplyr::bind_rows(mean1)
@@ -4656,6 +4659,8 @@ df_norm<-lapply(df_norm,function(x) x %>% dplyr::mutate(replicate=as.factor(rown
 df_norm<-dplyr::bind_rows(df_norm)
 
 df_norm<-df_norm %>% dplyr::group_split(sample_name)
+
+
 MEK<-lapply(df_norm,function(x) x %>% dplyr::filter(uniqueID=="P36507"))
 
 ##LMER
@@ -4672,7 +4677,8 @@ model1<-lapply(model1,function(x) summary(x))
 model2<-lapply(model2,function(x) summary(x))
 model3<-lapply(model3,function(x) summary(x))
 model4<-lapply(model4,function(x) summary(x))
-PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,PSM=FALSE){
+
+PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,PSM=FALSE,showResults=FALSE){
   if(any(class(df_norm)=="list")){
     df_norm<-dplyr::bind_rows(df_norm)
   }
@@ -4741,11 +4747,14 @@ PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,PSM=FALSE){
   res<-tlf(tlresults,DFN,APfilt=FALSE,PF=FALSE)
   i=which(res[[1]]$uniqueID %in% target)
   plotTL1<-tlCI(i,res[[1]],res[[2]],res[[3]],overlay=TRUE,residuals=FALSE,df.temps=df.temps,PSMs=PSM)
-  
+  if(showResults==TRUE){
+    return(res)
+  }else{
   return(plotTL1)
+  }
 }
 
-plot<-purrr::map(df_norm,function(x) try(PlotTrilinear(x,"P36507",df.temps,Ft=FALSE,filt=FALSE,PSM=FALSE)))
+plot<-purrr::map(df_norm1,function(x) try(PlotTrilinear(x,"P36507",df.temps,Ft=TRUE,filt=FALSE,PSM=FALSE,showResults=TRUE)))
 check<-ggplot2::ggplot_build(plot[[1]])
 y<-get_legend(check$plot)
 data<-order(unlist(lapply(plot,function(x) x$labels$title)))
