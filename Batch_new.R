@@ -4382,7 +4382,7 @@ Violin_panels<-function(df_raw,df.temps,MD=TRUE){
 }
 
 #filter PSMs
-filter_PSMs<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaM_ppm){
+filter_PSMs<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm){
   #rename problematic headers
   check<-names(head(df_))
   ch<-str_replace_all(check,paste0("[","[:punct:]","]"),paste0("_"))
@@ -4391,7 +4391,44 @@ filter_PSMs<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaM_ppm){
   #set new names
   names(df_)<-ch
   #filter
-  df_<-df_ %>% dplyr::filter(Average_Reporter_S_N>S_N,Percolator_PEP<PEP,XCorr<XCor,Charge<Charg,Missed_Cleavages<Missed_C,DeltaMppm_<DeltaM_ppm)
+  if(any(names(df_)=="Average_Reporter_S_N")){
+    df_<-df_ %>% dplyr::filter(Average_Reporter_S_N>S_N,Percolator_PEP<PEP,Charge<Charg,Missed_Cleavages<Missed_C,DeltaMppm_<DeltaM_ppm)
+    df_<-df_%>% dplyr::rename("uniqueID"="Accession","I"="value","S_N"="Average_Reporter_S_N","PEP"="Percolator_PEP",
+                              "DeltaM"="DeltaMppm_","IonInjTime"="Ion_Inject_Timems_",
+                              "I_Interference"="Isolation_Interference_")
+    #rank by the highest intensity channel
+    rank<-df_%>% dplyr::filter(temp_ref=="126") %>%
+      dplyr::mutate(rank=dplyr::ntile(.$S_N,3)) %>% dplyr::select(uniqueID,Spectrum_File,Annotated_Sequence,Charge,rank,S_N,PEP,Missed_Cleavages,DeltaM,sample_id,Protein_value)
+    #remove na values in uniqueID's
+    rank<-rank %>% dplyr::filter(!is.na(uniqueID))
+    #convert to data.table
+    rank<-data.table(rank)
+    df_<-data.table(df_)
+    #get unique PSMs
+    rank<-unique(rank)
+    
+    #Use I column to distinguish duplicated rank values/PSM
+    col_n<-c("uniqueID","Spectrum_File","Annotated_Sequence","Charge","S_N","PEP","Missed_Cleavages","DeltaM","sample_id","Protein_value")
+    #set join columns
+    setkeyv(rank,cols=col_n)
+    setkeyv(df_,cols=col_n)
+    #right_join
+    df_ <- data.frame(merge(df_,rank, all.y=TRUE))
+    
+  }else{
+    df_<-df_[!is.na(df_$Percolator_PEP),]
+    df_<-df_ %>% dplyr::rename("Missed_Cleavages"="#_Missed_Cleavages") 
+    df_<-df_ %>% dplyr::filter(Percolator_PEP<PEP,Charge<Charg,Missed_Cleavages<Missed_C,DeltaM_ppm<DeltaMppm)
+    df_<-df_%>% dplyr::rename("uniqueID"="Accession","I"="value","PEP"="Percolator_PEP",
+                              "DeltaM"="DeltaM_ppm")
+    
+  }
+  if(length(XCor)==2){
+    df_<-df_ %>% dplyr::filter(XCorr>XCor[1],XCorr<XCor[2])
+  }else{
+    df_<-df_ %>% dplyr::filter(XCorr>XCor)
+  }
+  
   df_ <-df_ %>% dplyr::mutate(CC=ifelse(stringr::str_detect(Spectrum_File,"DMSO")==TRUE,0,1))#concentration values are defined in uM
   
   df_$dataset<-ifelse(df_$CC==0,"vehicle","treated")
@@ -4400,17 +4437,9 @@ filter_PSMs<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaM_ppm){
   df_$sample_name<-paste0(ifelse(str_detect(df_$Spectrum_File,"NOcarrier")==TRUE,"nC",ifelse(str_detect(df_$Spectrum_File,"carrier")==TRUE,"C",NA)),'_',
                           ifelse(str_detect(df_$Spectrum_File,"NO_FAIMS")==TRUE,"nF",ifelse(str_detect(df_$Spectrum_File,"r_FAIMS")==TRUE,"F",NA)),'_',
                           ifelse(str_detect(df_$Spectrum_File,"S_eFT")==TRUE,"E",ifelse(str_detect(df_$Spectrum_File,"S_Phi")==TRUE,"S",NA)))
-  df_<-df_%>% dplyr::rename("uniqueID"="Accession","I"="value","S_N"="Average_Reporter_S_N","PEP"="Percolator_PEP",
-                            "DeltaM"="DeltaMppm_","IonInjTime"="Ion_Inject_Timems_",
-                            "I_Interference"="Isolation_Interference_")
   
-  rank<-df_ %>% dplyr::filter(temp_ref=="126") %>% dplyr::mutate(rank=dplyr::ntile(I,3)) %>% 
-    dplyr::select("uniqueID","dataset","sample_name","rank","Annotated_Sequence")
-  df_<-df_ %>% dplyr::right_join(rank,by=c("uniqueID","dataset","sample_name","Annotated_Sequence"))
-  #future: add modifications
-  #df_<-df_ %>% dplyr::filter(Modifications %in% Mods)
+  
 }
-
 #CV<-his_sp(res_sp[[3]],df.temps,MD=FALSE)
 
 ###############################
@@ -4748,7 +4777,7 @@ PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,PSM=FALSE,showResults=FA
   i=which(res[[1]]$uniqueID %in% target)
   plotTL1<-tlCI(i,res[[1]],res[[2]],res[[3]],overlay=TRUE,residuals=FALSE,df.temps=df.temps,PSMs=PSM)
   if(showResults==TRUE){
-    return(res)
+    return(res[[1]])
   }else{
   return(plotTL1)
   }
@@ -4760,6 +4789,98 @@ y<-get_legend(check$plot)
 data<-order(unlist(lapply(plot,function(x) x$labels$title)))
 plot<-plot[data]
 P1<-ggarrange(plotlist=plot,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
+
+#generate Upset with intersections
+upMD <- function(df_,df_norm,N,plot_multiple=TRUE){
+  
+  if(isTRUE(plot_multiple)){
+      names<-data.frame(sample_name=unique(dplyr::bind_rows(df_norm)$sample_name)) %>% dplyr::group_split(sample_name)
+      df<-purrr::map2(targets,names,function(x,y) cbind(x,y))
+      df<-dplyr::bind_rows(df) %>% dplyr::rename("uniqueID"="x")
+      df$sample_name<-as.factor(df$sample_name)
+      df$uniqueID<-as.factor(df$uniqueID)
+    
+      df_1<-df%>% 
+        dplyr::group_split(sample_name)
+      df_1<-purrr::map(df_1,function(x)
+        pivot_wider(x,names_from=uniqueID,values_from=sample_name,values_fill=NA)) 
+      df_1<-dplyr::bind_rows(df_1)
+      row.names(df_1)<-levels(df_1[[1]])
+      #
+      df_1<-t(df_1)
+      colnames(df_1)<-str_replace(colnames(df_1),"S","\u03A6")
+      df_1<-as.data.frame(df_1)
+      df_1<-replace(df_1,
+              !is.na(df_1), TRUE)
+      df_1<-replace(df_1,
+                    is.na(df_1), FALSE)
+      
+      
+      
+      check<-list()
+      check<- upset(df_1,colnames(df_1),
+                    min_degree=5,
+                    set_sizes=FALSE,
+                    guides='collect',
+                    n_intersections=10,
+                    stripes='white',
+                    sort_intersections_by="cardinality",
+                    # annotations =list(
+                    #   "Protein Counts"=list(
+                    #     aes=aes(x=intersection),
+                    #     
+                    #     geom=list(
+                    #       geom_bar(stat='count', position='fill', na.rm=TRUE,show.legend=FALSE))))
+                    #       
+                    )+ggtitle("Trilinear: filtered results")
+
+                    
+                    
+      check1<-upset(df_1,names(df_1),min_degree=2,
+                    set_sizes=FALSE,
+                    guides='collect',
+                    n_intersections=N,
+                    stripes='white',
+                    base_annotations=list(
+                      '# of PSMs'=intersection_size(
+                        counts=TRUE,
+                      )
+                    ),
+                    annotations =list(
+                      "Proteins found  "=list(
+                        aes=aes(x=intersection),
+                        
+                        geom=list(
+                          geom_bar(stat='count', position='fill', na.rm=TRUE),
+                          themes=theme(legend.position="bottom", legend.box = "horizontal"),
+                          geom_text(
+                            aes(
+                              label=!!aes_percentage(relative_to='intersection'))
+                            ),
+                            stat='count',
+                            position=position_fill(vjust = .5),
+                            
+                          ),
+                          
+                          scale_y_continuous(labels=scales::percent_format())
+                      
+                          
+                        )
+                      )
+                    )
+                    
+      )+ggtitle(paste0(df_1[[1]]$sample_name[1]))
+      y<-get_legend(check1$patches$plots[[1]])
+      data<-unlist(lapply(check,function(x) x$labels$title))
+      check<-check[order(data)]
+      P<-ggarrange(plotlist=check,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
+      
+      return(print(P))
+    }
+
+
+
+
 
 plot<-purrr::map(df_norm,function(x) try(PlotTrilinear(x,"Q02750",df.temps,Ft=FALSE,filt=FALSE,PSM=TRUE)))
 check<-ggplot2::ggplot_build(plot[[1]][[1]])
@@ -4799,6 +4920,9 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=TRUE,fT=FALSE,show_re
       res_sp<-spf(spresults[[1]],DFN,filters=FALSE)
     }else{
       res_sp<-spf(spresults,DFN,filters=FALSE)
+      if(isTRUE(show_results)){
+        return(res_sp[[1]])
+      }
     }
     
     #saveIDs filtered
@@ -4821,20 +4945,23 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=TRUE,fT=FALSE,show_re
     }else{
       res_sp<-spf(spresults,DFN,filters=Filters)
     }
+    if(isTRUE(show_results)){
+      return(res_sp[[1]])
+    }
     #saveIDs filtered
     i<-which(res_sp[[1]]$uniqueID %in% Protein)
     #generate 95%CI for splines
     Pred1<-spCI(i,res_sp[[1]],res_sp[[2]],res_sp[[3]],df.temps,overlay=TRUE,alpha=0.05)
-    return(Pred1)
+
   }
   if(isTRUE(show_results)){
-    return(spresults)
+    return(res_sp[[1]])
   }else{
     return(Pred1)
   }
 }
 
-plotS <- furrr::future_map(df_norm,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,PSM=TRUE)))
+plotS <- furrr::future_map(df_norm1,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=TRUE,show_results=TRUE,PSM=TRUE)))
 check<-ggplot2::ggplot_build(plotS[[1]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plotS,function(x) x$labels$title))
