@@ -4417,7 +4417,7 @@ filter_PSMs<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm){
     
   }else{
     df_<-df_[!is.na(df_$Percolator_PEP),]
-    df_<-df_ %>% dplyr::rename("Missed_Cleavages"="#_Missed_Cleavages") 
+    #df_<-df_ %>% dplyr::rename("Missed_Cleavages"="#_Missed_Cleavages") 
     df_<-df_ %>% dplyr::filter(Percolator_PEP<PEP,Charge<Charg,Missed_Cleavages<Missed_C,DeltaM_ppm<DeltaMppm)
     df_<-df_%>% dplyr::rename("uniqueID"="Accession","I"="value","PEP"="Percolator_PEP",
                               "DeltaM"="DeltaM_ppm")
