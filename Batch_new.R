@@ -278,7 +278,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
 #' @import dplyr
 #'
 #' @export
-clean_cetsa <- function(df, temperatures = NULL, samples = NULL,PSM=FALSE) {
+clean_cetsa <- function(df, temperatures = NULL, samples = NULL,Peptide=FALSE,solvent,CFS=TRUE){
   if (is.null(temperatures)) {return(warning('No temperature data'))}
   if (is.null(samples)) {return(warning('No sample data'))}
   
@@ -292,7 +292,7 @@ clean_cetsa <- function(df, temperatures = NULL, samples = NULL,PSM=FALSE) {
   df <- df %>%
     dplyr::left_join(temperatures, by = 'temp_ref')
   
-  if(isTRUE(PSM) & any(str_detect(names(df),"Fraction")=="TRUE")){
+  if(isTRUE(Peptide) & any(str_detect(names(df),"Fraction")=="TRUE")){
     df <- df %>%
       dplyr::group_split(Accession, sample_id, temperature)
     df<-lapply(df,function(x) x%>% dplyr::mutate(value=sum(value)))
@@ -316,6 +316,15 @@ clean_cetsa <- function(df, temperatures = NULL, samples = NULL,PSM=FALSE) {
         dplyr::mutate(rank=rank,missing=missing,value = value / value[temperature == min(temperature)]) %>% unique(.) %>% 
         dplyr::rename("sample"="sample_id")
       df<-df[!is.na(df$Accession),]
+      if(isTRUE(CFS) & any(str_detect(df$sample_name,solvent)==TRUE)){
+        df$CC<-ifelse(stringr::str_detect(df$sample_name,solvent)==TRUE,0,1)
+        df$sample_name<-paste0(ifelse(str_detect(df$sample_name,"NOcarrier")==TRUE,"nC",ifelse(str_detect(df$sample_name,"carrier")==TRUE,"C",NA)),'_',
+                               ifelse(str_detect(df$sample_name,"NO_FAIMS")==TRUE,"nF",ifelse(str_detect(df$sample_name,"r_FAIMS")==TRUE,"F",NA)),'_',
+                               ifelse(str_detect(df$sample_name,"S_eFT")==TRUE,"E",ifelse(str_detect(df$sample_name,"S_Phi")==TRUE,"S",NA)))#oncentration values are defined in uM
+        
+        
+        df$dataset<-ifelse(df$CC==0,"vehicle","treated")
+      }
       
     }else{
       df$I<-as.numeric(df$I)
@@ -326,12 +335,22 @@ clean_cetsa <- function(df, temperatures = NULL, samples = NULL,PSM=FALSE) {
         dplyr::mutate(rank=rank,I = I / I[temperature == min(temperature,na.rm=TRUE)]) %>% unique(.) %>% 
         dplyr::rename("sample"="sample_id")
       df<-df[!is.na(df$uniqueID),]
-      
+      #only for proteins
+      if(isTRUE(CFS)&any(str_detect(df$sample_name,solvent)==TRUE)){
+        df$CC<-ifelse(stringr::str_detect(df$sample_name,solvent)==TRUE,0,1)
+        df$sample_name<-paste0(ifelse(str_detect(df$sample_name,"NOcarrier")==TRUE,"nC",ifelse(str_detect(df$sample_name,"carrier")==TRUE,"C",NA)),'_',
+                               ifelse(str_detect(df$sample_name,"NO_FAIMS")==TRUE,"nF",ifelse(str_detect(df$sample_name,"r_FAIMS")==TRUE,"F",NA)),'_',
+                               ifelse(str_detect(df$sample_name,"S_eFT")==TRUE,"E",ifelse(str_detect(df$sample_name,"S_Phi")==TRUE,"S",NA)))#oncentration values are defined in uM
+        
+        
+        df$dataset<-ifelse(df$CC==0,"vehicle","treated")
+      }
       
     }
   }
   return(df)
 }
+
 #' normalize CETSA data
 #'
 #' Normalize data according to Pelago paper.
@@ -371,13 +390,13 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE) {
     #select top3 top5 and top10 peptides according to rank
     df_filt3 <- df_filt %>%dplyr::filter(!is.na(value)) %>%  
       dplyr::arrange(desc(value)) %>% 
-      group_by(rank) %>% slice(1:500)
+      group_by(rank) %>% slice(1:1000)
     df_filt5 <- df_filt %>%dplyr::filter(!is.na(value)) %>%  
       arrange(desc(value)) %>% 
-      group_by(rank) %>% slice(1:600)
+      group_by(rank) %>% slice(1:1200)
     df_filt10 <- df_filt %>% dplyr::filter(!is.na(value)) %>%  
       arrange(desc(value)) %>% 
-      group_by(rank) %>% slice(1:700)
+      group_by(rank) %>% slice(1:1300)
     
     df_filt3<-df_filt3 %>% dplyr::ungroup(.) %>%  dplyr::select(-value,-rank)
     df_filt5<-df_filt5 %>% dplyr::ungroup(.) %>%  dplyr::select(-value,-rank)
@@ -423,19 +442,19 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE) {
     
     if(isTRUE(filters)){
       #top3
-      df.jointP3<-df.jointP3 %>% dplyr::filter(T7 >= 0.4, T7 <= 0.6)
+      df.jointP3<-df.jointP3 %>% dplyr::filter(T7 <= 0.6)
       df.jointP3<-df.jointP3 %>% dplyr::filter(T9 < 0.3)%>% dplyr::select(-T7,-T9,-n)
       if(any(names(df.jointP3)=="T10" & all(!is.na(df.jointP3$T10)))){
         df.jointP3<- df.jointP3 %>% subset(T10 < 0.2)%>% dplyr::select(-T10)#normalization from TPP
       }
       #top 5
-      df.jointP5<-df.jointP5 %>% dplyr::filter(T7 >= 0.4 & T7 <= 0.6)
+      df.jointP5<-df.jointP5 %>% dplyr::filter(T7 <= 0.6)
       df.jointP5<-df.jointP5 %>% dplyr::filter(T9 < 0.3)%>% dplyr::select(-T7,-T9,-n)
       if(any(names(df.jointP5)=="T10"& all(!is.na(df.jointP5$T10)))){
         df.jointP5<- df.jointP5 %>% dplyr::filter(T10 < 0.2)%>% dplyr::select(-T10)#normalization from TPP
       }
       #top 10
-      df.jointP10<-df.jointP10 %>% dplyr::filter(T7 >= 0.4 & T7 <= 0.6)
+      df.jointP10<-df.jointP10 %>% dplyr::filter(T7 <= 0.6)
       df.jointP10<-df.jointP10 %>% dplyr::filter(T9 < 0.3)%>% dplyr::select(-T7,-T9,-n)
       if(any(names(df.jointP10)=="T10")& all(!is.na(df.jointP3$T10))){
         df.jointP10<- df.jointP10 %>% dplyr::filter(T10 < 0.2)%>% dplyr::select(-T10)#normalization from TPP
@@ -448,7 +467,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE) {
                                                            T9 = try(mean(value[temperature == temperatures[9]]/value[temperature == temperatures[1]],na.rm=TRUE)),
                                                            T10 = try(mean(value[temperature == temperatures[10]]/value[temperature == temperatures[1]],na.rm=TRUE)))))
       df1<-dplyr::bind_rows(df1)
-      df1<-df1 %>% dplyr::filter(T7 >= 0.4 & T7 <= 0.6)
+      df1<-df1 %>% dplyr::filter(T7 <= 0.6)
       df1<-df1 %>% dplyr::filter(T9 < 0.3)%>% dplyr::select(-T7,-T9,-n)
       if(any(names(df1)=="T10") & all(!is.na(df1$T10))){
         df1<- df1 %>% dplyr::filter(T10 < 0.2)%>% dplyr::select(-T10)#normalization from TPP
@@ -588,11 +607,8 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE) {
       dplyr::rename("uniqueID"="Accession", "C"="temperature","I3"="norm_value3","I5"="norm_value5","I10"="norm_value10")
     df<-df %>% dplyr::ungroup(.) %>% dplyr::select(-value,-correction3,-correction5,-correction10)
     
-    if(isTRUE(filters)){
-      if (any(names(df)==T7)){
-        df<-df %>% dplyr::select(-T10,-T7,-T9)
-      }
-    }
+    df<-dplyr::bind_rows(df)
+    df$sample_name<-str_replace(df$sample_name,"S","\u03A6")
     return(df)
   }else{
     
@@ -5198,7 +5214,7 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=TRUE,fT=FALSE,show_re
   }
 }
 
-plotS <- furrr::future_map(df_norm,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,PSM=FALSE)))
+plotS <- furrr::future_map(df_norm1,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=TRUE,show_results=TRUE,PSM=FALSE)))
 check<-ggplot2::ggplot_build(plotS[[1]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plotS,function(x) x$labels$title))
