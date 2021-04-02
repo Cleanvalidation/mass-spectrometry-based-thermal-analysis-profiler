@@ -30,6 +30,8 @@ library(caret)
 library(ggpubr)
 library(memoise)
 library(furrr)
+library(lme4)
+library(merTools)
 
 theme_set(theme_bw())
 
@@ -70,7 +72,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
     }
     for ( i in seq(f)){
       #first get PSM file read
-      df.raw <- read_excel(path=f[i])
+      df.raw <- as.data.frame(read_excel(path=f[i]))
       df2[[i]] <- df.raw%>%
         dplyr::select(names(df.raw)[stringr::str_detect(names(df.raw),'Master')],
                       tidyselect::starts_with('Abundance')|tidyselect::starts_with('1'),
@@ -152,7 +154,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
     df<-list()
     
     for (i in seq(g)){
-      df[[i]]<- readxl::read_excel(g[i])
+      df[[i]]<- readxl::as.data.frame(read_excel(g[i]))
       
       df[[i]]<- df[[i]] %>% 
         dplyr::select(Accession,tidyselect::starts_with('Abundance'),-tidyselect::contains('Grouped')) %>% 
@@ -190,7 +192,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
     df[[i]]<-data.frame()
     
     for ( i in seq(file.list)){
-      df<- readxl::read_excel(file.list[i])
+      df<- readxl::as.data.frame(read_excel(file.list[i]))
       df2[[i]] <- df %>% 
         dplyr::select(Accession,tidyselect::starts_with('Abundance'),-tidyselect::contains('Grouped'),tidyselect::contains("Molecular"),tidyselect::contains("Cellular"),tidyselect::contains("pI"),tidyselect::contains("MW"),tidyselect::contains("Modifications"),tidyselect::contains("CV"))
       names(df2[[i]])<-str_replace_all(names(df2[[i]]),c(" ","  "," C",paste0(" [:punct:]")),"_")
@@ -228,7 +230,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
     df<-vector("list",length(file.list))
     df[[i]]<-data.frame()
     for( i in seq(file.list)){
-      df.raw <- readxl::read_excel(file.list[i])
+      df.raw <- readxl::as.data.frame(read_excel(file.list[i]))
       
       check<-any(stringr::str_detect(names(df.raw),'Grouped'))
       
@@ -1422,7 +1424,7 @@ upMV <- function(df_,condition,N,plot_multiple=FALSE,PSMs=FALSE){
                                              height_ratio = 0.7,
                                              stripes='white',
                                              base_annotations=list(
-                                               '# of Replicates'=intersection_size(
+                                               '# of Protein Events'=intersection_size(
                                                  counts=TRUE,
                                                )
                                              ),
@@ -1566,7 +1568,7 @@ upMV <- function(df_,condition,N,plot_multiple=FALSE,PSMs=FALSE){
              n_intersections=N,
              stripes='white',
              base_annotations=list(
-               '# of Replicates'=intersection_size(
+               '# of Protein Events'=intersection_size(
                  counts=TRUE,
                )
              ),
@@ -1599,7 +1601,7 @@ upMV <- function(df_,condition,N,plot_multiple=FALSE,PSMs=FALSE){
               set_sizes=FALSE,
               stripes='white',
               base_annotations=list(
-                '# of Replicates'=intersection_size(
+                '# of Protein Events'=intersection_size(
                   counts=TRUE,
                 )
               ),
@@ -1640,7 +1642,7 @@ upMV <- function(df_,condition,N,plot_multiple=FALSE,PSMs=FALSE){
                             set_sizes=FALSE,
                             stripes='white',
                             base_annotations=list(
-                              '# of Replicates'=intersection_size(
+                              '# of Protein Events'=intersection_size(
                                 counts=TRUE,
                               )
                             ),
@@ -2290,13 +2292,15 @@ CP<-function(df_0,d,PSM=FALSE){#df_0 is the result data frame and d is the orgin
   Split<-df_n
   #This function is to verify consistent line Region assignments for C (temperature) across replicates
   df_0<-purrr::map(df_0,function(x)x %>% dplyr::arrange(C) %>% dplyr::group_by(C,LineRegion)%>%dplyr::mutate(n=dplyr::n()) %>% dplyr::ungroup())
-  
+  df_0<-dplyr::bind_rows(df_0)%>% dplyr::group_split(uniqueID,C,dataset) 
+  df_0<-purrr::map(df_0,function(x) x %>% dplyr::mutate(replicate=as.factor(row.names(x))))
+  df_0<-dplyr::bind_rows(df_0)%>% dplyr::group_split(uniqueID) 
   #subset of the data with shared line region values, using purrr::map to keep size constant
   Split<-purrr::map(df_0,function(x)x %>%subset(n<max(n)) %>% data.frame(.) %>% dplyr::mutate(LineRegion=as.numeric((.$LineRegion))))
   #remove NA values
   Split<-dplyr::bind_rows(Split)
   df_0<-dplyr::bind_rows(df_0)
-  if(isTRUE(PSM)){
+  if(!isTRUE(PSM)){
     if(!any(names(df_0)=="missing_pct")){
       df.temps<-length(unique(df.temps$temperature))
       #missing values
@@ -2316,17 +2320,16 @@ CP<-function(df_0,d,PSM=FALSE){#df_0 is the result data frame and d is the orgin
       }
       
     }
+    
     #Join df_0 with the subset of values
-    dap<-df_0 %>% dplyr::left_join(Split,by=c("C"="C","uniqueID"="uniqueID","dataset"="dataset","I"="I","sample_name"="sample_name","CC"="CC","n"="n","sample"="sample","rank"="rank","IonInjTime"="IonInjTime","XCorr"="XCorr","temp_ref"="temp_ref",
-                                              "Modifications"="Modifications","Missed_Cleavages"="Missed_Cleavages","DeltaM"="DeltaM","Protein_value"="Protein_value","I_Interference"="I_Interference","Annotated_Sequence"="Annotated_Sequence","Spectrum_File"="Spectrum_File",
-                                              "S_N"="S_N","PEP"="PEP","Charge"="Charge"))
+    dap<-df_0 %>% dplyr::left_join(Split,by=c("C"="C","uniqueID"="uniqueID","dataset"="dataset","I"="I","sample_name"="sample_name","CC"="CC","n"="n","sample"="sample","rank"="rank","replicate"="replicate","missing"="missing","missing_pct"="missing_pct"))
     dap<-dap %>% dplyr::group_split(uniqueID)
     dap<-purrr::map(dap,function(x)x %>% dplyr::mutate(LineRegion=ifelse(.$C<=tail(.$C[.$LineRegion.x==1],1),1,ifelse(.$C<=tail(.$C[.$LineRegion.x==2],1),2,3))) %>% dplyr::select(-LineRegion.x,-LineRegion.y))
     
     return(dap)
   }else{
     #Join df_0 with the subset of values
-    dap<-df_0 %>% dplyr::left_join(Split,by=c("C"="C","uniqueID"="uniqueID","dataset"="dataset","I"="I","sample_name"="sample_name","CC"="CC","n"="n","sample"="sample","missing_pct"="missing_pct","rank"="rank"))
+    dap<-df_0 %>% dplyr::left_join(Split,by=c("C"="C","uniqueID"="uniqueID","dataset"="dataset","I"="I","sample_name"="sample_name","CC"="CC","n"="n","sample"="sample","missing_pct"="missing_pct","rank"="rank","replicate"="replicate","temp_ref"="temp_ref","MW_kDa"="MW_kDa","id"="id"))
     dap<-dap %>% dplyr::group_split(uniqueID)
     dap<-purrr::map(dap,function(x)x %>% dplyr::mutate(LineRegion=ifelse(.$C<=tail(.$C[.$LineRegion.x==1],1),1,ifelse(.$C<=tail(.$C[.$LineRegion.x==2],1),2,3))) %>% dplyr::select(-LineRegion.x,-LineRegion.y,-missing.y))
     
@@ -2360,7 +2363,7 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
                          dplyr::group_nest(LineRegion,uniqueID) %>%
                          dplyr::mutate(M1=purrr::map(data,function(x){stats::lm(x$I ~ x$C)}),
                                        CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
-                                       Tm=with(x, stats::approx(x$I,x$C, xout=min(x$I,na.rm=FALSE)+(0.5*(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))))$y),
+                                       Tm=with(x, stats::approx(x$I,x$C, xout=min(x$I,na.rm=TRUE)+(0.5*(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))))$y),
                                        slope=purrr::map(M1,function(x){as.numeric(coef(x)[2])}),
                                        intercept=purrr::map(M1,function(x){as.numeric(coef(x)[1])}),
                                        rss=purrr::map(M1,function(x){deviance(x)}),
@@ -2368,7 +2371,7 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
                                        dataset="vehicle",
                                        uniqueID=x$uniqueID[1],
                                        n=ifelse(class(M1)=="lm",1,0)))
-    
+    #Calculate AUC
     mean1<-purrr::map(mean1,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values)))
     
     #define linear models with outputs
@@ -2380,7 +2383,7 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
                            dplyr::group_nest(LineRegion,uniqueID) %>% 
                            dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
                                          CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
-                                         Tm=with(x, stats::approx(x$I,x$C, xout=min(x$I,na.rm=FALSE)+(0.5*(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))))$y),
+                                         Tm=with(x, stats::approx(x$I,x$C, xout=min(x$I,na.rm=TRUE)+(0.5*(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))))$y),
                                          slope=map(M1,function(x){as.numeric(coef(x)[2])}),
                                          intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
                                          rss=map(M1,function(x){deviance(x)}),
@@ -2388,8 +2391,6 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
                                          dataset="treated",
                                          uniqueID=x$uniqueID[1],
                                          n=ifelse(class(M1)=="lm",1,0)))
-    
-    
     
     mean1_1<-purrr::map(mean1_1,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values)))
     
@@ -2403,7 +2404,7 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
                          dplyr::group_nest(LineRegion,uniqueID) %>% 
                          dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
                                        CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
-                                       Tm=with(x, stats::approx( x$I,x$C, xout=min(x$I,na.rm=FALSE)+(0.5*(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))))$y),
+                                       Tm=with(x, stats::approx( x$I,x$C, xout=min(x$I,na.rm=TRUE)+(0.5*(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))))$y),
                                        slope=map(M1,function(x){as.numeric(coef(x)[2])}),
                                        intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
                                        rss=map(M1,function(x){deviance(x)}),
@@ -2411,7 +2412,6 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
                                        dataset="null",
                                        uniqueID=x$uniqueID[1],
                                        n=ifelse(class(M1)=="lm",1,0)))
-    
     
     mean3<-purrr::map(mean3,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values)))
     
@@ -2424,9 +2424,6 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
       mean1<-suppressWarnings(mean1 %>% purrr::keep(function(x) any(unlist(x$slope)<0)))
       mean1_1<-suppressWarnings(mean1_1 %>% purrr::keep(function(x) any(unlist(x$slope)<0)))
       mean3<-suppressWarnings(mean3 %>% purrr::keep(function(x) any(unlist(x$slope)<0)))
-      if(length(mean1)==0 &length(mean1_1)==0){
-        warning("Please disable filters, all data was filtered out.")
-      }
     }
     #convert to df and split by uniqueID 
     mean1<-dplyr::bind_rows(mean1)
@@ -2543,7 +2540,43 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
       mean3<-dplyr::bind_rows(mean3)
       mean3<-mean3 %>% dplyr::filter(mean3$uniqueID %in% test$uniqueID)
     }
-    results<-dplyr::bind_rows(mean1,mean1_1,mean3) %>% dplyr::group_split(uniqueID)
+    results<-dplyr::bind_rows(mean1,mean1_1,mean3) 
+    #results<-dplyr::bind_rows(mean1,mean1_1,mean3) %>% dplyr::filter(uniqueID=="P36507")
+    # library(ggplot2)
+    # library(merTools)
+    # 
+    # #Apply mixed-linear models 
+    lmmfit = function(x) {
+      curvefit = tryCatch(
+        {
+          posslm1 = possibly(.f = lme4::lmer(I~1+C+(1|dataset)+(1|replicate)+(1|replicate:dataset),data=x), otherwise = "Error")
+        }, error = function(cond) {
+          if(!isSingular(lme4::lmer(I~1+C+(1|replicate)+(1|dataset),data=x))){
+            lme4::lmer(I~1+C+(1|replicate)+(1|dataset),data=x)
+          }else if(!isSingular(lme4::lmer(I~1+C+(1|dataset),data=x))) {
+            lme4::lmer(I~1+C+(1|dataset),data=x)
+          }else{
+            lme4::lmer(I~C+(1|replicate),data=x)
+          }
+        }
+      )
+      return(curvefit)
+    }
+    # # #apply linear mixed models
+    results<-unnest_longer(results,data,indices_include = FALSE)
+    # check<-results %>% dplyr::filter(uniqueID=="Q02750") %>% dplyr::group_split(uniqueID,LineRegion)
+    # check<-lapply(check,function(x)x %>% dplyr::mutate(lmm=list(lmmfit(x$data))))
+    # test<-lapply(check,function(x) cbind(x, y.hat = predictInterval(x$lmm[[1]])))
+    # test<-dplyr::bind_rows(test) %>% dplyr::filter(dataset %in% c("vehicle","treated"))
+    # p <- ggplot(test, aes(x=data$C, y=data$I, colour=dataset))+
+    #   geom_point(data=test,aes(x=data$C,y=data$I))+
+    #   xlab("Temperature")+
+    #   ylab("Relative Intensity")+
+    #   geom_ribbon(data=test, aes(ymin=y.hat.lwr,ymax=y.hat.upr,fill=dataset),alpha=0.1) +
+    #   theme_bw(base_size=22)
+    # 
+    # print(p)
+    
     return(results)
   }else if (isTRUE(norm)){
     mean1<-list()
@@ -2627,7 +2660,7 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
     
     
     results<-dplyr::bind_rows(mean1,mean1_1,mean3) %>% dplyr::group_split(uniqueID)
-    
+  }
     if(isTRUE(Filters)){
       
       #Apply lax Rsq and negative slope filter to remove flat melt curves
@@ -2751,7 +2784,7 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
       mean1_1<-mean1_1 %>% dplyr::filter(mean1_1$uniqueID %in% test$uniqueID)
       mean3<-dplyr::bind_rows(mean3)
       mean3<-mean3 %>% dplyr::filter(mean3$uniqueID %in% test$uniqueID)
-    }
+    
     #convert to df and split by uniqueID 
     mean1<-dplyr::bind_rows(mean1)
     mean1_1<-dplyr::bind_rows(mean1_1)
@@ -2821,6 +2854,7 @@ tlf<-function(tlresults,DFN,APfilt=TRUE,PF=TRUE){
   }
   Nsum<-list()
   Nsum[[1]]<-data.frame(RSS=0,Tm=0)
+  tlresults <-tlresults %>% dplyr::group_split(uniqueID)
   #get the summed rss values for null
   Nsum<-purrr::map(tlresults, function(x) x %>% subset(stringr::str_detect(tolower(dataset), pattern = "null")) %>% 
                      dplyr::rowwise(.) %>%  dplyr::mutate(RSS=sum(unlist(.$rss)))%>% dplyr::select(RSS,Tm,dataset,uniqueID)%>% head(.,1))
@@ -2845,7 +2879,7 @@ tlf<-function(tlresults,DFN,APfilt=TRUE,PF=TRUE){
   K2<-data.frame(uniqueID = dplyr::bind_rows(Rssv)$uniqueID)
   Dsum<-data.frame(K1,K2)
   
-  Dsum<-Dsum %>% dplyr::mutate(rank = dplyr::ntile(Dsum$Tma,7))
+  Dsum$rank<- dplyr::ntile(Dsum$Tma,7)
   #keep data where the difference in RSS is less than the null
   #nsum converted to data frame
   Nsum<-data.frame(RSSn=dplyr::bind_rows(Nsum))
@@ -2923,9 +2957,11 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs){
   null<-data.frame()
   i<-i
   df1<-df1
+  df2<-df2[!is.na(df2$I),]
   Df1<-Df1[[i]]
   DF1<-data.frame(NA)
   DF1<-df2 %>% subset(uniqueID == df1$uniqueID[i]) 
+  DF1<-DF1[!is.na(DF1$I),]
   
   null<-Df1 %>% subset(dataset == "null")
   
@@ -2954,13 +2990,15 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs){
   LOW<-NA
   HI<-NA
   if (nrow(pred1)>0 & nrow(pred2)>0 & nrow(pred3)>0){
-    Pred<-dplyr::bind_rows(pred1,pred2,pred3)
+    Pred<-data.frame(rbind(pred1,pred2,pred3))
   } else if (nrow(pred2)>0 & nrow(pred3)>0){
-    Pred<-dplyr::bind_rows(pred2,pred3)
+    Pred<-data.frame(rbind(pred2,pred3))
   } else if (nrow(pred1)>0 & nrow(pred2)>0){
-    Pred<-dplyr::bind_rows(pred1,pred2)  
+    Pred<-data.frame(rbind(pred1,pred2))  
   }else if (nrow(pred1)>0 & nrow(pred3)>0){
-    Pred<-dplyr::bind_rows(pred1,pred3)
+    Pred<-data.frame(rbind(pred1,pred3))
+  }else if(nrow(pred1)>0){
+    Pred<-data.frame(pred1)
   }
   rownames(Pred)<-as.vector(1:nrow(Pred))
   
@@ -3014,13 +3052,15 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs){
   LOW<-NA
   HI<-NA
   if (nrow(pred1)>0 & nrow(pred2)>0 & nrow(pred3)>0){
-    Pred1<-dplyr::bind_rows(pred1,pred2,pred3)
+    Pred1<-data.frame(rbind(pred1,pred2,pred3))
   } else if (nrow(pred2)>0 & nrow(pred3)>0){
-    Pred1<-dplyr::bind_rows(pred2,pred3)
+    Pred1<-data.frame(rbind(pred2,pred3))
   } else if (nrow(pred1)>0 & nrow(pred2)>0){
-    Pred1<-dplyr::bind_rows(pred1,pred2)  
+    Pred1<-data.frame(rbind(pred1,pred2))  
   }else if (nrow(pred1)>0 & nrow(pred3)>0){
-    Pred1<-dplyr::bind_rows(pred1,pred3)
+    Pred1<-data.frame(rbind(pred1,pred3))
+  }else if(nrow(pred1)>0){
+    Pred1<-data.frame(pred1)
   }
   
   #Pred<-Pred[1:length(DF1$C),]##############
@@ -3045,7 +3085,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs){
   treated<-data.frame()
   treated<-Df1 %>% subset(dataset == "treated")
   
-  pred1<-predict(treated$M1[[1]], interval="confidence")%>% as.data.frame(.)
+  pred1<-predict(treated$M1[[1]], interval="confidence")
   if(nrow(treated)==2|nrow(treated)==3){
     pred2<-predict(treated$M1[[2]], interval="confidence")%>% as.data.frame(.)
     pred2<-na.omit(pred2)
@@ -3067,13 +3107,15 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs){
   LOW<-NA
   HI<-NA
   if (nrow(pred1)>0 & nrow(pred2)>0 & nrow(pred3)>0){
-    Pred2<-dplyr::bind_rows(pred1,pred2,pred3)
+    Pred2<-data.frame(rbind(pred1,pred2,pred3))
   } else if (nrow(pred2)>0 & nrow(pred3)>0){
-    Pred2<-dplyr::bind_rows(pred2,pred3)
+    Pred2<-data.frame(rbind(pred2,pred3))
   } else if (nrow(pred1)>0 & nrow(pred2)>0){
-    Pred2<-dplyr::bind_rows(pred1,pred2)  
+    Pred2<-data.frame(rbind(pred1,pred2))  
   }else if (nrow(pred1)>0 & nrow(pred3)>0){
-    Pred2<-dplyr::bind_rows(pred1,pred3)
+    Pred2<-data.frame(rbind(pred1,pred3))
+  }else if(nrow(pred1)>0){
+    Pred2<-data.frame(pred1)
   }
   rownames(Pred2)<-as.vector(1:nrow(Pred2))
   
@@ -3089,18 +3131,23 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs){
   P2_AUC <- pracma::trapz(as.numeric(as.vector(Pred2$C)),as.numeric(as.vector(Pred2$I)))
   #Residuals
   rn<-data.frame(residuals(null$M1[[1]]))
-  if(nrow(null)==3){
+  
+  if(nrow(null)>2){
     rn<-data.frame(residuals=c(residuals(null$M1[[1]]),residuals(null$M1[[2]]),residuals(null$M1[[3]])))
-  }else{
+  }else if (nrow(null)>1){
     rn<-data.frame(residuals=c(residuals(null$M1[[1]]),residuals(null$M1[[2]])))
+  }else if (nrow(null)==1){
+    rn<-data.frame(residuals=c(residuals(null$M1[[1]])))
   }
   Pred<-cbind(Pred,rn[1:nrow(Pred),])
   names(Pred)<-c("fit","lower","upper","C","I","Treatment",'residuals')
   rn<-data.frame(residuals(vehicle$M1[[1]]))
   if(nrow(vehicle)==3){
     rn<-data.frame(c(residuals(vehicle$M1[[1]]),residuals(vehicle$M1[[2]]),residuals(vehicle$M1[[3]])))
-  }else{
+  }else if (nrow(vehicle)>1){
     rn<-data.frame(c(residuals(vehicle$M1[[1]]),residuals(vehicle$M1[[2]])))
+  }else if (nrow(vehicle)==1){
+    rn<-data.frame(residuals=c(residuals(vehicle$M1[[1]])))
   }
   Pred1<-cbind(Pred1,rn[1:nrow(Pred1),])
   names(Pred1)<- c("fit","lower","upper","C","I","Treatment",'residuals')
@@ -3109,8 +3156,10 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs){
   rn<-data.frame(residuals(treated$M1[[1]]))
   if(nrow(treated)==3){
     rn<-data.frame(c(residuals(treated$M1[[1]]),residuals(treated$M1[[2]]),residuals(treated$M1[[3]])))
-  }else{
+  }else if (nrow(treated)>2){
     rn<-data.frame(c(residuals(treated$M1[[1]]),residuals(treated$M1[[2]])))
+  }else if (nrow(treated)==1){
+    rn<-data.frame(residuals=c(residuals(treated$M1[[1]])))
   }
   
   Pred2<-cbind(Pred2,rn[1:nrow(Pred2),])
@@ -3133,103 +3182,37 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs){
   Tm_d<-round(round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1)-round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1),1)
   #add shape parameters
   #group_split to generate replicates
-  Pred1<-Pred1 %>% dplyr::group_split(C)
-  Pred2<-Pred2 %>% dplyr::group_split(C)
+  Pred1<-Pred1 %>% dplyr::group_split(C,uniqueID)
+  Pred2<-Pred2 %>% dplyr::group_split(C,uniqueID)
   #mutate
   Pred1 <-lapply(Pred1,function(x) x %>% dplyr::mutate(replicate=as.factor(row.names(.))))
   Pred2 <-lapply(Pred2,function(x) x %>% dplyr::mutate(replicate=as.factor(row.names(.))))
   #bind rows
   Pred1<-dplyr::bind_rows(Pred1)
   Pred2<-dplyr::bind_rows(Pred2)
-  
-  PLR_P1<-ggplot2::ggplot(Pred1, ggplot2::aes(x = C,y = fit,color=Treatment))+
-    ggplot2::geom_point(Pred1, mapping=ggplot2::aes(x = C,y = I,color=Treatment,shape=replicate)) +
-    ggplot2::geom_ribbon(data=Pred1,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+
-    annotate("text",
-             x = 2+round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1),
-             y = 0.55,
-             label=paste0(round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1)),
-             colour="blue",
-             size=3.5
-    )+
-    annotate("segment", x = min(Pred1$C), xend = round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1), y = 0.5, yend = 0.5,
-             colour = "blue",linetype=2)+
-    annotate("segment", x = round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
-             colour = "blue",linetype=2)+
-    ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+
-    ggplot2::ggtitle(paste(Df1$uniqueID[1],str_replace(DF1$sample_name[1],"S",paste0("\u03A6"))))+ylim(-0.4,1.8)+xlim(37,68)+theme(legend.position="bottom")
-  
-  
-  PLR_P2<-PLR_P1+ggplot2::geom_point(Pred2, mapping=ggplot2::aes(x = C,y = I,color=Treatment,shape=replicate)) +
-    ggplot2::geom_ribbon(data=Pred2,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+
-    ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+
-    annotate("text",
-             x = 2+round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1),
-             y = 0.55,
-             label=paste0(round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1)),
-             colour="red",
-             size=3.5
-    )+
-    annotate("segment", x = round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), y = 0.5, yend = 0.5,
-             colour = "red",linetype=2)+
-    annotate("segment", x = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
-             colour = "red",linetype=2)+ylim(-0.4,1.8)+xlim(37,68)+theme(legend.position="bottom")
-  if(overlay=="TRUE"){
-    AUCd<-round(P2_AUC-P1_AUC,2)
-    p<-expression(paste(Delta, "AUCdiff"))
-    if(AUCd>0){
-      P1_AUC <- pracma::trapz(as.numeric(as.vector(Pred1$C)),as.numeric(as.vector(Pred1$lower)))
-      P2_AUC <- pracma::trapz(as.numeric(as.vector(Pred2$C)),as.numeric(as.vector(Pred2$upper)))
-      AUCd<-round(P2_AUC-P1_AUC,2)
-    }else{
-      P1_AUC <- pracma::trapz(as.numeric(as.vector(Pred1$C)),as.numeric(as.vector(Pred1$upper)))
-      P2_AUC <- pracma::trapz(as.numeric(as.vector(Pred2$C)),as.numeric(as.vector(Pred2$lower)))
-      AUCd<-round(P2_AUC-P1_AUC,2)
-    }
-    AUCd<-as.numeric(AUCd)
-    miss_v<-data.frame(NA)
-    miss_t<-data.frame(NA)
-    miss_v<-DF1%>% dplyr::filter(dataset=="vehicle")
-    miss_t<-DF1 %>% dplyr::filter(dataset=="treated")
-    #get unique TMT channels
-    df.temps<-length(unique(df.temps$temp_ref))
-    num<-max(roundUpNice(length(miss_v$C)),roundUpNice(length(miss_t$C)))
-    
-    if(length(unique(miss_v$C))==df.temps & length(miss_v$C)>df.temps){
-      Pred1$missing_v<-rep(max(miss_v$missing_pct,na.rm=TRUE),nrow(Pred1))
-    }else{
-      Pred1$missing_v<-rep((100*(num-length(miss_v$C))/num),nrow(Pred1))
-    }
-    if(length(unique(miss_t$C))==df.temps & length(miss_t$C)>df.temps){
-      Pred2$missing_t<-rep(max(miss_t$missing_pct,na.rm=TRUE),nrow(Pred2))
-    }else{
-      Pred2$missing_t<-rep((100*(num-length(miss_t$C))/num),nrow(Pred2))
-    }
-    
-    Pred1$missing_v<-round(Pred1$missing_v,0)
-    Pred2$missing_t<-round(Pred2$missing_t,0)
-    #add shape parameters
-    #group_split to generate replicates
-    Pred1<-Pred1 %>% dplyr::group_split(C)
-    Pred2<-Pred2 %>% dplyr::group_split(C)
-    #mutate
-    Pred1 <-lapply(Pred1,function(x) x %>% dplyr::mutate(replicate=as.factor(row.names(.))))
-    Pred2 <-lapply(Pred2,function(x) x %>% dplyr::mutate(replicate=as.factor(row.names(.))))
-    #bind rows
-    Pred1<-dplyr::bind_rows(Pred1)
-    Pred2<-dplyr::bind_rows(Pred2)
+  #If dealing with peptides are true
+  if(isTRUE(PSMs)){
+    PLR_P1<-ggplot2::ggplot(Pred1, ggplot2::aes(x = C,y = fit,color=Treatment))+
+      ggplot2::geom_point(Pred1, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +
+      ggplot2::geom_ribbon(data=Pred1,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+
+      annotate("text",
+               x = 2+round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1),
+               y = 0.55,
+               label=paste0(round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1)),
+               colour="blue",
+               size=3.5
+      )+
+      annotate("segment", x = min(Pred1$C), xend = round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1), y = 0.5, yend = 0.5,
+               colour = "blue",linetype=2)+
+      annotate("segment", x = round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
+               colour = "blue",linetype=2)+
+      ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+
+      ggplot2::ggtitle(paste(Df1$uniqueID[1],str_replace(DF1$sample_name[1],"S",paste0("\u03A6"))))+ylim(-0.4,1.8)+xlim(37,68)+theme(legend.position="bottom")
     
     
-    PLR_P2<-PLR_P1+ggplot2::geom_point(Pred2, mapping=ggplot2::aes(x = C,y = I,color=Treatment,shape=replicate)) +
+    PLR_P2<-PLR_P1+ggplot2::geom_point(Pred2, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +
       ggplot2::geom_ribbon(data=Pred2,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+
-      ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ 
-      ggplot2::ggtitle(paste(Df1$uniqueID[1],str_replace(DF1$sample_name[1],"S",paste0("\u03A6"))))+
-      ggplot2::annotate("text", x=min(Pred2$C)+5, y= 0.55, label= paste("\u03A3","RSS= ",round(sum(unlist(Df1[stringr::str_detect(tolower(Df1$dataset), pattern = "vehicle"),'rss']))+
-                                                                                                 sum(unlist(Df1[stringr::str_detect(tolower(Df1$dataset), pattern = "treated"),'rss'])),3)),size=3.5)+
-      ggplot2::annotate("text", x=min(Pred2$C)+5, y= 0.45, label=  paste("\u0394", "AUC = ",AUCd),size=3.5)+ 
-      ggplot2::annotate("text", x=min(Pred2$C)+5, y= 0.35, label= paste("\u0394","Tm = ",round(Tm_d,1),"\u00B0C"),size=3.5)+ 
-      ggplot2::annotate("text", x=min(Pred2$C)+5, y= 0.25, label= paste("missing  ",Pred1$missing_v[1],"%"),colour="#00BFC4",size=3.5)+ 
-      ggplot2::annotate("text", x=min(Pred2$C)+5, y= 0.15, label= paste("missing  ",Pred2$missing_t[1],"%"),colour="#F8766D",size=3.5)+
+      ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+
       annotate("text",
                x = 2+round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1),
                y = 0.55,
@@ -3241,124 +3224,295 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs){
                colour = "red",linetype=2)+
       annotate("segment", x = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
                colour = "red",linetype=2)+ylim(-0.4,1.8)+xlim(37,68)+theme(legend.position="bottom")
-    
-    par(mfrow=c(2,2))
-    
-    if(isTRUE(PSMs)){
-      if(all(Pred1$I==Pred2$I)){
-        PLR_P1<-PLR_P1+ guides(shape=guide_legend(title="PSMs"))
-        return(PLR_P1)
+    if(overlay=="TRUE"){
+      AUCd<-round(P2_AUC-P1_AUC,2)
+      p<-expression(paste(Delta, "AUCdiff"))
+      if(AUCd>0){
+        P1_AUC <- pracma::trapz(as.numeric(as.vector(Pred1$C)),as.numeric(as.vector(Pred1$lower)))
+        P2_AUC <- pracma::trapz(as.numeric(as.vector(Pred2$C)),as.numeric(as.vector(Pred2$upper)))
+        AUCd<-round(P2_AUC-P1_AUC,2)
       }else{
-        PLR_P2<-PLR_P2+ guides(shape=guide_legend(title="PSMs"))
-        return(PLR_P2)
+        P1_AUC <- pracma::trapz(as.numeric(as.vector(Pred1$C)),as.numeric(as.vector(Pred1$upper)))
+        P2_AUC <- pracma::trapz(as.numeric(as.vector(Pred2$C)),as.numeric(as.vector(Pred2$lower)))
+        AUCd<-round(P2_AUC-P1_AUC,2)
       }
-    }else{
+      AUCd<-as.numeric(AUCd)
+      miss_v<-data.frame(NA)
+      miss_t<-data.frame(NA)
+      miss_v<-DF1%>% dplyr::filter(dataset=="vehicle")
+      miss_t<-DF1 %>% dplyr::filter(dataset=="treated")
+      #get unique TMT channels
+      df.temps<-length(unique(df.temps$temp_ref))
+      num<-max(roundUpNice(length(miss_v$C)),roundUpNice(length(miss_t$C)))
+      
+      if(length(unique(miss_v$C))==df.temps & length(miss_v$C)>df.temps){
+        Pred1$missing_v<-rep(max(miss_v$missing_pct,na.rm=TRUE),nrow(Pred1))
+      }else{
+        Pred1$missing_v<-rep((100*(num-length(miss_v$C))/num),nrow(Pred1))
+      }
+      if(length(unique(miss_t$C))==df.temps & length(miss_t$C)>df.temps){
+        Pred2$missing_t<-rep(max(miss_t$missing_pct,na.rm=TRUE),nrow(Pred2))
+      }else{
+        Pred2$missing_t<-rep((100*(num-length(miss_t$C))/num),nrow(Pred2))
+      }
+      
+      Pred1$missing_v<-round(Pred1$missing_v,0)
+      Pred2$missing_t<-round(Pred2$missing_t,0)
+      #add shape parameters
+      #group_split to generate replicates
+      Pred1<-Pred1 %>% dplyr::group_split(C)
+      Pred2<-Pred2 %>% dplyr::group_split(C)
+      #mutate
+      Pred1 <-lapply(Pred1,function(x) x %>% dplyr::mutate(replicate=as.factor(row.names(.))))
+      Pred2 <-lapply(Pred2,function(x) x %>% dplyr::mutate(replicate=as.factor(row.names(.))))
+      #bind rows
+      Pred1<-dplyr::bind_rows(Pred1)
+      Pred2<-dplyr::bind_rows(Pred2)
+      
+      
+      PLR_P2<-PLR_P1+ggplot2::geom_point(Pred2, mapping=ggplot2::aes(x = C,y = I,color=Treatment)) +
+        ggplot2::geom_ribbon(data=Pred2,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+
+        ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ 
+        ggplot2::ggtitle(paste(Df1$uniqueID[1],str_replace(DF1$sample_name[1],"S",paste0("\u03A6"))))+
+        ggplot2::annotate("text", x=min(Pred2$C)+5, y= 0.55, label= paste("\u03A3","RSS= ",round(sum(unlist(Df1[stringr::str_detect(tolower(Df1$dataset), pattern = "vehicle"),'rss']))+
+                                                                                                   sum(unlist(Df1[stringr::str_detect(tolower(Df1$dataset), pattern = "treated"),'rss'])),3)),size=3.5)+
+        ggplot2::annotate("text", x=min(Pred2$C)+5, y= 0.45, label=  paste("\u0394", "AUC = ",AUCd),size=3.5)+ 
+        ggplot2::annotate("text", x=min(Pred2$C)+5, y= 0.35, label= paste("\u0394","Tm = ",round(Tm_d,1),"\u00B0C"),size=3.5)+ 
+        ggplot2::annotate("text", x=min(Pred2$C)+5, y= 0.25, label= paste("missing  ",Pred1$missing_v[1],"%"),colour="#00BFC4",size=3.5)+ 
+        ggplot2::annotate("text", x=min(Pred2$C)+5, y= 0.15, label= paste("missing  ",Pred2$missing_t[1],"%"),colour="#F8766D",size=3.5)+
+        annotate("text",
+                 x = 2+round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1),
+                 y = 0.55,
+                 label=paste0(round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1)),
+                 colour="red",
+                 size=3.5
+        )+
+        annotate("segment", x = round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), y = 0.5, yend = 0.5,
+                 colour = "red",linetype=2)+
+        annotate("segment", x = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
+                 colour = "red",linetype=2)+ylim(-0.4,1.8)+xlim(37,68)+theme(legend.position="bottom")
+      
+      par(mfrow=c(2,2))
       return(PLR_P2)
     }
-  }else if(overlay=="FALSE"){
-    miss_v<-data.frame(NA)
-    miss_t<-data.frame(NA)
-    miss_v<-DF1%>% dplyr::filter(dataset=="vehicle")
-    miss_t<-DF1 %>% dplyr::filter(dataset=="treated")
-    #get unique TMT channels
-    df.temps<-length(unique(df.temps$temp_ref))
-    num<-max(roundUpNice(length(miss_v$C)),roundUpNice(length(miss_t$C)))
-    
-    if(length(unique(miss_v$C))==df.temps & length(miss_v$C)>df.temps){
-      Pred1$missing_v<-rep(max(miss_v$missing_pct,na.rm=TRUE),nrow(Pred1))
-    }else{
-      Pred1$missing_v<-rep((100*(num-length(miss_v$C))/num),nrow(Pred1))
-    }
-    if(length(unique(miss_t$C))==df.temps & length(miss_t$C)>df.temps){
-      Pred2$missing_t<-rep(max(miss_t$missing_pct,na.rm=TRUE),nrow(Pred2))
-    }else{
-      Pred2$missing_t<-rep((100*(num-length(miss_t$C))/num),nrow(Pred2))
-    }
-    
-    Pred1$missing_v<-round(Pred1$missing_v,0)
-    Pred2$missing_t<-round(Pred2$missing_t,0)
-    #add shape parameters
-    #group_split to generate replicates
-    Pred1<-Pred1 %>% dplyr::group_split(C)
-    Pred2<-Pred2 %>% dplyr::group_split(C)
-    #mutate
-    Pred1 <-lapply(Pred1,function(x) x %>% dplyr::mutate(replicate=as.factor(row.names(.))))
-    Pred2 <-lapply(Pred2,function(x) x %>% dplyr::mutate(replicate=as.factor(row.names(.))))
-    #bind rows
-    Pred1<-dplyr::bind_rows(Pred1)
-    Pred2<-dplyr::bind_rows(Pred2)
-    #add shape parameters
-    #group_split to generate replicates
-    Pred1<-Pred1 %>% dplyr::group_split(C)
-    Pred2<-Pred2 %>% dplyr::group_split(C)
-    #mutate
-    Pred1 <-lapply(Pred1,function(x) x %>% dplyr::mutate(replicate=as.factor(row.names(.))))
-    Pred2 <-lapply(Pred2,function(x) x %>% dplyr::mutate(replicate=as.factor(row.names(.))))
-    #bind rows
-    Pred1<-dplyr::bind_rows(Pred1)
-    Pred2<-dplyr::bind_rows(Pred2)
-    PLR<-PLR_P2+
-      facet_wrap("Treatment") + 
-      ggplot2::annotate("text", x=min(Pred$C), y=min(Pred2$I)+0.45, label= paste("missing % v",Pred2$missing_v[1]))+ 
-      ggplot2::annotate("text", x=min(Pred$C), y=min(Pred2$I)+0.35, label= paste("missing % t",Pred2$missing_t[1]))+
+  }else{
+    PLR_P1<-ggplot2::ggplot(Pred1, ggplot2::aes(x = C,y = fit,color=Treatment))+
+      ggplot2::geom_point(Pred1, mapping=ggplot2::aes(x = C,y = I,color=Treatment,shape=replicate)) +
+      ggplot2::geom_ribbon(data=Pred1,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+
       annotate("text",
-               x = 2+round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1),
+               x = 2+round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1),
                y = 0.55,
-               label=paste(round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1)),
-               colour="red"
+               label=paste0(round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1)),
+               colour="blue",
+               size=3.5
+      )+
+      annotate("segment", x = min(Pred1$C), xend = round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1), y = 0.5, yend = 0.5,
+               colour = "blue",linetype=2)+
+      annotate("segment", x = round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
+               colour = "blue",linetype=2)+
+      ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+
+      ggplot2::ggtitle(paste(Df1$uniqueID[1],str_replace(DF1$sample_name[1],"S",paste0("\u03A6"))))+ylim(-0.4,1.8)+xlim(37,68)+theme(legend.position="bottom")
+    
+    
+    PLR_P2<-PLR_P1+ggplot2::geom_point(Pred2, mapping=ggplot2::aes(x = C,y = I,color=Treatment,shape=replicate)) +
+      ggplot2::geom_ribbon(data=Pred2,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+
+      ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+
+      annotate("text",
+               x = 2+round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1),
+               y = 0.55,
+               label=paste0(round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1)),
+               colour="red",
+               size=3.5
       )+
       annotate("segment", x = round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), y = 0.5, yend = 0.5,
                colour = "red",linetype=2)+
       annotate("segment", x = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
-               colour = "red",linetype=2)
-    
-    if(isTRUE(PSMs)){
-      if(all(Pred1$I==Pred2$I)){
-        PLR_P1<-PLR_P1+ guides(shape=guide_legend(title="PSMs"))
-        print(PLR_P1)
+               colour = "red",linetype=2)+ylim(-0.4,1.8)+xlim(37,68)+theme(legend.position="bottom")
+    if(overlay=="TRUE"){
+      AUCd<-round(P2_AUC-P1_AUC,2)
+      p<-expression(paste(Delta, "AUCdiff"))
+      if(AUCd>0){
+        P1_AUC <- pracma::trapz(as.numeric(as.vector(Pred1$C)),as.numeric(as.vector(Pred1$lower)))
+        P2_AUC <- pracma::trapz(as.numeric(as.vector(Pred2$C)),as.numeric(as.vector(Pred2$upper)))
+        AUCd<-round(P2_AUC-P1_AUC,2)
       }else{
-        PLR_P2<-PLR_P2+ guides(shape=guide_legend(title="PSMs"))
+        P1_AUC <- pracma::trapz(as.numeric(as.vector(Pred1$C)),as.numeric(as.vector(Pred1$upper)))
+        P2_AUC <- pracma::trapz(as.numeric(as.vector(Pred2$C)),as.numeric(as.vector(Pred2$lower)))
+        AUCd<-round(P2_AUC-P1_AUC,2)
+      }
+      AUCd<-as.numeric(AUCd)
+      miss_v<-data.frame(NA)
+      miss_t<-data.frame(NA)
+      miss_v<-DF1%>% dplyr::filter(dataset=="vehicle")
+      miss_t<-DF1 %>% dplyr::filter(dataset=="treated")
+      #get unique TMT channels
+      df.temps<-length(unique(df.temps$temp_ref))
+      num<-max(roundUpNice(length(miss_v$C)),roundUpNice(length(miss_t$C)))
+      
+      if(length(unique(miss_v$C))==df.temps & length(miss_v$C)>df.temps){
+        Pred1$missing_v<-rep(max(miss_v$missing_pct,na.rm=TRUE),nrow(Pred1))
+      }else{
+        Pred1$missing_v<-rep((100*(num-length(miss_v$C))/num),nrow(Pred1))
+      }
+      if(length(unique(miss_t$C))==df.temps & length(miss_t$C)>df.temps){
+        Pred2$missing_t<-rep(max(miss_t$missing_pct,na.rm=TRUE),nrow(Pred2))
+      }else{
+        Pred2$missing_t<-rep((100*(num-length(miss_t$C))/num),nrow(Pred2))
+      }
+      
+      Pred1$missing_v<-round(Pred1$missing_v,0)
+      Pred2$missing_t<-round(Pred2$missing_t,0)
+      #add shape parameters
+      #group_split to generate replicates
+      Pred1<-Pred1 %>% dplyr::group_split(C)
+      Pred2<-Pred2 %>% dplyr::group_split(C)
+      #mutate
+      Pred1 <-lapply(Pred1,function(x) x %>% dplyr::mutate(replicate=as.factor(row.names(.))))
+      Pred2 <-lapply(Pred2,function(x) x %>% dplyr::mutate(replicate=as.factor(row.names(.))))
+      #bind rows
+      Pred1<-dplyr::bind_rows(Pred1)
+      Pred2<-dplyr::bind_rows(Pred2)
+      
+      
+      PLR_P2<-PLR_P1+ggplot2::geom_point(Pred2, mapping=ggplot2::aes(x = C,y = I,color=Treatment,shape=replicate)) +
+        ggplot2::geom_ribbon(data=Pred2,ggplot2::aes(x=C,ymin=lower,ymax=upper,fill=Treatment),alpha=0.2)+
+        ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ 
+        ggplot2::ggtitle(paste(Df1$uniqueID[1],str_replace(DF1$sample_name[1],"S",paste0("\u03A6"))))+
+        ggplot2::annotate("text", x=min(Pred2$C)+5, y= 0.55, label= paste("\u03A3","RSS= ",round(sum(unlist(Df1[stringr::str_detect(tolower(Df1$dataset), pattern = "vehicle"),'rss']))+
+                                                                                                   sum(unlist(Df1[stringr::str_detect(tolower(Df1$dataset), pattern = "treated"),'rss'])),3)),size=3.5)+
+        ggplot2::annotate("text", x=min(Pred2$C)+5, y= 0.45, label=  paste("\u0394", "AUC = ",AUCd),size=3.5)+ 
+        ggplot2::annotate("text", x=min(Pred2$C)+5, y= 0.35, label= paste("\u0394","Tm = ",round(Tm_d,1),"\u00B0C"),size=3.5)+ 
+        ggplot2::annotate("text", x=min(Pred2$C)+5, y= 0.25, label= paste("missing  ",Pred1$missing_v[1],"%"),colour="#00BFC4",size=3.5)+ 
+        ggplot2::annotate("text", x=min(Pred2$C)+5, y= 0.15, label= paste("missing  ",Pred2$missing_t[1],"%"),colour="#F8766D",size=3.5)+
+        annotate("text",
+                 x = 2+round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1),
+                 y = 0.55,
+                 label=paste0(round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1)),
+                 colour="red",
+                 size=3.5
+        )+
+        annotate("segment", x = round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), y = 0.5, yend = 0.5,
+                 colour = "red",linetype=2)+
+        annotate("segment", x = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
+                 colour = "red",linetype=2)+ylim(-0.4,1.8)+xlim(37,68)+theme(legend.position="bottom")
+      
+      par(mfrow=c(2,2))
+      
+      if(isTRUE(PSMs)){
+        if(all(Pred1$I==Pred2$I)){
+          PLR_P1<-PLR_P1+ guides(shape=guide_legend(title="PSMs"))
+          return(PLR_P1)
+        }else{
+          PLR_P2<-PLR_P2+ guides(shape=guide_legend(title="PSMs"))
+          return(PLR_P2)
+        }
+      }else{
+        return(PLR_P2)
+      }
+    }else if(overlay=="FALSE"){
+      miss_v<-data.frame(NA)
+      miss_t<-data.frame(NA)
+      miss_v<-DF1%>% dplyr::filter(dataset=="vehicle")
+      miss_t<-DF1 %>% dplyr::filter(dataset=="treated")
+      #get unique TMT channels
+      df.temps<-length(unique(df.temps$temp_ref))
+      num<-max(roundUpNice(length(miss_v$C)),roundUpNice(length(miss_t$C)))
+      
+      if(length(unique(miss_v$C))==df.temps & length(miss_v$C)>df.temps){
+        Pred1$missing_v<-rep(max(miss_v$missing_pct,na.rm=TRUE),nrow(Pred1))
+      }else{
+        Pred1$missing_v<-rep((100*(num-length(miss_v$C))/num),nrow(Pred1))
+      }
+      if(length(unique(miss_t$C))==df.temps & length(miss_t$C)>df.temps){
+        Pred2$missing_t<-rep(max(miss_t$missing_pct,na.rm=TRUE),nrow(Pred2))
+      }else{
+        Pred2$missing_t<-rep((100*(num-length(miss_t$C))/num),nrow(Pred2))
+      }
+      
+      Pred1$missing_v<-round(Pred1$missing_v,0)
+      Pred2$missing_t<-round(Pred2$missing_t,0)
+      #add shape parameters
+      #group_split to generate replicates
+      Pred1<-Pred1 %>% dplyr::group_split(C)
+      Pred2<-Pred2 %>% dplyr::group_split(C)
+      #mutate
+      Pred1 <-lapply(Pred1,function(x) x %>% dplyr::mutate(replicate=as.factor(row.names(.))))
+      Pred2 <-lapply(Pred2,function(x) x %>% dplyr::mutate(replicate=as.factor(row.names(.))))
+      #bind rows
+      Pred1<-dplyr::bind_rows(Pred1)
+      Pred2<-dplyr::bind_rows(Pred2)
+      #add shape parameters
+      #group_split to generate replicates
+      Pred1<-Pred1 %>% dplyr::group_split(C)
+      Pred2<-Pred2 %>% dplyr::group_split(C)
+      #mutate
+      Pred1 <-lapply(Pred1,function(x) x %>% dplyr::mutate(replicate=as.factor(row.names(.))))
+      Pred2 <-lapply(Pred2,function(x) x %>% dplyr::mutate(replicate=as.factor(row.names(.))))
+      #bind rows
+      Pred1<-dplyr::bind_rows(Pred1)
+      Pred2<-dplyr::bind_rows(Pred2)
+      PLR<-PLR_P2+
+        facet_wrap("Treatment") + 
+        ggplot2::annotate("text", x=min(Pred$C), y=min(Pred2$I)+0.45, label= paste("missing % v",Pred2$missing_v[1]))+ 
+        ggplot2::annotate("text", x=min(Pred$C), y=min(Pred2$I)+0.35, label= paste("missing % t",Pred2$missing_t[1]))+
+        annotate("text",
+                 x = 2+round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1),
+                 y = 0.55,
+                 label=paste(round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1)),
+                 colour="red"
+        )+
+        annotate("segment", x = round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), y = 0.5, yend = 0.5,
+                 colour = "red",linetype=2)+
+        annotate("segment", x = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
+                 colour = "red",linetype=2)
+      
+      if(isTRUE(PSMs)){
+        if(all(Pred1$I==Pred2$I)){
+          PLR_P1<-PLR_P1+ guides(shape=guide_legend(title="PSMs"))
+          print(PLR_P1)
+        }else{
+          PLR_P2<-PLR_P2+ guides(shape=guide_legend(title="PSMs"))
+          print(PLR_P2)
+        }
+      }else{
         print(PLR_P2)
       }
-    }else{
-      print(PLR_P2)
-    }
-    
-    if(bootstrap==TRUE){
-      set.seed(233)
-      n<-length(Pred$I)
-      mean_orig_v<-mean(Pred$I)
-      mean_orig_t<-mean(Pred2$I)
-      N<-1000
-      for (i in 1:N){
-        bs_vehicle[i]<-sample(Pred$I,n,replace=TRUE)
-        mean_v[i]<-mean(bs_vehicle[i])
+      
+      if(bootstrap==TRUE){
+        set.seed(233)
+        n<-length(Pred$I)
+        mean_orig_v<-mean(Pred$I)
+        mean_orig_t<-mean(Pred2$I)
+        N<-1000
+        for (i in 1:N){
+          bs_vehicle[i]<-sample(Pred$I,n,replace=TRUE)
+          mean_v[i]<-mean(bs_vehicle[i])
+          
+          bs_treated[i]<-sample(Pred2$I,n,replace=TRUE)
+          mean_t[i]<-mean(bs_treated[i])
+        }
+        mean_bs_v<-mean(mean_v)
+        mean_bs_t<-mean(mean_t)
+        bias_v<-mean_orig_v-mean_bs_v
+        bias_t<-mean_orig_t-mean_bs_t
         
-        bs_treated[i]<-sample(Pred2$I,n,replace=TRUE)
-        mean_t[i]<-mean(bs_treated[i])
+        summary<-data.frame(uniqueID=rep(Pred$uniqueID[1],2),
+                            dataset=c(Pred$dataset[1],Pred2$dataset[1]),
+                            Orig_mean=c(mean_orig_v,mean_orig_t),
+                            BS_mean=c(mean_bs_v,mean_bs_t),
+                            bias_bs=c(bias_v,bias_t),
+                            sd_bs_v=sd(mean_v),
+                            sd_bs_t=sd(mean_t),
+                            CI_2.5_v=quantile(mean_v,0.025),
+                            CI_97.5_v=quantile(mean_v,0.975),
+                            CI_2.5_t=quantile(mean_t,0.025),
+                            CI_97.5_t=quantile(mean_t,0.975))
+        
+        
       }
-      mean_bs_v<-mean(mean_v)
-      mean_bs_t<-mean(mean_t)
-      bias_v<-mean_orig_v-mean_bs_v
-      bias_t<-mean_orig_t-mean_bs_t
-      
-      summary<-data.frame(uniqueID=rep(Pred$uniqueID[1],2),
-                          dataset=c(Pred$dataset[1],Pred2$dataset[1]),
-                          Orig_mean=c(mean_orig_v,mean_orig_t),
-                          BS_mean=c(mean_bs_v,mean_bs_t),
-                          bias_bs=c(bias_v,bias_t),
-                          sd_bs_v=sd(mean_v),
-                          sd_bs_t=sd(mean_t),
-                          CI_2.5_v=quantile(mean_v,0.025),
-                          CI_97.5_v=quantile(mean_v,0.975),
-                          CI_2.5_t=quantile(mean_t,0.025),
-                          CI_97.5_t=quantile(mean_t,0.975))
-      
-      
     }
   }
 }
-
 
 #Spline functions
 spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE,filters=TRUE){
@@ -3406,15 +3560,17 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE,filters=TRUE)
   df1 <- df1[,which(unlist(lapply(df1, function(x)!all(is.na(x))))),with=F]
   DF <- DF[,which(unlist(lapply(DF, function(x)!all(is.na(x))))),with=F]
   #convert back to list
-  DF<-DF %>% dplyr::group_split(uniqueID)
-  df<-df %>% dplyr::group_split(uniqueID)
-  df1<-df1 %>% dplyr::group_split(uniqueID)
+  DF<-DF %>% as.data.frame(.) %>% dplyr::group_split(uniqueID)
+  df<-df %>% as.data.frame(.)%>% dplyr::group_split(uniqueID)
+  df1<-df1 %>% as.data.frame(.)%>% dplyr::group_split(uniqueID)
   
   if(!isTRUE(norm)){
-    
+    m<-list()
+    m1<-list()
+    mn<-list()
     #alternative spline fit method : Generalized Additive Models
     #fit penalized splines
-    m <- purrr::map(df,function(x)x %>% dplyr::mutate(M1 = list(try(mgcv::gam(x$I ~ s(x$C,k=5), data = x , method = "REML")))))
+    m <- purrr::map(df,function(x)x %>% dplyr::mutate(M1 = list(try(mgcv::gam(x$I ~ s(x$C,k=5), data = x , type="link",se.fit=TRUE, method = "REML")))))
     m<-m %>% purrr::keep(function(x)any(class(dplyr::first(x$M1))=="gam"))
     #check significance and refit data with more k 
     m<-purrr::map(m,function(x)x %>% dplyr::mutate(k_ = .$M1[[1]]$rank,
@@ -3425,7 +3581,11 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE,filters=TRUE)
                                                    AUC = pracma::trapz(.$M1[[1]]$fit),
                                                    rsq=summary(x$M1[[1]])$r.sq,
                                                    n = ifelse(any(class(dplyr::first(.$M1))=="gam"),1,0),
-                                                   sample_name=.$sample_name))
+                                                   sample_name=.$sample_name,
+                                                   fit=list(predict.gam(mgcv::gam(I ~ s(C,k=5),data=x), newdata=data.frame(C=seq.int(min(x$C,na.rm=TRUE),max(x$C,na.rm=TRUE))), type = "link", se.fit = TRUE)),
+                                                   lwr=list(x$M1[[1]]$family$linkinv(lwr)),
+                                                   upr=list(x$M1[[1]]$family$linkinv(upr))   
+                                                   ))
     m1 <- purrr::map(df1,function(x)x %>% dplyr::mutate(M1 = list(try(mgcv::gam(I ~ s(C,k=5), data = x , method = "REML")))))
     m1<-m1 %>% purrr::keep(function(x)any(class(dplyr::first(x$M1))=="gam"))
     #check significance and refit data with more k 
@@ -3437,7 +3597,11 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE,filters=TRUE)
                                                      AUC = pracma::trapz(.$M1[[1]]$fit),
                                                      rsq=summary(x$M1[[1]])$r.sq,
                                                      n = ifelse(any(class(dplyr::first(.$M1))=="gam"),1,0),
-                                                     sample_name=.$sample_name))
+                                                     sample_name=.$sample_name,
+                                                     fit=list(predict.gam(mgcv::gam(I ~ s(C,k=5),data=x), newdata=data.frame(C=seq.int(min(x$C,na.rm=TRUE),max(x$C,na.rm=TRUE))), type = "link", se.fit = TRUE)),
+                                                     lwr=list(x$M1[[1]]$family$linkinv(lwr)),
+                                                     upr=list(x$M1[[1]]$family$linkinv(upr))  
+    ))
     #m1<-lapply(df1,function(x) x %>% dplyr::mutate(sig = ifelse(sum[[1]]$p.pv[[1]]<0.05,list(mgcv::gam(I ~ s(C,k=k_[[1]]-1), data = x , method = "REML")),"ns")))
     
     
@@ -3453,8 +3617,12 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE,filters=TRUE)
                                                      rsq=summary(.$M1[[1]])$r.sq,
                                                      n = ifelse(any(class(dplyr::first(.$M1))=="gam"),1,0),
                                                      sample_name=.$sample_name,
-                                                     RSS0=deviance(.$M1[[1]])
+                                                     RSS0=deviance(.$M1[[1]]),
+                                                     fit=list(predict.gam(mgcv::gam(I ~ s(C,k=5),data=x), newdata=data.frame(C=seq.int(min(x$C,na.rm=TRUE),max(x$C,na.rm=TRUE))), type = "link", se.fit = TRUE)),
+                                                     lwr=list(x$M1[[1]]$family$linkinv(lwr)),
+                                                     upr=list(x$M1[[1]]$family$linkinv(upr))  
     ))
+    
     lm<-length(m)
     lm1<-length(m1)
     
@@ -3503,8 +3671,8 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE,filters=TRUE)
     mean3<-dplyr::bind_rows(mn)
     #equal column names
     mean1<-mean1  %>% dplyr::mutate(rss=RSS1)%>% dplyr::select(-RSSv,-RSSt,-RSS1)
-    mean1_1<-mean1_1  %>% dplyr::mutate(rss=RSS1)%>% dplyr::select(-RSSv,-RSSt,-RSS1)
-    mean3<-mean3  %>% dplyr::mutate(rss=RSS0)%>% dplyr::select(-RSS0)
+    mean1_1<-mean1_1  %>% dplyr::mutate(rss=RSS1)%>% dplyr::select(-RSSv,-RSSt,-RSS1) %>% as.data.frame(.)
+    mean3<-mean3  %>% dplyr::mutate(rss=RSS0)%>% dplyr::select(-RSS0) %>% as.data.frame(.)
     
     #filter out proteins with neg RSSdiff
     if(isTRUE(Filters)){
@@ -3535,64 +3703,52 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE,filters=TRUE)
     if(isTRUE(Ftest)){
       
       #Calculate rss0 and rss1 null vs alt
-      rss0<-purrr::map(mean3,function(x)data.frame(RSS0=x$rss,
+      rss0<-purrr::map(mean3,function(x)data.frame(uniqueID=x$uniqueID,
+                                                   RSS0=x$rss,
                                                    se0=summary.gam(x$M1[[1]])$se[1],#standard error
                                                    pN0=summary.gam(x$M1[[1]])$edf[1],#effective degrees of freedom
                                                    rsq0=summary.gam(x$M1[[1]])$r.sq[1],#r-squared
                                                    np0=summary.gam(x$M1[[1]])$np[1],#number of parameters
                                                    rdf=summary.gam(x$M1[[1]])$residual.df[1],#residual degrees of freedom
                                                    m=summary.gam(x$M1[[1]])$m[1]))
-      #of smooth terms in the model
       
-      #mean1<-purrr::map2(mean1,mean1_1,function(x,y)x %>% purrr::keep(x$uniqueID[1] %in% y$uniqueID[1]))
-      #generate a grid of new values for C
-      mean3<-purrr::map(mean3,function(x) x %>% dplyr::mutate(newdata=list(seq.int(min(x$C),max(x$C),by=0.5))))
-      mean1<-purrr::map(mean1,function(x) x %>% dplyr::mutate(newdata=list(seq.int(min(x$C),max(x$C),by=0.5))))
-      mean1_1<-purrr::map(mean1_1,function(x) x %>% dplyr::mutate(newdata=list(seq.int(min(x$C),max(x$C),by=0.5))))
-      
-      
+     
       #make predictions to generate point confidence intervals
       
       
-      rss1<-purrr::map2(mean1,mean1_1,function(x,y)data.frame(RSS=x$rss,
+      rss1<-purrr::map2(mean1,mean1_1,function(x,y)data.frame(uniqueID=x$uniqueID,
+                                                              RSS=x$rss,
                                                               se=summary.gam(x$M1[[1]])$se[1],#standard error
                                                               pN1=summary.gam(x$M1[[1]])$edf[1],#effective degrees of freedom
-                                                              rsq=summary.gam(x$M1[[1]])$r.sq[1],#r-squared
+                                                              vrsq=summary.gam(x$M1[[1]])$r.sq[1],#r-squared
                                                               
                                                               rdf=summary.gam(x$M1[[1]])$residual.df[1],#residual degrees of freedom
                                                               m=summary.gam(x$M1[[1]])$m[1],
-                                                              Tm = y$Tm[[1]]-x$Tm[[1]],
+                                                              dTm = y$Tm[1]-x$Tm[1],
                                                               se1=summary.gam(y$M1[[1]])$se[1],#standard error
                                                               pN2=summary.gam(y$M1[[1]])$edf[1],#effective degrees of freedom treated
-                                                              rsq1=summary.gam(y$M1[[1]])$r.sq[1],#r-squared
+                                                              trsq=summary.gam(y$M1[[1]])$r.sq[1],#r-squared
                                                               
                                                               rdf1=summary.gam(y$M1[[1]])$residual.df[1],#residual degrees of freedom
                                                               m1=summary.gam(y$M1[[1]])$m[1],
                                                               pA=sum(summary.gam(x$M1[[1]])$edf[1],summary.gam(y$M1[[1]])$edf[1],na.rm=TRUE)))
-      #make predictions,if the model fits
-      rss0<-purrr::map2(rss0,mean3,function(x,y) x %>% dplyr::mutate(fit=list(mgcv::predict.gam(y$M1[[1]],newdata=data.frame(C=y$newdata[[1]]),se.fit=TRUE,newdata.guaranteed = TRUE))))
-      rss1<-purrr::map(rss1,function(x) x %>% dplyr::mutate(fit_v=list(NA),fit_t=list(NA)))
-      rss1<-purrr::map2(rss1,mean1,function(x,y) x %>% dplyr::mutate(fit_v=list(ifelse(class(try(mgcv::predict.gam(y$M1[[1]],newdata=data.frame(C=y$newdata[[1]]),
-                                                                                                                   se.fit=TRUE,newdata.guaranteed = TRUE)))=='try-error',NA,
-                                                                                       mgcv::predict.gam(y$M1[[1]],newdata=data.frame(C=y$newdata[[1]]),se.fit=TRUE,newdata.guaranteed = TRUE)))))
-      
-      #bind predicted values to main data frame
-      mean3<-purrr::map2(mean3,rss0,function(x,y)cbind(x,y))
-      mean1<-purrr::map2(mean1,rss1,function(x,y)cbind(x,y))
-      mean1_1<-purrr::map2(mean1_1,rss1,function(x,y)cbind(x,y))
-      #params for null and alternative models
+        #params for null and alternative models
       f0<-lapply(mean3,function(x) data.frame(np=length(x$M1[[1]]$fitted.values)))
       f1<-purrr::map2(mean1,mean1_1,function(x,y) data.frame(nA=sum(length(x$M1[[1]]$fitted.values),length(x$M1[[1]]$fitted.values),na.rm=TRUE)))
       #bind data frames
-      mean3<-purrr::map2(mean3,f0,function(x,y) cbind(x,y))
-      mean1<-purrr::map2(mean1,f1,function(x,y) cbind(x,y))
-      mean1_1<-purrr::map2(mean1_1,f1,function(x,y) cbind(x,y))
+      mean3<-purrr::map2(mean3,f0,function(x,y) x %>% dplyr::mutate(np=y$np[1]))
+      mean1<-purrr::map2(mean1,f1,function(x,y) x %>% dplyr::mutate(np=y$nA[1]))
+      mean1_1<-purrr::map2(mean1_1,f1,function(x,y) x %>% dplyr::mutate(np=y$nA[1]))
+      #merge params rss0 and mean3
+      mean3<-purrr::map2(mean3,rss0,function(x,y) cbind(x,y))
+      #merge params rss1 and mean1_1
+      mean1_1<-purrr::map2(mean1_1,rss1,function(x,y) x %>% dplyr::right_join(y,by="uniqueID"))
       #calculate parameters 
       pN<-purrr::map(mean3,function(x) x %>% dplyr::select(pN0,np))
-      pA<-purrr::map(mean1_1,function(x)x %>% dplyr::select(pA,nA))
+      pA<-purrr::map(mean1_1,function(x)x %>% dplyr::select(pA,np))
       #degrees of freedom before
-      d1<-purrr::map2(pA,pN,function(x,y)data.frame(d1=x$pA-y$pN0))
-      d2<-purrr::map(pA,function(x)data.frame(d2=x$nA-x$pA))
+      d1<-purrr::map2(pA,pN,function(x,y)data.frame(d1=x$pA[1]-y$pN0[1]))
+      d2<-purrr::map(pA,function(x)data.frame(d2=x$np[1]-x$pA[1]))
       
       #delta RSS
       rssDiff<-purrr::map2(rss0,rss1,function(x,y) data.frame(dRSS=x$RSS0-y$RSS))
@@ -3600,33 +3756,35 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE,filters=TRUE)
       d2<-lapply(d2,function(x) x$d2[1])
       d1<-lapply(d1,function(x) x$d1[1])
       #RSS1 numerator
-      Fvals<-purrr::map2(rssDiff,d1,function(x,y) data.frame(fNum=x$dRSS/y[1]))
+      Fvals<-purrr::map2(rssDiff,d1,function(x,y) data.frame(fNum=x$dRSS[1]/y$d1[1]))
       #Rss denominator
-      Fd<-purrr::map2(rss1,d2,function(x,y) data.frame(fDen=x$RSS/y[1]))
+      Fd<-purrr::map2(rss1,d2,function(x,y) data.frame(fDen=x$RSS/y$d2[1]))
       
       Fvals<-purrr::map2(Fvals,Fd,function(x,y) data.frame(fStatistic=x$fNum/y$fDen))
       Fvals<-purrr::map2(Fvals,d1,function(x,y) x %>% dplyr::mutate(df1=y[1]))
       Fvals<-purrr::map2(Fvals,d2,function(x,y) x %>% dplyr::mutate(df2=y[1]))
-      Fvals<-purrr::map2(Fvals,rssDiff,function(x,y) cbind(x,y))
+      Fvals<-purrr::map2(Fvals,rssDiff,function(x,y) x %>% dplyr::mutate(dRSS=y$dRSS[1]))
       #add p-vals
-      Fvals<-purrr::map(Fvals,function(x) x %>% dplyr::mutate(pValue = 1 - pf(fStatistic, df1 = x$df1, df2 = x$df2),
+      Fvals<-purrr::map(Fvals,function(x) x %>% dplyr::mutate(pValue = 1 - pf(fStatistic, df1 = x$df1$d1[1], df2 = x$df2$d2[1]),
                                                               pAdj = p.adjust(pValue,"BH")))
+      if(any(class(mean1)=="data.frame")){
+        mean1<-mean1 %>% dplyr::group_split(uniqueID)
+      }
       Fvals<-purrr::map2(Fvals,mean1,function(x,y) x %>% dplyr::mutate(uniqueID=y$uniqueID[1]))
       
       
       mean1<-purrr::map(mean1,function(x) x[!duplicated(names(x))])
       
       #convert results to list
-      testResults<-purrr::map2(mean1,Fvals,function(x,y)x%>% dplyr::right_join(y,by=c("uniqueID")))
+      testResults<-purrr::map2(mean1_1,Fvals,function(x,y)x%>% dplyr::right_join(y,by="uniqueID"))
       testResults<-purrr::map(testResults,function(x) x[1,])
-      testResults<-dplyr::bind_rows(testResults)
+      testResults<-dplyr::bind_rows(testResults) %>% dplyr::filter(pAdj<0.01)
       mean1<-dplyr::bind_rows(mean1)
-      Unscaled<-ggplot(testResults)+
+      Unscaled<-ggplot(data=testResults)+
         geom_density(aes(x=fStatistic),fill = "steelblue",alpha = 0.5) +
         geom_line(aes(x=fStatistic,y= df(fStatistic,df1=df1,df2=df2)),color="darkred",size = 1.5) +
         theme_bw() +
-        ggplot2::xlab("F-values")+
-        ggplot2::xlim(0,0.05)
+        ggplot2::xlab("F-values")
       print(Unscaled)
       #scale variables
       M<-median(testResults$dRSS,na.rm=TRUE)
@@ -3661,7 +3819,7 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE,filters=TRUE)
       print(TestScaled)
       #Define checked as filtered protein IDs
       check<-testScaled$uniqueID
-      test<-testScaled %>% dplyr::filter(.$pValue<0.01)
+      test<-testScaled %>% dplyr::filter(.$pAdj<0.01)
       test$d1<-MASS::fitdistr(x=test$dRSS, densfun = "chi-squared", start = list(df=1))[["estimate"]]
       test$d2<-MASS::fitdistr(x=test$RSS, densfun = "chi-squared", start = list(df=1))[["estimate"]]
       
@@ -3682,9 +3840,9 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE,filters=TRUE)
       
       results<-dplyr::bind_rows(mean1,mean1_1,mean3) %>% dplyr::group_split(uniqueID)
       if(isTRUE(show_results)){
-        return(testScaled)
+        return(test)
       }else{
-        return(list(results,testS,Unscaled))
+        return(results)
       }
     }
     return(results)
@@ -3692,6 +3850,7 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE,filters=TRUE)
   return(results)
 }
 spf<-function(spresults,DFN,filters = TRUE){
+  spresults$uniqueID<-as.character(spresults$uniqueID)
   spresults<-spresults %>% dplyr::group_split(uniqueID)
   
   if(!isTRUE(filters))
@@ -3704,7 +3863,10 @@ spf<-function(spresults,DFN,filters = TRUE){
     df2$C<-as.numeric(as.vector(df2$C)) 
     df2$I<-as.numeric(as.vector(df2$I))  
     if(any(names(sp) %in% c("missing.x","LineRegion","N"))){
-      df2<-sp %>% left_join(df2, by = c("uniqueID"="uniqueID","dataset"="dataset","C"="C","I"="I","CC"="CC","sample_name"="sample_name","sample"="sample","LineRegion"="LineRegion","missing.x"="missing.x","missing_pct"="missing_pct","rank"="rank","N"="N","n"="n")) 
+      df2<-sp %>% left_join(df2, by = c("uniqueID"="uniqueID","dataset"="dataset","C"="C","I"="I","CC"="CC","sample_name"="sample_name","sample"="sample","LineRegion"="LineRegion","missing.x"="missing.x","missing_pct"="missing_pct","rank"="rank","N"="N","n"="n","replicate")) 
+      
+    }else if (any(names(sp) %in% c("Molecular_Function","Cell_Component","calc. pI"))){
+      df2<-sp %>% left_join(df2, by = c("uniqueID"="uniqueID","sample"="sample","dataset"="dataset","C"="C","I"="I","CC"="CC","sample_name"="sample_name","missing_pct"="missing_pct","rank"="rank","missing"="missing","Molecular_Function","replicate","Cell_Component","calc. pI","MW_kDa"))  
       
     }else{
       df2<-sp %>% left_join(df2, by = c("uniqueID"="uniqueID","sample"="sample","dataset"="dataset","C"="C","I"="I","CC"="CC","sample_name"="sample_name","missing_pct"="missing_pct","rank"="rank","missing"="missing"))  
@@ -3741,10 +3903,13 @@ spf<-function(spresults,DFN,filters = TRUE){
     df2$C<-as.numeric(as.vector(df2$C))
     df2$I<-as.numeric(as.vector(df2$I))
     if(any(names(sp) %in% c("missing.x","LineRegion","N"))){
-      df2<-sp %>% left_join(df2, by = c("uniqueID"="uniqueID","dataset"="dataset","C"="C","I"="I","CC"="CC","sample_name"="sample_name","LineRegion"="LineRegion","missing.x"="missing.x","missing_pct"="missing_pct","rank"="rank","N"="N","n"="n")) 
+      df2<-sp %>% left_join(df2, by = c("uniqueID"="uniqueID","dataset"="dataset","C"="C","I"="I","CC"="CC","sample_name"="sample_name","sample"="sample","LineRegion"="LineRegion","missing.x"="missing.x","missing_pct"="missing_pct","rank"="rank","N"="N","n"="n","replicate")) 
+      
+    }else if (any(names(sp) %in% c("Molecular_Function","Cell_Component","calc. pI"))){
+      df2<-sp %>% left_join(df2, by = c("uniqueID"="uniqueID","sample"="sample","dataset"="dataset","C"="C","I"="I","CC"="CC","sample_name"="sample_name","missing_pct"="missing_pct","rank"="rank","missing"="missing","Molecular_Function","replicate","Cell_Component","calc. pI","MW_kDa"))  
       
     }else{
-      df2<-sp %>% left_join(df2, by = c("uniqueID"="uniqueID","dataset"="dataset","C"="C","I"="I","CC"="CC","sample_name"="sample_name","missing_pct"="missing_pct","rank"="rank"))  
+      df2<-sp %>% left_join(df2, by = c("uniqueID"="uniqueID","sample"="sample","dataset"="dataset","C"="C","I"="I","CC"="CC","sample_name"="sample_name","missing_pct"="missing_pct","rank"="rank","missing"="missing"))  
     }
     Df1<-spresults[sp$id]
   }
@@ -4638,6 +4803,7 @@ Violin_panels<-function(df_raw,df.temps,MD=TRUE){
   }
 }
 
+
 #filter PSMs
 filter_PSMs<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm){
   #rename problematic headers
@@ -4648,7 +4814,7 @@ filter_PSMs<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm){
   #set new names
   names(df_)<-ch
   #filter
-  if(any(names(df_)=="Average_Reporter_S_N")){
+  if(any(str_detect(names(df_),"S_N"))==TRUE){
     df_<-df_ %>% dplyr::filter(Average_Reporter_S_N>S_N,Percolator_PEP<PEP,Charge<Charg,Missed_Cleavages<Missed_C,DeltaMppm_<DeltaM_ppm)
     df_<-df_%>% dplyr::rename("uniqueID"="Accession","I"="value","S_N"="Average_Reporter_S_N","PEP"="Percolator_PEP",
                               "DeltaM"="DeltaMppm_","IonInjTime"="Ion_Inject_Timems_",
@@ -4673,7 +4839,7 @@ filter_PSMs<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm){
     df_ <- data.frame(merge(df_,rank, all.y=TRUE))
     
   }else{
-    df_<-df_[!is.na(df_$Percolator_PEP),]
+    
     #df_<-df_ %>% dplyr::rename("Missed_Cleavages"="#_Missed_Cleavages") 
     df_<-df_ %>% dplyr::filter(Percolator_PEP<PEP,Charge<Charg,Missed_Cleavages<Missed_C,DeltaM_ppm<DeltaMppm)
     df_<-df_%>% dplyr::rename("uniqueID"="Accession","I"="value","PEP"="Percolator_PEP",
@@ -4694,9 +4860,11 @@ filter_PSMs<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm){
   df_$sample_name<-paste0(ifelse(str_detect(df_$Spectrum_File,"NOcarrier")==TRUE,"nC",ifelse(str_detect(df_$Spectrum_File,"carrier")==TRUE,"C",NA)),'_',
                           ifelse(str_detect(df_$Spectrum_File,"NO_FAIMS")==TRUE,"nF",ifelse(str_detect(df_$Spectrum_File,"r_FAIMS")==TRUE,"F",NA)),'_',
                           ifelse(str_detect(df_$Spectrum_File,"S_eFT")==TRUE,"E",ifelse(str_detect(df_$Spectrum_File,"S_Phi")==TRUE,"S",NA)))
-  
+  return(df_)
   
 }
+
+
 #CV<-his_sp(res_sp[[3]],df.temps,MD=FALSE)
 
 ###############################
@@ -4725,7 +4893,7 @@ f<- list.files(pattern='*_0.xlsx')
 # df_raw<-df_raw %>% dplyr::left_join(df.samples,by=c("temp_ref",))
 
 
-# PSMs<-read_excel(f)
+# PSMs<-as.data.frame(read_excel(f)
 # PSMs<-PSMs %>% dplyr::rename("uniqueID"="Protein","sample_name"="Mixture","dataset"="BioReplicate","temp_ref"="Channel","I"="Abundance")
 # PSMs<-PSMs %>% dplyr::select(uniqueID,sample_name,dataset,temp_ref,I)
 # PSMs<-PSMs %>% dplyr::mutate(sample_name=ifelse(!is.na(str_match(PSMs$sample_name,'[:punct:][:digit:][:digit:][:digit:][:punct:][:digit:]')),str_match(PSMs$sample_name,'[:punct:][:digit:][:digit:][:digit:][:punct:][:digit:]'),PSMs$sample_name))
@@ -4766,47 +4934,7 @@ MEK_targets<-MEK_targets %>%
 #correlation plots
 sample_names<-ggpairs(MEK_targets, columns = c(4,8:12,17), ggplot2::aes(colour=Accession,shape=Annotated_Sequence)) 
 
-#filter PSMs
-filter_PSMs<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaM_ppm){
-  #rename problematic headers
-  check<-names(head(df_))
-  ch<-str_replace_all(check,paste0("[","[:punct:]","]"),paste0("_"))
-  ch<-str_replace_all(ch,paste0("[:punct:]","[:punct:]","[:punct:]"),paste0(""))
-  ch<-str_replace_all(ch,paste0("[:punct:]","[:punct:]"),paste0(""))
-  #set new names
-  names(df_)<-ch
-  #filter
-  df_<-df_ %>% dplyr::filter(Average_Reporter_S_N>S_N,Percolator_PEP<PEP,XCorr>XCor,Charge<Charg,Missed_Cleavages<Missed_C,DeltaMppm_<DeltaM_ppm)
-  df_ <-df_ %>% dplyr::mutate(CC=ifelse(stringr::str_detect(Spectrum_File,"DMSO")==TRUE,0,1))#concentration values are defined in uM
-  
-  df_$dataset<-ifelse(df_$CC==0,"vehicle","treated")
-  
-  
-  df_$sample_name<-paste0(ifelse(str_detect(df_$Spectrum_File,"NOcarrier")==TRUE,"nC",ifelse(str_detect(df_$Spectrum_File,"carrier")==TRUE,"C",NA)),'_',
-                          ifelse(str_detect(df_$Spectrum_File,"NO_FAIMS")==TRUE,"nF",ifelse(str_detect(df_$Spectrum_File,"r_FAIMS")==TRUE,"F",NA)),'_',
-                          ifelse(str_detect(df_$Spectrum_File,"S_eFT")==TRUE,"E",ifelse(str_detect(df_$Spectrum_File,"S_Phi")==TRUE,"S",NA)))
-  df_<-df_%>% dplyr::rename("uniqueID"="Accession","I"="value","S_N"="Average_Reporter_S_N","PEP"="Percolator_PEP",
-                            "DeltaM"="DeltaMppm_","IonInjTime"="Ion_Inject_Timems_",
-                            "I_Interference"="Isolation_Interference_")
-  #rank by the highest intensity channel
-  rank<-df_%>% dplyr::filter(temp_ref=="126") %>%
-    dplyr::mutate(rank=dplyr::ntile(.$S_N,3)) %>% dplyr::select(uniqueID,Spectrum_File,Annotated_Sequence,Charge,rank,S_N,PEP,Missed_Cleavages,DeltaM,sample_id,Protein_value)
-  #remove na values in uniqueID's
-  rank<-rank %>% dplyr::filter(!is.na(uniqueID))
-  #convert to data.table
-  rank<-data.table(rank)
-  df_<-data.table(df_)
-  #get unique PSMs
-  rank<-unique(rank)
-  
-  #Use I column to distinguish duplicated rank values/PSM
-  col_n<-c("uniqueID","Spectrum_File","Annotated_Sequence","Charge","S_N","PEP","Missed_Cleavages","DeltaM","sample_id","Protein_value")
-  #set join columns
-  setkeyv(rank,cols=col_n)
-  setkeyv(df_,cols=col_n)
-  #right_join
-  Result <- data.frame(merge(df_,rank, all.y=TRUE))
-}
+
 df_raw<-filter_PSMs(df_raw,50,0.01,2,50,3,1,4,10)
 #new for PSMs
 #df_raw<-df_raw %>% dplyr::rename("sample_name"="Spectrum_File")
@@ -4902,23 +5030,12 @@ Annotation<-Annotation %>% dplyr::group_split(Run)
 
 
 #assign TMT channel and temperature data
-df_clean <- clean_cetsa(df_raw, temperatures = df.temps, samples = df.samples,PSM=FALSE)#ssigns temperature and replicate values
+df_clean <- clean_cetsa(df_raw, temperatures = df.temps, samples = df.samples,Peptide=FALSE,"DMSO",CFS=TRUE)#ssigns temperature and replicate values
 
-
-df_clean <-df_clean %>% dplyr::mutate(CC=ifelse(stringr::str_detect(sample_name,"DMSO")==TRUE,0,1))#concentration values are defined in uM
-
-df_clean$dataset<-ifelse(df_clean$CC==0,"vehicle","treated")
-
-
-df_clean$sample_name<-paste0(ifelse(str_detect(df_clean$sample_name,"NOcarrier")==TRUE,"nC",ifelse(str_detect(df_clean$sample_name,"carrier")==TRUE,"C",NA)),'_',
-                             ifelse(str_detect(df_clean$sample_name,"NO_FAIMS")==TRUE,"nF",ifelse(str_detect(df_clean$sample_name,"r_FAIMS")==TRUE,"F",NA)),'_',
-                             ifelse(str_detect(df_clean$sample_name,"S_eFT")==TRUE,"E",ifelse(str_detect(df_clean$sample_name,"S_Phi")==TRUE,"S",NA)))
 df_<-df_clean %>%
   dplyr::ungroup() %>% 
   dplyr::group_split(sample_name)#split by method development parameters before curve fitting
-df_norm <- purrr::map(df_,function(x) normalize_cetsa(x, df.temps$temperature,Batch=TRUE,filters=FALSE)) #normalizes according to Franken et. al. without R-squared filter
-
-
+df_norm <- purrr::map(df_,function(x) normalize_cetsa(x, df.temps$temperature,Peptide=FALSE,filters=FALSE)) #normalizes according to Franken et. al. without R-squared filter
 
 ###Generate upset plots for missing value data###
 df_<-df_clean %>% dplyr::rename("sample_id"="sample")%>%
@@ -5032,15 +5149,16 @@ PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,PSM=FALSE,showResults=FA
   #return filtered lists
   res<-tlf(tlresults,DFN,APfilt=FALSE,PF=FALSE)
   i=which(res[[1]]$uniqueID %in% target)
-  plotTL1<-tlCI(i,res[[1]],res[[2]],res[[3]],overlay=TRUE,residuals=FALSE,df.temps=df.temps,PSMs=PSM)
   if(showResults==TRUE){
     return(res[[1]])
-  }else{
-  return(plotTL1)
   }
+  plotTL1<-tlCI(i,res[[1]],res[[2]],res[[3]],overlay=TRUE,residuals=FALSE,df.temps=df.temps,PSMs=PSM)
+  
+  return(plotTL1)
+  
 }
 
-plot<-purrr::map(df_norm,function(x) try(PlotTrilinear(x,"P36507",df.temps,Ft=TRUE,filt=FALSE,PSM=FALSE,showResults=FALSE)))
+plot<-purrr::map(df_norm,function(x) try(PlotTrilinear(x,"P36507",df.temps,Ft=TRUE,filt=FALSE,PSM=FALSE,showResults=TRUE)))
 check<-ggplot2::ggplot_build(plot[[1]])
 y<-get_legend(check$plot)
 data<-order(unlist(lapply(plot,function(x) x$labels$title)))
@@ -5154,7 +5272,7 @@ dev.off()
 #df2<-original data in order  
 #Df1 <- ordered spline results 
 ###############################
-plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=TRUE,fT=FALSE,show_results=FALSE,PSM=FALSE){
+plot_Splines<-function(x,Protein,df.temps,MD=TRUE,Filters=TRUE,fT=FALSE,show_results=FALSE,PSM=FALSE){
   if(isTRUE(MD)){
     
     DFN<-x 
@@ -5168,16 +5286,17 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=TRUE,fT=FALSE,show_re
     spresults<-list()
     spresults_PI<-list()
     
-    spresults<-spstat(DFN,df_,df_1,Ftest=fT,norm=FALSE,filters=Filters)
+    spresults<-suppressWarnings(spstat(DFN,df_,df_1,Ftest=fT,norm=FALSE,filters=Filters,show_results=show_results))
+    if(isTRUE(show_results)){
+      return(dplyr::bind_rows(spresults))
+    }
     if(class(spresults)=="list"){
       res_sp<-spf(spresults[[1]],DFN,filters=FALSE)
     }else{
       res_sp<-spf(spresults,DFN,filters=FALSE)
-      if(isTRUE(show_results)){
-        return(res_sp[[1]])
-      }
+      
     }
-    
+   
     #saveIDs filtered
     i<-which(res_sp[[1]]$uniqueID %in% Protein)
     #generate 95%CI for splines
@@ -5192,12 +5311,10 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=TRUE,fT=FALSE,show_re
     spresults<-list()
     spresults_PI<-list()
     
-    spresults<-spstat(DFN,df_,df_1,Ftest=fT,norm=FALSE,filters=Filters)
-    if(class(spresults)=="list"){
-      res_sp<-spf(spresults[[1]],DFN,filters=Filters)
-    }else{
-      res_sp<-spf(spresults,DFN,filters=Filters)
-    }
+    spresults<-spstat(DFN,df_,df_1,Ftest=fT,norm=FALSE,filters=Filters,show_results = show_results)
+
+    res_sp<-spf(dplyr::bind_rows(spresults),DFN,filters=Filters)
+    
     if(isTRUE(show_results)){
       return(res_sp[[1]])
     }
@@ -5207,11 +5324,9 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=TRUE,fT=FALSE,show_re
     Pred1<-spCI(i,res_sp[[1]],res_sp[[2]],res_sp[[3]],df.temps,overlay=TRUE,alpha=0.05)
 
   }
-  if(isTRUE(show_results)){
-    return(res_sp[[1]])
-  }else{
+  
     return(Pred1)
-  }
+  
 }
 
 plotS <- furrr::future_map(df_norm1,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=TRUE,show_results=TRUE,PSM=FALSE)))
