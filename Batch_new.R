@@ -48,7 +48,6 @@ theme_set(theme_bw())
 #' @importFrom tidyr gather
 #' @importFrom stringr stringr::str_extract
 #' @export
-#' 
 read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batch=TRUE){
   
   file.list<-protein_path
@@ -56,28 +55,33 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
   peptide_path<-as.character(peptide_path)
   protein_path<-as.character(protein_path)
   find<-c('[:digit:][:digit:][:digit:][N|C]|[:digit:][:digit:][:digit:]')
+  df<-list()
+  df1<-list()
+  df3<-data.frame()
+  df2<-list()
+  df.raw<-list(data.frame())
+  setwd(protein_path)
+  f<-list.files(protein_path,pattern="Proteins.xlsx")
+  setwd(peptide_path)
+  h<-list.files(peptide_path,pattern="PSMs.xlsx")
+  read_xl<-function(x) {
+    readxl::read_xlsx(x,trim_ws=TRUE,.name_repair = function(x) gsub("[[:punct:][:blank:]]+",".",x))
+  }
+  #read_PSMS and proteins
+  Proteins<-mclapply(f,read_xl,mc.cores = availableCores())
+  PSMs<-mclapply(h,read_xl,mc.cores = availableCores())
+  
+  
+  
   #if the input is peptides, f is a list and PSM = TRUE otherwise f is a data frame and PSM = false
   if (isTRUE(Peptide)){
-    df<-list()
-    df1<-list()
-    df3<-data.frame()
-    df2<-list()
-    df.raw<-list(data.frame())
-    
-    setwd(peptide_path)
-    h<-list.files(peptide_path,pattern="PSMs.xlsx")
     if(length(list.files(peptide_path,pattern="PeptideGroups.xlsx"))>0){
       f<-list.files(peptide_path,pattern="PeptideGroups.xlsx")
     }
     
-    read_xl<-function(x) {
-      readxl::read_xlsx(x,trim_ws=TRUE,.name_repair = function(x) gsub("[[:punct:][:blank:]]+",".",x))
-    }
+    
     #first get Peptide file read
     df.raw<-mclapply(f, read_xl, mc.cores = availableCores())
-    #read_PSMS
-    PSMs<-mclapply(h,read_xl,mc.cores = availableCores())
-    
     #get row number for peptide groups in case of batch files present
     df.raw<-purrr::map2(df.raw,seq(df.raw),function(x,y) x %>% dplyr::mutate(n=y))
     PSMs<-purrr::map2(PSMs,seq(PSMs),function(x,y) x %>% dplyr::mutate(n=y))
@@ -116,6 +120,10 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
     }
     df.raw<-read_PD(df.raw)
     PSMs<-read_PD(PSMs)
+    
+    if(any(names(PSMs)=="File.ID")){
+      PSMs<-PSMs %>% dplyr::rename("sample_id"="File.ID")
+    }
     
     if(any(names(df.raw)=="Spectrum.File")){
       df2<-dplyr::bind_rows(df.raw)
@@ -163,9 +171,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
       if(isTRUE(Batch)){
         df2<-purrr::map2(df3,f,function(x,y)x %>% dplyr::mutate(sample_name=str_remove(y,"[[:digit:]]+[:punct:]PeptideGroups.xlsx")))
       }else{
-        if(any(names(PSMs)=="File.ID")){
-          PSMs<-PSMs %>% dplyr::rename("sample_id"="File.ID")
-        }
+        
         PSMs<-PSMs %>% dplyr::rename("sample_name"="Spectrum.File") %>% dplyr::select(sample_id,sample_name) %>% unique(.)
         df3<-dplyr::bind_rows(df3)
         df2<-df3 %>% dplyr::right_join(PSMs,by="sample_id")
@@ -189,20 +195,42 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
     return(df2)
   }else{
     i<-1
+    #Select protein columns
+    Proteins<-dplyr::bind_rows(Proteins) %>% dplyr::select("Accession","MW.kDa.","Biological.Process","Molecular.Function","Cellular.Component","Coverage.",tidyselect::starts_with('Abundance')|tidyselect::starts_with('1')) %>% 
+      dplyr::rename("Cell_Component"="Cellular.Component","MW_kDa"="MW.kDa.","Bio_Process"="Biological.Process")
+    #Wide to long for proteins
+    df2<-data.table(dplyr::bind_rows(Proteins))
+    df3<-melt(data = df2, 
+              id.vars = c("Accession","MW_kDa","Cell_Component","Bio_Process"),
+              measure.vars = names(df2)[grepl( "Abundance" , names( df2 ) )],
+              variable.name = "id",
+              value.name = "value")
+    df3<-df3[, id:=as.character(id)]
+    df3<-data.frame(df3) %>% dplyr::mutate(sample_id=stringr::str_extract(id,"F[[:digit:]]+"),
+                                           temp_ref = stringr::str_extract(id,find))
+    #Wide to long for peptides
+    dfP<-data.table(dplyr::bind_rows(PSMs) %>% dplyr::rename("Accession"="Protein.Accessions","sample_name"="Spectrum.File","sample_id"="File.ID"))
+    dfP<-melt(data = dfP, 
+              id.vars = c("Accession","sample_name","sample_id"),
+              measure.vars = names(dfP)[grepl( "Abundance" , names( dfP ) )],
+              variable.name = "id",
+              value.name = "value")
+    dfP<-dfP[, id:=as.character(id)]
+    dfP<-data.frame(dfP) %>% dplyr::mutate(temp_ref=stringr::str_extract(id,find)) %>% dplyr::select(-id,-value)
+    #Join protein and PSM file
+    Protein<-df3 %>% dplyr::right_join(dfP,by=c("Accession","sample_id","temp_ref"))
+    Protein<-Protein %>% dplyr::mutate(sample_name=str_remove(sample_name,"[[:digit]]+[:punct:][[:digit]]+.raw"))
+    Protein<-Protein %>% dplyr::group_split(Accession,sample_id,sample_name)
+    Protein<-purrr::map(Protein,function(x){ x %>%  dplyr::mutate(missing=is.na(value),missing_pct=100*sum(is.na(value),na.rm=TRUE)/length(value))})
     
-    file.list<-list.files(protein_path,pattern=Prot_Pattern)
-    df2<-list()
-    df<-list()
-    df2[[i]]<-data.frame()
-    df[[i]]<-data.frame()
-    
+    df2<-df3 %>% dplyr::right_join(PSMs,by="sample_id")
     for ( i in seq(file.list)){
       df<- readxl::read_excel(file.list[i])
       df2[[i]] <- df %>% 
         dplyr::select(Accession,tidyselect::starts_with('Abundance'),-tidyselect::contains('Grouped'),tidyselect::contains("Molecular"),tidyselect::contains("Cellular"),tidyselect::contains("pI"),tidyselect::contains("MW"),tidyselect::contains("Modifications"),tidyselect::contains("CV"))
       names(df2[[i]])<-str_replace_all(names(df2[[i]]),c(" ","  "," C",paste0(" [:punct:]")),"_")
       if (any(names(df2[[i]]) =="Cellular Component")){
-        df2[[i]]<-df2[[i]] %>% dplyr::rename("Cell_Component"="Cellular Component","MW_kDa"="MW_kDa]")
+        df2[[i]]<-df2[[i]] 
         df2[[i]]<- df2[[i]]%>% tidyr::gather(key="id", value='value', -Accession,-Cell_Component,-MW_kDa,-Molecular_Function,-"calc. pI",-Modifications) %>% 
           dplyr::mutate(sample_id = ifelse(!is.na(str_extract(id, str_c('F',"[:digit:][:digit:]"))),str_extract(id, str_c('F',"[:digit:][:digit:]")),stringr::str_extract_all(id,str_c('F','[:digit:]'))),
                         temp_ref = stringr::str_extract_all(id,find),
@@ -3672,6 +3700,9 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
     BSVar <-df2 %>% subset(uniqueID == df1 & dataset== "vehicle")%>%dplyr::group_by(C)# %>% dplyr::mutate(I=mean(I))
     BSVar1 <-df2 %>% subset(uniqueID == df1 & dataset== "treated")%>%dplyr::group_by(C)# %>% dplyr::mutate(I=mean(I))
     
+    BSVar<-BSVar[!is.na(BSVar$I),]
+    BSVar1<-BSVar1[!is.na(BSVar1$I),]
+    
     BSVar<-BSVar[!duplicated(BSVar$I),]
     BSVar1<-BSVar1[!duplicated(BSVar1$I),]
     
@@ -4627,9 +4658,15 @@ f<- list.files(pattern='*Proteins.xlsx')
 
 df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS","~/Files/Scripts/Files/CONSENSUS","_Proteins",Peptide=TRUE,Batch=FALSE)                                                              
 #saveRDS(df_raw,"df_raw.RDS")
-df_raw<-dplyr::bind_rows(df_raw) %>% dplyr::group_split(sample_id)
+df_raw<-dplyr::bind_rows(df_raw)
+df_raw<-df_raw[!str_detect(df_raw$Accession,";"),]
+df_raw<-df_raw %>% dplyr::group_split(sample_id)
 #filter Peptides
 filter_Peptides<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm){
+  df_$sample_name<-paste0(ifelse(str_detect(df_$sample_name,"NOcarrier")==TRUE,"nC",ifelse(str_detect(df_$sample_name,"carrier")==TRUE,"C",NA)),'_',
+                          ifelse(str_detect(df_$sample_name,"NO_FAIMS")==TRUE,"nF",ifelse(str_detect(df_$sample_name,"r_FAIMS")==TRUE,"F",NA)),'_',
+                          ifelse(str_detect(df_$sample_name,"S_eFT")==TRUE,"E",ifelse(str_detect(df_$sample_name,"S_Phi")==TRUE,"S",NA)))
+  
   #rename problematic headers
   check<-names(head(df_))
   ch<-str_replace_all(check,paste0("[","[:punct:]","]"),paste0("_"))
@@ -4639,7 +4676,7 @@ filter_Peptides<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm)
   names(df_)<-ch
   #filter
   if(any("S_N" %in% names(df))==TRUE){
-    df_<-df_ %>% dplyr::filter(Average_Reporter_S_N>S_N,Percolator_PEP<PEP,Charge<Charg,Missed_Cleavages<Missed_C,DeltaMppm_<DeltaM_ppm)
+    df_<-df_ %>% dplyr::filter(Average_Reporter_S_N>S_N,Percolator_PEP<PEP,Charge<Charg,Missed_Cleavages<Missed_C,abs(DeltaMppm_)<DeltaM_ppm)
     df_<-df_%>% dplyr::rename("uniqueID"="Accession","I"="value","S_N"="Average_Reporter_S_N","PEP"="Percolator_PEP",
                               "DeltaM"="DeltaMppm_","IonInjTime"="Ion_Inject_Timems_",
                               "I_Interference"="Isolation_Interference_")
@@ -4674,29 +4711,32 @@ filter_Peptides<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm)
   }else{
     
     #df_<-df_ %>% dplyr::rename("Missed_Cleavages"="#_Missed_Cleavages") 
-    df_<-df_ %>% dplyr::filter(Percolator_PEP<PEP,Charge<Charg,MissedCleavages<Missed_C,DeltaM<DeltaMppm)
+    df_<-df_ %>% dplyr::filter(Percolator_PEP<PEP,Charge<Charg,MissedCleavages<Missed_C,abs(DeltaM)<DeltaMppm)
     df_<-df_%>% dplyr::rename("uniqueID"="Accession","I"="value","PEP"="Percolator_PEP")
+    
+    
     if(length(XCor)==2){
       df_<-df_ %>% dplyr::filter(XCorr>XCor[1],XCorr<XCor[2])
     }else{
-      df_<-df_ %>% dplyr::filter(XCorr>XCor)
+      df_<-df_ %>% dplyr::mutate(XCor_l=ifelse(Charge==2 & XCorr > 1.8,TRUE,ifelse(Charge>2 & XCorr > XCor,TRUE,FALSE)))
     }
     
     df_ <-df_ %>% dplyr::mutate(CC=ifelse(stringr::str_detect(sample_name,"DMSO")==TRUE,0,1))#concentration values are defined in uM
     
     df_$dataset<-ifelse(df_$CC==0,"vehicle","treated")
+    #remove the carrier channel 
+    df_<-df_ %>% dplyr::filter(!temp_ref=="131C")%>% dplyr::mutate(rank=dplyr::ntile(I,3))
+    df_<-df_ %>% dplyr::mutate(rank_l=ifelse(rank==3,TRUE,FALSE)) 
+    df_<-df_ %>% dplyr::group_split(uniqueID, dataset) 
+    #remove data that has at least one high ranking intensity value and passed the XCor filters by charge state
+    df_<-df_ %>% purrr::keep(function(x) any(x$XCor_l==TRUE & x$rank_l==TRUE,na.rm=TRUE))
     
-    
-    df_$sample_name<-paste0(ifelse(str_detect(df_$sample_name,"NOcarrier")==TRUE,"nC",ifelse(str_detect(df_$sample_name,"carrier")==TRUE,"C",NA)),'_',
-                            ifelse(str_detect(df_$sample_name,"NO_FAIMS")==TRUE,"nF",ifelse(str_detect(df_$sample_name,"r_FAIMS")==TRUE,"F",NA)),'_',
-                            ifelse(str_detect(df_$sample_name,"S_eFT")==TRUE,"E",ifelse(str_detect(df_$sample_name,"S_Phi")==TRUE,"S",NA)))
     
   }
   return(dplyr::bind_rows(df_))
   
 }
-
-df_raw1<-furrr::future_map(df_raw,function(x) try(filter_Peptides(x,20,0.1,1.8,30,2,1,6,15)))
+df_raw1<-furrr::future_map(df_raw,function(x) try(filter_Peptides(x,20,0.01,2.3,30,2,1,6,5)))
 df_raw1<-df_raw1 %>% purrr::keep(function(x) !nrow(x)==0)
 
 #Sum abundances
@@ -4773,7 +4813,7 @@ df.samples<-df.s(f,dplyr::bind_rows(df_raw),3,2,"DMSO","TREATED",Batch=TRUE,PSM=
 
 
 #assign TMT channel and temperature data
-df_clean <- furrr::future_map(df_raw1,function(x) clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=TRUE,solvent="DMSO",CFS=TRUE))#assgns temperature and replicate values
+df_clean <- furrr::future_map(df_raw1,function(x) clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=FALSE,solvent="DMSO",CFS=TRUE))#assgns temperature and replicate values
 
 df_clean<-dplyr::bind_rows(df_clean) %>% dplyr::group_split(sample_name)
 df_clean<-dplyr::bind_rows(df_clean) %>% dplyr::group_split(sample_name)
@@ -5008,7 +5048,7 @@ plotS<-plotS[order(data)]
 P3<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
 
-pdf("Target_curves_MD_XCOr_1.8_PEP_0_1_MC_2.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
+pdf("Target_curves_MD_XCOr_2.5_PEP_0_05_MC_2_DM5.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
 P1
 P2
 P3
