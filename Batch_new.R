@@ -31,6 +31,7 @@ library(ggpubr)
 library(furrr)
 library(parallel)
 library(janitor)
+library(EnhancedVolcano)
 requireNamespace("plyr")
 
 theme_set(theme_bw())
@@ -1798,7 +1799,7 @@ upMV <- function(df_,condition,N,plot_multiple=FALSE,PSMs=FALSE){
 #Trilinear functions
 DLR<-function(d){
   #preallocate final result as a list
-  
+  d<-lapply(d,function(x) x %>% dplyr::mutate(C=as.numeric(C)))
   
   df_n<-vector(mode = "list", length(d))
   df_n[[1]]<-data.frame()
@@ -1815,7 +1816,8 @@ DLR<-function(d){
     x %>%
       dplyr::group_by(C) %>%
       dplyr::mutate(I=mean(I,na.rm=TRUE)) %>% 
-      dplyr::ungroup(.)
+      dplyr::ungroup(.) %>% 
+      distinct(.)
     
   })
   #rank intensity values using 3 regions,  rename column as LineRegion
@@ -1938,7 +1940,7 @@ CP<-function(df_0,d,PSM=FALSE){#df_0 is the result data frame and d is the orgin
   df_0<-df_0 %>% dplyr::filter(uniqueID %in% d$uniqueID)
   
   #Split into lists once again
-  d<-d %>% dplyr::group_split(uniqueID)
+  d<-d %>% dplyr::group_split(uniqueID) 
   
   #remove IDs that are not common in both datasets
   d<-d %>% purrr::keep(function(x) x$uniqueID[1] %in% df_0$uniqueID)
@@ -1946,7 +1948,7 @@ CP<-function(df_0,d,PSM=FALSE){#df_0 is the result data frame and d is the orgin
   df_0<-df_0 %>% dplyr::group_split(uniqueID)
   #For the original data (unlabeled LR) define LR with intensities
   df_0<-suppressWarnings(purrr::map2(d,df_0,function(x,y) x %>% #if the intensity in DF is greater than the max(LR2) label 1 else if the intensity is less than min (LR=2)label 3
-                                       dplyr::mutate(LineRegion=as.numeric(ifelse(all(unique(x$LineRegion)==1),1,ifelse(x$I>=min(y$I[y$LineRegion==1]),1,ifelse(x$I<min(y$I[y$LineRegion==2]),3,2)))))))
+                                       dplyr::mutate(LineRegion=as.numeric(ifelse(x$I>=min(y$I[y$LineRegion==1]),1,ifelse(x$I<min(y$I[y$LineRegion==2]),3,2))))))
   
   df_n<-vector(mode = "list", length(df_0))
   ctest<-df_n
@@ -1992,8 +1994,10 @@ CP<-function(df_0,d,PSM=FALSE){#df_0 is the result data frame and d is the orgin
       dap<-df_0 %>% dplyr::left_join(Split,by=names)
     }
     dap<-dap %>% dplyr::group_split(uniqueID)
-    dap<-purrr::map(dap,function(x) x %>% dplyr::mutate(C=as.numeric(as.character(x$C))))
-    dap<-purrr::map(dap,function(x)x %>% dplyr::mutate(LineRegion=ifelse(x$C<=tail(x$C[x$LineRegion.x==1],1),1,ifelse(x$C<=tail(x$C[x$LineRegion.x==2],1),2,3))) %>% dplyr::select(-LineRegion.x,-LineRegion.y))
+    dap<-purrr::map(dap,function(x) x %>% dplyr::mutate(LineRegion=as.numeric(as.character(x$LineRegion.x)),
+                                                        C=as.numeric(as.character(x$C))))
+    # dap<-purrr::map(dap,function(x) x %>% dplyr::mutate(C=as.numeric(as.character(x$C))))
+    dap<-purrr::map(dap,function(x)x %>% dplyr::mutate(LineRegion=ifelse(x$C<=max(x$C[x$LineRegion==1],na.rm=TRUE),1,ifelse(x$C>=min(x$C[x$LineRegion==3],na.rm=TRUE),3,2))) %>% dplyr::select(-LineRegion.y,-LineRegion.x))
     
     return(dap)
   }else{
@@ -2001,7 +2005,13 @@ CP<-function(df_0,d,PSM=FALSE){#df_0 is the result data frame and d is the orgin
     #Join df_0 with the subset of values
     dap<-df_0 %>% dplyr::left_join(Split,by=names)
     dap<-dap %>% dplyr::group_split(uniqueID)
-    dap<-purrr::map(dap,function(x)x %>% dplyr::mutate(LineRegion=ifelse(all(.$LineRegion==1),1,ifelse(.$C<=tail(.$C[.$LineRegion==1],1),1,ifelse(.$C<=tail(.$C[.$LineRegion==2],1),2,3)))))
+    dap<-purrr::map(dap,function(x) x %>% dplyr::mutate(LineRegion=as.numeric(as.character(x$LineRegion.x)),
+                                                        C=as.numeric(as.character(x$C))))
+    
+    dap<-purrr::map(dap,function(x)x %>% dplyr::mutate(LineRegion=ifelse(x$C<=max(x$C[x$LineRegion==1],na.rm=TRUE),1,ifelse(x$C>=min(x$C[x$LineRegion==3],na.rm=TRUE),3,2))) %>% dplyr::select(-LineRegion.y,-LineRegion.x))
+    
+    
+    
     
     return(dap)
   }
@@ -3506,10 +3516,12 @@ spf<-function(spresults,DFN,filters = TRUE){
     df2$I<-as.numeric(as.vector(df2$I))  
     if(any(names(sp) %in% c("missing.x","LineRegion","N"))){
       names<-intersect(names(df2),names(sp))
+      df2$id<-as.numeric(df2$id)
       df2<-sp %>% left_join(df2, by = names) 
       
     }else{
       names<-intersect(names(df2),names(sp))
+      df2$id<-as.numeric(df2$id)
       df2<-sp %>% left_join(df2, by = names) 
     }
     Df1<-spresults
@@ -4702,30 +4714,39 @@ TPPbenchmark<-function(f){
   
 }
 #CV<-his_sp(res_sp[[3]],df.temps,MD=FALSE)
-UpSet_curves<-function(f){
-  f<-dplyr::bind_rows(f) %>% dplyr::select(-rank,-rank_l,-C,-I,-temp_ref,-CV_pct,-missing_pct) %>%  dplyr::group_split(uniqueID,dataset,sample_name,sample)
-  f<-purrr::map(f,function(x) x %>% distinct(.))
+UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE){
+  f<-dplyr::bind_rows(f)
+  if(any(names(f)=="rank_l")){
+    f<-dplyr::bind_rows(f) %>% dplyr::select(-rank,-rank_l,-C,-I,-temp_ref,-CV_pct,-missing_pct) %>%  dplyr::group_split(uniqueID,dataset,sample_name,sample)
+  }else{
+    f<-dplyr::bind_rows(f) %>% dplyr::select(-rank,-C,-I,-temp_ref,-CV_pct,-missing_pct) %>%  dplyr::group_split(uniqueID,dataset,sample_name,sample)
+    
+  }
+  f<-purrr::map(f,function(x) x %>% group_by(sample,dataset) %>% dplyr::summarise(uniqueID=uniqueID,dataset=dataset,
+                                                                                  sample_name=sample_name,
+                                                                                  M1=M1,
+                                                                                  sample=sample,
+                                                                                  Coverage=Coverage,
+                                                                                  MW_kDa=MW_kDa,
+                                                                                  Tm=mean(Tm,na.rm=TRUE),#for peptide groups, caculate averages for parameters
+                                                                                  rss=mean(rss,na.rm=TRUE),
+                                                                                  rsq=mean(rsq,na.rm=TRUE),
+                                                                                  AUC=mean(AUC,na.rm=TRUE)) 
+                %>% ungroup(.) %>% distinct(.))
   f<-f %>% purrr::keep(function(x) any(class(x$M1[[1]])=="gam"))
+  f<-purrr::map(f,function(x) x[1,])
   f<-dplyr::bind_rows(f) 
   if(isTRUE(Trilinear)){
     f<-lapply(f,function(x) x %>% dplyr::mutate(rss=unlist(rss),
                                                 Rsq=unlist(Rsq)))
-    f<-f %>% dplyr::mutate(model_converged_vehicle=ifelse(dataset=="vehicle" & class(M1[[1]])=="lm",TRUE,FALSE),
-                           model_converged_treated=ifelse(dataset=="treated" & class(M1[[1]])=="lm",TRUE,FALSE))
+    f<-f %>% dplyr::mutate(model_converged=ifelse(class(M1[[1]])=="lm",1,0))
   }else if(isTRUE(Splines)){
-    f<-f %>% dplyr::mutate(model_converged_vehicle=ifelse(dataset=="vehicle" & any(class(M1[[1]])=="gam"),TRUE,FALSE),
-                           model_converged_treated=ifelse(dataset=="treated" & any(class(M1[[1]])=="gam"),TRUE,FALSE),
-                           rsq_greater_than_0.8=ifelse(rsq>0.8,TRUE,FALSE))
+    f<-f %>% dplyr::mutate(model_converged=ifelse(any(class(M1[[1]])=="gam"),1,0),
+                           rsq_greater_than_0.8=ifelse(rsq>0.8,1,0))
   }
   
   
-  f<-dplyr::bind_rows(f) %>% dplyr::group_split(uniqueID,dataset,sample_name,sample)
-  f<-purrr::map(f,function(x) x %>% dplyr::mutate(Tm=mean(Tm,na.rm=TRUE),#for peptide groups, caculate averages for parameters
-                                                  rss=mean(rss,na.rm=TRUE),
-                                                  rsq=mean(rsq,na.rm=TRUE),
-                                                  AUC=mean(AUC,na.rm=TRUE)))
-  
-  f<-purrr::map(f,function(x) x[1,])#keep the first row out of redundant peptide group data
+  #keep the first row out of redundant peptide group data
   
   #f<-purrr::map(f,function(x) x %>% dplyr::mutate(stabilized=ifelse(x$Tm[x$dataset=="treated"]>x$Tm[x$dataset=="vehicle"],1,0)))
   # f<-lapply(f,function(x) x %>% dplyr::group_by(uniqueID,dataset) %>% 
@@ -4738,28 +4759,77 @@ UpSet_curves<-function(f){
   
   #select columns of interest
   df_TPP<-dplyr::bind_rows(f) %>% 
-    select(uniqueID,dataset,sample,sample_name,Tm,rss,AUC,rsq,model_converged_vehicle,model_converged_treated,rsq_greater_than_0.8) %>% 
+    select(uniqueID,dataset,sample,sample_name,Tm,rss,AUC,rsq,model_converged,rsq_greater_than_0.8) %>% 
     distinct(.)#remove redundant peptide group data
   
-  df_1<-df_TPP %>% dplyr::select(uniqueID,dataset,sample,sample_name,Tm,model_converged_vehicle,model_converged_treated,rsq_greater_than_0.8)
-  df_1$sample_name<-as.factor(df_1$sample_name)
+  df_1<-df_TPP %>% dplyr::select(uniqueID,dataset,sample,sample_name,Tm,model_converged,rsq_greater_than_0.8)
   
   df_1<-dplyr::bind_rows(df_1) %>% dplyr::group_split(uniqueID,sample_name)
-  df_1<-purrr::map(df_1,function(x) x %>% dplyr::mutate(stabilized=ifelse(x$Tm[x$dataset=="treated"][1]>x$Tm[x$dataset=="vehicle"][1],TRUE,FALSE)))
-  df_1 %>% dplyr::bind_rows(df_1) %>% dplyr::group_split(sample_name)
-  check<-list()
-  check<-purrr::map(df_1,function(x) upset(x,colnames(x)[!colnames(x) %in% c("sample_name","uniqueID","dataset","sample","Tm")],
-                                           min_degree=1,
-                                           set_sizes=FALSE,
-                                           guides='collect',
-                                           n_intersections=5,
-                                           stripes='white',
-                                           sort_intersections_by="cardinality",
-                                           
-  )+ggtitle(paste0("Number of curves: ",x$sample_name[1])))
+  df_1<-purrr::map(df_1,function(x) x %>% dplyr::mutate(stabilized=ifelse(x$Tm[x$dataset=="treated"][1]>x$Tm[x$dataset=="vehicle"][1],1,0),
+                                                        dTm=x$Tm[x$dataset=="treated"][1]-x$Tm[x$dataset=="vehicle"][1]))
+  df_<-dplyr::bind_rows(df_1) %>% dplyr::select(uniqueID,dataset,sample,sample_name,model_converged,stabilized,dTm) %>% 
+    pivot_wider(names_from=sample_name,values_from=c(model_converged))
+  df_$stabilized<-ifelse(df_$stabilized==1,"Stabilized",ifelse(df_$stabilized==0,"Destabilized",NA))
+  df_$stabilized<-as.factor(df_$stabilized)
   
-  rating_scale = scale_fill_manual(name="High Quality Melt Curves",
-                                   values=c("TRUE" ='#fee6ce', "FALSE" ='#fdae6b', "NA"  = '#e6550d'))
+  #,rsq_greater_than_0.8,stabilized
+  rating_scale = scale_fill_manual(name="Stabilization (Tm-based)",
+                                   values=c("Stabilized" ='#fee6ce', "Destabilized" ='#fdae6b', "NA"  = '#e6550d'))
+  
+  check<-list()
+  check<-upset(df_,colnames(df_)[!colnames(df_) %in% c("sample_name","uniqueID","dataset","sample","Tm","dTm")],
+               min_degree=1,
+               set_sizes=FALSE,
+               guides='collect',
+               n_intersections=10,
+               stripes='white',
+               sort_intersections_by="cardinality",
+               base_annotations=list(
+                 '# of Protein Events'=intersection_size(
+                   counts=TRUE
+                 )
+               ),
+               # base_annotations=list(
+               #   'Number of protein events'=upset_annotate(
+               #     '..count..',
+               #     list(
+               #       geom_bar(aes(fill=df_$stabilized)),
+               #       scale_fill_manual(values=c("Stabilized" ='#fee6ce', "Destabilized" ='#fdae6b', "NA"  = '#e6550d'))
+               #     )
+               #   )
+               # )#,
+               
+               annotations =list(
+                 'Stabilized Percentage'=list(
+                   aes=aes(x=intersection, fill=df_$stabilized),
+                   geom=list(
+                     geom_bar(stat='count', position='fill', na.rm=TRUE),
+                     geom_text(
+                       aes(
+                         label=!!aes_percentage(relative_to='group'),
+                         group=df_$stabilized
+                       ),
+                       stat='count',
+                       position=position_fill(vjust = .5)
+                     ),
+                     scale_y_continuous(labels=scales::percent_format()),
+                     rating_scale
+                   )
+                 )
+                 # ,
+                 # 'Tm'=(
+                 #   # note that aes(x=intersection) is supplied by default and can be skipped
+                 #   ggplot(mapping=aes(y=log10(df_$dTm)))+
+                 #     # checkout ggbeeswarm::geom_quasirandom for better results!
+                 #     geom_jitter(aes(color=log2(df_$dTm), na.rm=TRUE))+
+                 #     geom_violin(alpha=0.5, na.rm=TRUE)
+                 # )
+               ),
+               themes=upset_default_themes(text=element_text(size=20,colour="black"))
+  )+ggtitle(paste0("Number of fitted ", ifelse(isTRUE(Splines),"Spline") ," curves (Peptide-level unfiltered): "))
+  
+  
+  
   
   show_hide_scale = scale_color_manual(values=c('show'='black', 'hide'='transparent'), guide=FALSE)
   
@@ -4851,7 +4921,7 @@ f<- list.files(pattern='*Proteins.xlsx')
 #rename to the folder where your Protein file is located
 # f<-"~/Cliff prot pep/Proteins.xlsx"
 # f<-"C:/Users/figue/OneDrive - Northeastern University/CETSA R/CP_Exploris_20200811_DMSOvsMEKi_carrier_FAIMS_PhiSDM_PEPTIDES.xlsx"
-df_raw <- read_cetsa("~/Files/Scripts/Files/PSM_validator","~/Files/Scripts/Files/PSM_validator","_Proteins",Peptide=TRUE,Batch=FALSE,CFS=TRUE,solvent="DMSO")     
+df_raw <- read_cetsa("~/Files/Scripts/Files/PSM_validator","~/Files/Scripts/Files/PSM_validator","_Proteins",Peptide=FALSE,Batch=FALSE,CFS=TRUE,solvent="DMSO")     
 #df_raw <- read_cetsa("~/Files/Scripts/Files/Covid","~/Files/Scripts/Files/Covid","_Proteins",Peptide=TRUE,Batch=FALSE)                                                              
 #df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS","~/Files/Scripts/Files/CONSENSUS","_Proteins",Peptide=FALSE,Batch=FALSE)                                                              
 #saveRDS(df_raw,"df_raw.RDS")
@@ -4937,7 +5007,7 @@ filter_Peptides<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm,
   
 }
 df_raw1<-df_raw %>% dplyr::group_split(sample_name)
-df_raw1<-furrr::future_map(df_raw1,function(x) try(filter_Peptides(x,20,0.1,1,30,3,1,6,5,filter_rank=FALSE,shared_proteins=TRUE,CFS=TRUE)))
+df_raw1<-furrr::future_map(df_raw1,function(x) try(filter_Peptides(x,20,0.01,2.3,30,2,1,6,5,filter_rank=FALSE,shared_proteins=FALSE,CFS=TRUE)))
 df_raw1<-dplyr::bind_rows(df_raw1)%>% dplyr::group_split(sample_name)
 df_raw1<-df_raw1 %>% purrr::keep(function(x) !nrow(x)==0)
 
@@ -5025,13 +5095,13 @@ df.samples<-df.s(f,dplyr::bind_rows(df_raw),3,2,"DMSO","TREATED",Batch=TRUE,PSM=
 #df_clean<-purrr::map(seq_along(df_clean),function(x) rbind(df_clean[[1]],x))
 #Peptides
 df_raw<-df_raw %>% group_split(sample_name)
-df_clean <- furrr::future_map(df_raw1,function(x) clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=TRUE,solvent="DMSO",CFS=TRUE))#assgns temperature and replicate values
+df_clean <- furrr::future_map(df_raw,function(x) clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=FALSE,solvent="DMSO",CFS=TRUE))#assgns temperature and replicate values
 
 
 df_clean<-dplyr::bind_rows(df_clean) %>% dplyr::group_split(sample_name)
 
 #normalize data
-df_norm <- furrr::future_map(df_clean,function(x) normalize_cetsa(x, df.temps$temperature,Peptide=TRUE,filters=FALSE)) #normalizes according to Franken et. al. without R-squared filter
+df_norm <- furrr::future_map(df_clean,function(x) normalize_cetsa(x, df.temps$temperature,Peptide=FALSE,filters=FALSE)) #normalizes according to Franken et. al. without R-squared filter
 # rm(df_raw,df_clean)
 
 Int_plot<-function(df_norm){
@@ -5067,13 +5137,13 @@ df_norm1<-df_norm
 
 df_norm<-purrr::map(df_norm1,function(x) x[str_detect(x$uniqueID,c("P36507","Q02750")),])
 
-df_norm<-dplyr::bind_rows(df_norm) %>% dplyr::group_split(uniqueID)
-df_norm<-df_norm %>% purrr::keep(function(x) nrow(x)>1)
+# df_norm<-dplyr::bind_rows(df_norm) %>% dplyr::group_split(uniqueID)
+# df_norm<-df_norm %>% purrr::keep(function(x) nrow(x)>1)
 #df_norm<-purrr::map(df_norm1,function(x)x %>% dplyr::filter(uniqueID %in% c("P36507","Q02750")))
 
 
-PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,Peptide=FALSE){
-  
+PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,Peptide=FALSE,show_results=FALSE){
+  df_norm$CC<-ifelse(df_norm$dataset=="vehicle",0,1)
   if(isTRUE(Peptide) & any(names(df_norm)=="XCorr")){
     #remove columns not needed for curve fitting 
     df_norm<-df_norm %>% dplyr::select(-XCorr,-temp_ref,-Modifications,-MissedCleavages,-DeltaM,-"Annotated_Sequence",-tidyr::contains("PEP"),-Charge)
@@ -5091,7 +5161,7 @@ PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,Peptide=FALSE){
     d_1<-d_
   }
   if(length(d_)==0){
-    return(warning(paste0("No vehicle curves found for ",df_norm$sample_name[1])))
+    warning(paste0("No vehicle curves found for ",df_norm$sample_name[1]))
   }
   #convert to data frame for uniqueID presence
   DF<-dplyr::bind_rows(DF)
@@ -5150,13 +5220,17 @@ PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,Peptide=FALSE){
   
   #return filtered lists
   res<-tlf(tlresults,DFN,APfilt=FALSE,PF=FALSE)
+  if(isTRUE(show_results)){
+    res<-lapply(res[[3]],function(x) x %>% dplyr::mutate(rss=unlist(rss),rsq=unlist(Rsq)))
+    return(res)
+  }
   i=which(res[[1]]$uniqueID %in% target)
   plotTL1<-tlCI(i,res[[1]],res[[2]],res[[3]],overlay=TRUE,residuals=FALSE,df.temps=df.temps,PSMs=Peptide)
   
   return(plotTL1)
 }
 
-plot<-purrr::map(df_norm,function(x) try(PlotTrilinear(x,"P36507",df.temps,Ft=FALSE,filt=FALSE,Peptide=TRUE)))
+plot<-purrr::map(df_norm,function(x) try(PlotTrilinear(x,"P36507",df.temps,Ft=FALSE,filt=FALSE,Peptide=TRUE,show_results=TRUE)))
 check<-ggplot2::ggplot_build(plot[[1]])
 y<-get_legend(check$plot)
 data<-order(unlist(lapply(plot,function(x) x$labels$title)))
@@ -5268,14 +5342,14 @@ P3<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = 
 # check<-dplyr::bind_rows(df_norm) %>% dplyr::group_split(time_point)
 # plotS2 <- purrr::map(check,function(x) try(plot_Splines(x,"P0DTC2",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
 # 
-plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=TRUE,Peptide=TRUE)))
+plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=TRUE,Peptide=FALSE)))
 check<-ggplot2::ggplot_build(plotS2[[1]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plotS2,function(x) x$labels$title))
 plotS2<-plotS2[order(data)]
 P2<-ggarrange(plotlist=plotS2,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-plotS <- furrr::future_map(df_norm1,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=TRUE,Peptide=TRUE)))
+plotS <- furrr::future_map(df_norm,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
 check<-ggplot2::ggplot_build(plotS[[1]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plotS,function(x) x$labels$title))
@@ -5283,7 +5357,7 @@ plotS<-plotS[order(data)]
 P1<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
 
-pdf("Target_curves_MD_PD_HR_Settings_unfilt.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
+pdf("Protein_Target_curves_MD_PD_HR_Settings_unfilt.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
 P1
 P2
 
