@@ -4814,7 +4814,7 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
                                    values=c("Stabilized" ='#fee6ce', "Destabilized" ='#fdae6b', "NA"  = '#e6550d'))
   
   check<-list()
-  check<-upset(df_,colnames(df_)[!colnames(df_) %in% c("sample_name","uniqueID","dataset","sample","Tm","dTm")],
+  check<-upset(df_,colnames(df_)[!colnames(df_) %in% c("sample_name","uniqueID","dataset","sample","Tm","dTm","rsq_greater_than_0.8")],
                min_degree=1,
                set_sizes=FALSE,
                guides='collect',
@@ -5239,7 +5239,11 @@ P1
 P2
 dev.off()
 
-
+#plot Number of curves
+Check<-UpSet_curves(plot,Trilinear=TRUE,Splines=FALSE,Sigmoidal=FALSE,Peptide=TRUE)
+pdf("Number_of_curves_upset_trilinear_peptide.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
+Check
+dev.off()
 #df1 <- only IDs in order desc(stability)
 #df2<-original data in order  
 #Df1 <- ordered spline results 
