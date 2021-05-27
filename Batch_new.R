@@ -2233,7 +2233,7 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
                          dplyr::group_nest(LineRegion,uniqueID) %>%
                          dplyr::mutate(M1=purrr::map(data,function(x){stats::lm(x$I ~ x$C)}),
                                        CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
-                                       Tm=with(x, stats::approx(x$I,x$C, xout=0.5))$y,
+                                       Tm=with(x, stats::approx(x$I,x$C, xout=min(x$I,na.rm=TRUE)+(0.5*(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))))$y),
                                        slope=purrr::map(M1,function(x){as.numeric(coef(x)[2])}),
                                        intercept=purrr::map(M1,function(x){as.numeric(coef(x)[1])}),
                                        rss=map(M1,function(x){deviance(x)}),
@@ -2254,7 +2254,7 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
                            dplyr::group_nest(LineRegion,uniqueID) %>% 
                            dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
                                          CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
-                                         Tm=with(x, stats::approx(x$I,x$C, xout=0.5))$y,
+                                         Tm=with(x, stats::approx(x$I,x$C, xout=min(x$I,na.rm=TRUE)+(0.5*(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))))$y),
                                          slope=map(M1,function(x){as.numeric(coef(x)[2])}),
                                          intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
                                          rss=map(M1,function(x){deviance(x)}),
@@ -2278,7 +2278,7 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
                          dplyr::group_nest(LineRegion,uniqueID) %>% 
                          dplyr::mutate(M1=map(data,function(x){stats::lm(x$I ~ x$C)}),
                                        CI=purrr::map(M1,function(x){predict(x,interval="confidence")}),
-                                       Tm=with(x, stats::approx(x$I,x$C, xout=0.5))$y,
+                                       Tm=with(x, stats::approx(x$I,x$C, xout=min(x$I,na.rm=TRUE)+(0.5*(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))))$y),
                                        slope=map(M1,function(x){as.numeric(coef(x)[2])}),
                                        intercept=map(M1,function(x){as.numeric(coef(x)[1])}),
                                        rss=map(M1,function(x){deviance(x)}),
@@ -2370,7 +2370,9 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
       
       #convert to df
       mean1<-dplyr::bind_rows(mean1)
-      ResF<-dplyr::bind_rows(ResF)
+      ResF<-dplyr::bind_rows(ResF) %>% 
+        dplyr::group_by(uniqueID,dataset) %>% 
+        dplyr::mutate(sample_name=data[[1]]$sample_name[1],rsq=unlist(Rsq),rss=unlist(rss))
       #convert results to list
       testResults<-mean1 %>% dplyr::select(-slope,-data,-intercept,-LineRegion,-M1,-CI,-Tm,-rss,-Rsq,-AUC,-dataset)
       testResults<-testResults%>% dplyr::left_join(ResF,by="uniqueID")
@@ -2432,6 +2434,9 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
       mean1_1<-mean1_1 %>% dplyr::filter(mean1_1$uniqueID %in% test$uniqueID)
       mean3<-dplyr::bind_rows(mean3)
       mean3<-mean3 %>% dplyr::filter(mean3$uniqueID %in% test$uniqueID)
+    }
+    if(isTRUE(Ftest)){
+      return(testResults)
     }
     #convert to df and split by uniqueID 
     mean1<-dplyr::bind_rows(mean1)
@@ -4743,9 +4748,11 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
                                                                                     AUC=mean(AUC,na.rm=TRUE)) 
                   %>% ungroup(.) %>% distinct(.)) 
   }else{#if this is a trilinear result
-    f<-lapply(f,function(x) dplyr::bind_rows(x))
-    f<-lapply(f,function(x) x %>% dplyr::mutate(sample_name=x$data[[1]]$sample_name[1]))
-    f<-dplyr::bind_rows(f) %>% dplyr::select(-rank,-Rsq,-CI,-data) %>%  dplyr::group_split(uniqueID,dataset,sample_name)
+    #f<-f %>% dplyr::group_split(uniqueID,dataset)
+    # f<-lapply(f,function(x) dplyr::bind_rows(x))
+    # f<-lapply(f,function(x) x %>% dplyr::mutate(sample_name=x$data[[1]]$sample_name[1]))
+    
+    f<-dplyr::bind_rows(f) %>% dplyr::mutate(sample_name=as.factor(sample_name)) %>% dplyr::select(-Rsq,-CI,-data) %>%  dplyr::group_split(uniqueID,dataset,sample_name)
     f<-purrr::map(f,function(x) x %>% dplyr::summarise(uniqueID=uniqueID,
                                                        dataset=dataset,
                                                        M1=M1,
@@ -4753,8 +4760,12 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
                                                        rss=sum(rss,na.rm=TRUE),
                                                        rsq=mean(rsq,na.rm=TRUE),
                                                        AUC=mean(AUC,na.rm=TRUE),
-                                                       RSSd=mean(RSSd,na.rm=TRUE),
-                                                       sample_name=sample_name) 
+                                                       rssDiff=rssDiff,
+                                                       sample_name=x$sample_name,
+                                                       Fvals=Fvals,
+                                                       rssDiff=rssDiff,
+                                                       pV=pV,
+                                                       pAdj=pAdj) 
                   %>% ungroup(.) %>% distinct(.))
   }
   
@@ -4762,13 +4773,16 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
   if(isTRUE(Trilinear)){
     f<-f %>% purrr::keep(function(x) any(class(x$M1[[1]])=="lm"))
     f<-purrr::map(f,function(x) x[1,])
+    f<-dplyr::bind_rows(f) %>% dplyr::group_split(uniqueID,sample_name)
+    f<-purrr::map(f,function(x) x %>% dplyr::mutate(stabilized=ifelse(x$Tm[x$dataset=="treated"][1]>x$Tm[x$dataset=="vehicle"][1],1,0),
+                                                    dTm=x$Tm[x$dataset=="treated"][1]-x$Tm[x$dataset=="vehicle"][1]))
+    
+    
     f<-dplyr::bind_rows(f) 
     f<-f %>% dplyr::mutate(model_converged=ifelse(class(M1[[1]])=="lm",1,0),
                            rsq_greater_than_0.8=ifelse(rsq>0.8,1,0))
     
     df_1<-dplyr::bind_rows(f) %>% dplyr::group_split(uniqueID,sample_name)
-    df_1<-purrr::map(df_1,function(x) x %>% dplyr::mutate(stabilized=ifelse(x$Tm[x$dataset=="treated"][1]>x$Tm[x$dataset=="vehicle"][1],1,0),
-                                                          dTm=x$Tm[x$dataset=="treated"][1]-x$Tm[x$dataset=="vehicle"][1]))
     df_<-dplyr::bind_rows(df_1) %>% dplyr::select(uniqueID,dataset,sample_name,model_converged,stabilized,rsq_greater_than_0.8) %>% 
       pivot_wider(names_from=sample_name,values_from=c(model_converged))
     df_$stabilized<-ifelse(df_$stabilized==1,"Stabilized",ifelse(df_$stabilized==0,"Destabilized",NA))
@@ -5204,14 +5218,14 @@ PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,Peptide=FALSE,show_resul
   tlresults<-list()
   tlresults_PI<-list()
   #confidence intervals
-  tlresults<-tlstat(DFN,df_,df_1,norm=FALSE,Filters=filt,Ftest=Ft)
-  
+  tlresults<-tlstat(DFN,df_,df_1,norm=TRUE,Filters=filt,Ftest=Ft)
+  if(isTRUE(show_results)){
+    
+    return(tlresults)
+  }
   #return filtered lists
   res<-tlf(tlresults,DFN,APfilt=FALSE,PF=FALSE)
-  if(isTRUE(show_results)){
-    res<-lapply(res[[3]],function(x) x %>% dplyr::mutate(rss=unlist(rss),rsq=unlist(Rsq)))
-    return(res)
-  }
+  
   i=which(res[[1]]$uniqueID %in% target)
   plotTL1<-tlCI(i,res[[1]],res[[2]],res[[3]],overlay=TRUE,residuals=FALSE,df.temps=df.temps,PSMs=Peptide)
   
