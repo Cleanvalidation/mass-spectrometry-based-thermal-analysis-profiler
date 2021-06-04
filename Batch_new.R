@@ -496,27 +496,27 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE) {
     df$dataset<-as.factor(df$dataset)
     df$temperature<-as.numeric(as.character(df$temperature))
     #select top3 top5 and top10 peptides according to rank
-    df_filt3 <- df %>%dplyr::filter(!is.na(value)) %>%  
+    df_filt3 <- df %>%dplyr::filter(!is.na(value),temperature==37) %>%  
       dplyr::arrange(desc(value)) %>% 
       dplyr::group_by(rank) %>% slice(1:10000)
-    df_filt5 <- df %>%dplyr::filter(!is.na(value)) %>%  
+    df_filt5 <- df %>%dplyr::filter(!is.na(value),temperature==37) %>%  
       arrange(desc(value)) %>% 
       group_by(rank) %>% slice(1:20000)
-    df_filt10 <- df %>% dplyr::filter(!is.na(value)) %>%  
+    df_filt10 <- df %>% dplyr::filter(!is.na(value),temperature==37) %>%  
       arrange(desc(value)) %>% 
       group_by(rank) %>% slice(1:30000)
     #get the filtered values
-    df_filt3<-df_filt3 %>% dplyr::ungroup(.) %>%  dplyr::select(-value,-rank,uniqueID,dataset,sample_name,sample)
-    df_filt5<-df_filt5 %>% dplyr::ungroup(.) %>%  dplyr::select(-value,-rank,uniqueID,dataset,sample_name,sample)
-    df_filt10<-df_filt10 %>% dplyr::ungroup(.) %>%  dplyr::select(-value,-rank,uniqueID,dataset,sample_name,sample)
+    df_filt3<-df_filt3 %>% dplyr::ungroup(.) %>%  dplyr::select(-value,-rank,-temperature,Accession,dataset,sample_name,sample)
+    df_filt5<-df_filt5 %>% dplyr::ungroup(.) %>%  dplyr::select(-value,-rank,-temperature,Accession,dataset,sample_name,sample)
+    df_filt10<-df_filt10 %>% dplyr::ungroup(.) %>%  dplyr::select(-value,-rank,-temperature,Accession,dataset,sample_name,sample)
     #preserve original dataset
     df1<-df
     df<-df %>% group_by(sample_name)
     
     #Only keep curves with the topN values
-    df3<-df1 %>% dplyr::right_join(df_filt3,by=names(df_filt3)) %>% dplyr::filter(temperature<68)
-    df5<-df1 %>% dplyr::right_join(df_filt5,by=names(df_filt5))%>% dplyr::filter(temperature<68)
-    df10<-df1 %>% dplyr::right_join(df_filt10,by=names(df_filt10))%>% dplyr::filter(temperature<68)
+    df3<-df1 %>% dplyr::filter(Accession %in% df_filt3$Accession,dataset %in% df_filt3$dataset,sample_name %in% df_filt3$sample_name,sample %in% df_filt3$sample,temperature<68)
+    df5<-df1 %>% dplyr::filter(Accession %in% df_filt5$Accession,dataset %in% df_filt5$dataset,sample_name %in% df_filt5$sample_name,sample %in% df_filt5$sample,temperature<68)
+    df10<-df1 %>% dplyr::filter(Accession %in% df_filt10$Accession,dataset %in% df_filt10$dataset,sample_name %in% df_filt10$sample_name,sample %in% df_filt10$sample,temperature<68)
     #remove missing values 
     df3<-df3[!is.na(df3$value),]
     df5<-df5[!is.na(df5$value),]
