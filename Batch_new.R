@@ -665,9 +665,9 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE) {
     d5<-length(df.fit5$fitted_values5[[1]]$fitted_values)
     d10<-length(df.fit10$fitted_values10[[1]]$fitted_values)
     #unnest fitted values from list and name value column and keep fitted values and temps
-    check3<-df.fit3 %>% dplyr::mutate(fitted_values3=fitted_values3[[1]])%>% unique(.)%>% dplyr::select(-sample)
-    check5<-df.fit5 %>% dplyr::mutate(fitted_values5=fitted_values5[[1]])%>% unique(.)%>% dplyr::select(-sample)
-    check10<-df.fit10 %>% dplyr::mutate(fitted_values10=fitted_values10[[1]])%>% unique(.)%>% dplyr::select(-sample)
+    check3<-df.fit3 %>% dplyr::mutate(fitted_values3=fitted_values3[[1]]$fitted_values)%>% dplyr::select(-sample)%>% unique(.)
+    check5<-df.fit5 %>% dplyr::mutate(fitted_values5=fitted_values5[[1]]$fitted_values)%>% dplyr::select(-sample)%>% unique(.)
+    check10<-df.fit10 %>% dplyr::mutate(fitted_values10=fitted_values10[[1]]$fitted_values)%>% dplyr::select(-sample)%>% unique(.)
     
     df1<-df1 %>% dplyr::filter(temperature<68)
     test3<-df1 %>% dplyr::group_by(temperature) %>% dplyr::right_join(check3,'temperature')
@@ -676,19 +676,19 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE) {
     
     ## calculate ratios between the fitted curves and the median values
     df.out3 <- test3 %>%
-      dplyr::mutate(correction3 = ifelse(is.na(fitted_values / value),NA,fitted_values / value)) %>%
-      dplyr::select('sample','temperature','value','fitted_values','correction3')
-    df.out3<-df.out3 %>% dplyr::select(-fitted_values,-value,-sample)
+      dplyr::mutate(correction3 = ifelse(is.na(fitted_values3 / value),NA,fitted_values3 / value)) %>%
+      dplyr::select('sample','temperature','value','fitted_values3','correction3')
+    df.out3<-df.out3 %>% dplyr::select(-fitted_values3,-value)
     
     df.out5 <- test5 %>%
-      dplyr::mutate(correction5 = ifelse(is.na(fitted_values / value),NA,fitted_values / value)) %>%
-      dplyr::select('sample','temperature','value','fitted_values','correction5')
-    df.out5<-df.out5 %>% dplyr::select(-fitted_values,-value,-sample)
+      dplyr::mutate(correction5 = ifelse(is.na(fitted_values5 / value),NA,fitted_values5 / value)) %>%
+      dplyr::select('sample','temperature','value','fitted_values5','correction5')
+    df.out5<-df.out5 %>% dplyr::select(-fitted_values5,-value)
     
     df.out10 <- test10 %>%
-      dplyr::mutate(correction10 = ifelse(is.na(fitted_values / value),NA,fitted_values / value)) %>%
-      dplyr::select('sample','temperature','value','fitted_values','correction10')
-    df.out10<-df.out10 %>% dplyr::select(-fitted_values,-value,-sample)
+      dplyr::mutate(correction10 = ifelse(is.na(fitted_values10 / value),NA,fitted_values10 / value)) %>%
+      dplyr::select('sample','temperature','value','fitted_values10','correction10')
+    df.out10<-df.out10 %>% dplyr::select(-fitted_values10,-value)
     ## join correction factor to data
     df1$temperature<-as.factor(df1$temperature)
     df1<-df1 %>% dplyr::group_split(temperature)
@@ -705,9 +705,9 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE) {
     df1<-dplyr::bind_rows(df1)
     df1<-df1 %>% dplyr::group_split(temperature)
     #apply correction factor by temperature to original data
-    df3<-purrr::map2(df1,df.out3,function(x,y)x %>% dplyr::mutate(correction3=y$correction3[1]))
-    df5<-purrr::map2(df3,df.out5,function(x,y)x %>% dplyr::mutate(correction5=y$correction5[1]))
-    df<-purrr::map2(df5,df.out10,function(x,y)x %>% dplyr::mutate(correction10=y$correction10[1]))
+    df3<-purrr::map2(df1,df.out3,function(x,y)x %>% dplyr::mutate(correction3=y$correction3))
+    df5<-purrr::map2(df3,df.out5,function(x,y)x %>% dplyr::mutate(correction5=y$correction5))
+    df<-purrr::map2(df5,df.out10,function(x,y)x %>% dplyr::mutate(correction10=y$correction10))
     #bind_rows
     df<-dplyr::bind_rows(df)
     
