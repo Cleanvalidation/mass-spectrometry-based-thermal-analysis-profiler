@@ -498,25 +498,22 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE) {
     #select top3 top5 and top10 peptides according to rank
     df_filt3 <- df %>%dplyr::filter(!is.na(value),temperature==37) %>%  
       dplyr::arrange(desc(value)) %>% 
-      dplyr::group_by(rank) %>% slice(1:10000)
+      dplyr::group_by(rank) %>% slice(1:10000) %>% dplyr::select(-temperature,-temp_ref,-value,-id) %>% ungroup(.)
     df_filt5 <- df %>%dplyr::filter(!is.na(value),temperature==37) %>%  
       arrange(desc(value)) %>% 
-      group_by(rank) %>% slice(1:20000)
+      group_by(rank) %>% slice(1:20000)%>% dplyr::select(-temperature,-temp_ref,-value,-id) %>% ungroup(.)
     df_filt10 <- df %>% dplyr::filter(!is.na(value),temperature==37) %>%  
       arrange(desc(value)) %>% 
-      group_by(rank) %>% slice(1:30000)
-    #get the filtered values
-    df_filt3<-df_filt3 %>% dplyr::ungroup(.) %>%  dplyr::select(-value,-rank,-temperature,Accession,dataset,sample_name,sample)
-    df_filt5<-df_filt5 %>% dplyr::ungroup(.) %>%  dplyr::select(-value,-rank,-temperature,Accession,dataset,sample_name,sample)
-    df_filt10<-df_filt10 %>% dplyr::ungroup(.) %>%  dplyr::select(-value,-rank,-temperature,Accession,dataset,sample_name,sample)
+      group_by(rank) %>% slice(1:30000)%>% dplyr::select(-temperature,-temp_ref,-value,-id) %>% ungroup(.)
+    
     #preserve original dataset
-    df1<-df
+    df1<-df %>%dplyr::filter(temperature<68)
     df<-df %>% group_by(sample_name)
     
     #Only keep curves with the topN values
-    df3<-df1 %>% dplyr::filter(Accession %in% df_filt3$Accession,dataset %in% df_filt3$dataset,sample_name %in% df_filt3$sample_name,sample %in% df_filt3$sample,temperature<68)
-    df5<-df1 %>% dplyr::filter(Accession %in% df_filt5$Accession,dataset %in% df_filt5$dataset,sample_name %in% df_filt5$sample_name,sample %in% df_filt5$sample,temperature<68)
-    df10<-df1 %>% dplyr::filter(Accession %in% df_filt10$Accession,dataset %in% df_filt10$dataset,sample_name %in% df_filt10$sample_name,sample %in% df_filt10$sample,temperature<68)
+    df3<-df1 %>% dplyr::right_join(df_filt3,by=names(df_filt3))
+    df5<-df1 %>% dplyr::right_join(df_filt5,by=names(df_filt5))
+    df10<-df1 %>% dplyr::right_join(df_filt10,by=names(df_filt10))
     #remove missing values 
     df3<-df3[!is.na(df3$value),]
     df5<-df5[!is.na(df5$value),]
@@ -616,15 +613,15 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE) {
     #calculate median values for TopN
     df.median3 <- df.jointP3 %>%
       dplyr::group_by(sample,temperature) %>%
-      dplyr::mutate(value = median(value,na.rm=TRUE))
+      dplyr::mutate(value = median(value,na.rm=TRUE)) %>% ungroup(.)
     
     df.median5 <- df.jointP5 %>%
       dplyr::group_by(sample,temperature) %>%
-      dplyr::mutate(value = median(value,na.rm=TRUE))
+      dplyr::mutate(value = median(value,na.rm=TRUE)) %>% ungroup(.)
     
     df.median10 <- df.jointP10 %>%
       dplyr::group_by(sample,temperature) %>%
-      dplyr::mutate(value = median(value,na.rm=TRUE))
+      dplyr::mutate(value = median(value,na.rm=TRUE)) %>% ungroup(.)
     
     df.median3$temperature<-as.numeric(df.median3$temperature)
     df.median5$temperature<-as.numeric(df.median5$temperature)
@@ -4932,7 +4929,7 @@ f<- list.files(pattern='*Proteins.xlsx')
 # f<-"C:/Users/figue/OneDrive - Northeastern University/CETSA R/CP_Exploris_20200811_DMSOvsMEKi_carrier_FAIMS_PhiSDM_PEPTIDES.xlsx"
 #df_raw <- read_cetsa("~/Files/Scripts/Files/PSM_validator","~/Files/Scripts/Files/PSM_validator","_Proteins",Peptide=FALSE,Batch=FALSE,CFS=TRUE,solvent="DMSO")     
 #df_raw <- read_cetsa("~/Files/Scripts/Files/Covid","~/Files/Scripts/Files/Covid","_Proteins",Peptide=FALSE,CFS=FALSE,Batch=FALSE)                                                              
-df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS","~/Files/Scripts/Files/CONSENSUS","_Proteins",Peptide=TRUE,Batch=FALSE)                                                              
+df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS","~/Files/Scripts/Files/CONSENSUS","_Proteins",Peptide=FALSE,Batch=FALSE)                                                              
 #saveRDS(df_raw,"df_raw.RDS")
 
 #filter Peptides
@@ -5117,15 +5114,17 @@ df.s <- function(data_path,n,rep_,bio_,vehicle_name,treated_name,Batch=FALSE,PSM
 df.samples<-df.s(f,dplyr::bind_rows(df_raw),3,2,"DMSO","TREATED",Batch=TRUE,PSM=TRUE)
 #Peptides
 df_raw<-df_raw %>% group_split(sample_name)
-df_clean <- furrr::future_map(df_raw1,function(x) clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=TRUE,solvent="DMSO",CFS=FALSE))#assgns temperature and replicate values
+df_clean <- furrr::future_map(df_raw,function(x) clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=FALSE,solvent="DMSO",CFS=TRUE))#assgns temperature and replicate values
 
 #Covid data
-df_clean<-purrr::map(seq_along(df_clean),function(x) rbind(df_clean[[1]],x))
+#df_clean<-purrr::map(seq_along(df_clean),function(x) rbind(df_clean[[1]],x))
 
 #df_clean<-dplyr::bind_rows(df_clean) %>% dplyr::group_split(sample_name)
 
 #normalize data
-df_norm <- furrr::future_map(df_clean,function(x) normalize_cetsa(x, df.temps$temperature,Peptide=TRUE,filters=FALSE)) #normalizes according to Franken et. al. without R-squared filter
+df_norm <- furrr::future_map(df_clean,function(x) normalize_cetsa(x, df.temps$temperature,Peptide=FALSE,filters=FALSE)) #normalizes according to Franken et. al. without R-squared filter
+
+
 # rm(df_raw,df_clean)
 
 Int_plot<-function(df_norm){
