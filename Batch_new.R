@@ -794,7 +794,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE) {
     ## calculate the fitted values
     d<-length(df.fit$fitted_values[[1]])
     #unnest fitted values from list and name value column
-    check<-df.fit %>% dplyr::mutate(fitted_values=fitted_values[[1]])
+    check<-df.fit %>% dplyr::mutate(fitted_values=fitted_values[[1]]$fitted_values)
     
     check<-check %>% unique(.) 
     check$sample<-as.factor(check$sample)
