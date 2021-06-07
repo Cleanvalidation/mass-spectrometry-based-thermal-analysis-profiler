@@ -665,9 +665,9 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE) {
     d5<-length(df.fit5$fitted_values5[[1]]$fitted_values)
     d10<-length(df.fit10$fitted_values10[[1]]$fitted_values)
     #unnest fitted values from list and name value column and keep fitted values and temps
-    check3<-df.fit3 %>% unnest(c(fitted_values3,temperature))%>% unique(.) %>% dplyr::select(-sample)
-    check5<-df.fit5 %>% unnest(c(fitted_values5,temperature))%>% unique(.)%>% dplyr::select(-sample)
-    check10<-df.fit10 %>% unnest(c(fitted_values10,temperature))%>% unique(.)%>% dplyr::select(-sample)
+    check3<-df.fit3 %>% dplyr::mutate(fitted_values3=fitted_values3[[1]])%>% unique(.)%>% dplyr::select(-sample)
+    check5<-df.fit5 %>% dplyr::mutate(fitted_values5=fitted_values5[[1]])%>% unique(.)%>% dplyr::select(-sample)
+    check10<-df.fit10 %>% dplyr::mutate(fitted_values10=fitted_values10[[1]])%>% unique(.)%>% dplyr::select(-sample)
     
     df1<-df1 %>% dplyr::filter(temperature<68)
     test3<-df1 %>% dplyr::group_by(temperature) %>% dplyr::right_join(check3,'temperature')
