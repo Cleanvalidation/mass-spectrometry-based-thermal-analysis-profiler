@@ -2022,7 +2022,7 @@ CP<-function(df_0,d,PSM=FALSE){#df_0 is the result data frame and d is the orgin
   }
 }
 #Trilinear functions
-tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
+tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE,show_results=FALSE){
   i<-1
   #convert to df for numeric variables C and I 
   DF<-dplyr::bind_rows(DF)
@@ -2036,6 +2036,10 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
   df1$I<-as.numeric(as.vector(df1$I))
   df$I<-as.numeric(as.vector(df$I))
   DF$I<-as.numeric(as.vector(DF$I))
+  
+  df1$uniqueID<-as.character(df1$uniqueID)
+  df$uniqueID<-as.character(df$uniqueID)
+  DF$uniqueID<-as.character(DF$uniqueID)
   #convert back to list
   df1<- df1 %>% dplyr::group_split(uniqueID)
   df<-df %>% dplyr::group_split(uniqueID)
@@ -2103,7 +2107,10 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE){
     
     
     mean3<-purrr::map(mean3,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values[which(abs(x$M1[[1]]$fitted.values-0.5)==min(abs(x$M1[[1]]$fitted.values-0.5)))-1:which(abs(x$M1[[1]]$fitted.values-0.5)==min(abs(x$M1[[1]]$fitted.values-0.5)))+1])))
-    
+    if(isTRUE(show_results)){
+      results<-dplyr::bind_rows(mean1,mean1_1,mean3) %>% dplyr::group_split(sample_name)
+      return(results)
+    }
     if (isTRUE(Filters)){
       #Apply lax Rsq and negative slope filter to remove flat melt curves
       mean1<-suppressWarnings(mean1 %>% purrr::keep(function(x) all(unlist(x$Rsq)>0.5)))
@@ -2536,7 +2543,7 @@ tlf<-function(tlresults,DFN,APfilt=TRUE,PF=TRUE){
   Rssv<-Rssv %>% purrr::keep(function(x) isTRUE(x$uniqueID %in% CID)) 
   Rsst<-Rsst %>% purrr::keep(function(x) isTRUE(x$uniqueID %in% CID))
   Nsum<-Nsum %>% purrr::keep(function(x) isTRUE(x$uniqueID %in% CID))                           
-  K1<-data.frame(dplyr::bind_rows(purrr::map2(Rsst,Rssv,function(x,y) data.frame(RSSd = x$RSS-y$RSS, Tma = x$Tm - y$Tm)))) 
+  K1<-data.frame(dplyr::bind_rows(purrr::map2(Rsst,Rssv,function(x,y) data.frame(RSSd = x$RSS-y$RSS, Tma = x$Tm[1]$Tm - y$Tm[1]$Tm)))) 
   K2<-data.frame(uniqueID = dplyr::bind_rows(Rssv)$uniqueID)
   Dsum<-data.frame(K1,K2)
   
@@ -3245,7 +3252,7 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE,filters=TRUE)
     #check significance and refit data with more k 
     m<-purrr::map(m,function(x)x %>% dplyr::mutate(k_ = .$M1[[1]]$rank,
                                                    sum = list(summary(.$M1[[1]])),
-                                                   Tm=ifelse(any(class(dplyr::first(.$M1))=="gam"),try(with(x, stats::approx(x$I,x$C,xout=max(x$I, na.rm=TRUE)-0.5))$y),NA),
+                                                   Tm=with(x, stats::approx(x$I,x$C, xout=min(x$I,na.rm=TRUE)+(0.5*(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))))$y),
                                                    rss=deviance(.$M1[[1]]),
                                                    CV_pct = ifelse(!is.null(.$CV_pct),.$CV_pct,NA),
                                                    AUC = pracma::trapz(.$M1[[1]]$fit[(which(abs(.$M1[[1]]$fit-0.5)==min(abs(.$M1[[1]]$fit-0.5)))-1):(which(abs(.$M1[[1]]$fit-0.5)==min(abs(.$M1[[1]]$fit-0.5)))+1)]),
@@ -3257,7 +3264,7 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE,filters=TRUE)
     #check significance and refit data with more k 
     m1<-purrr::map(m1,function(x)x %>% dplyr::mutate(k_ = .$M1[[1]]$rank,
                                                      sum = list(summary(.$M1[[1]])),
-                                                     Tm=ifelse(any(class(dplyr::first(.$M1))=="gam"),try(with(x, stats::approx(x$I,x$C,xout=max(x$I, na.rm=TRUE)-0.5))$y),NA),
+                                                     Tm=with(x, stats::approx(x$I,x$C, xout=min(x$I,na.rm=TRUE)+(0.5*(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))))$y),
                                                      rss=deviance(.$M1[[1]]),
                                                      CV_pct = ifelse(!is.null(.$CV_pct),.$CV_pct,NA),
                                                      AUC = pracma::trapz(.$M1[[1]]$fit[(which(abs(.$M1[[1]]$fit-0.5)==min(abs(.$M1[[1]]$fit-0.5)))-1):(which(abs(.$M1[[1]]$fit-0.5)==min(abs(.$M1[[1]]$fit-0.5)))+1)]),
@@ -3272,7 +3279,7 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE,filters=TRUE)
     #check significance and refit data with more k 
     mn<-purrr::map(mn,function(x)x %>% dplyr::mutate(k_ = .$M1[[1]]$rank,
                                                      sum = list(summary(.$M1[[1]])),
-                                                     Tm=ifelse(any(class(dplyr::first(.$M1))=="gam"),try(with(x, stats::approx(x$I,x$C,xout=max(x$I, na.rm=TRUE)-0.5))$y),NA),
+                                                     Tm=with(x, stats::approx(x$I,x$C, xout=min(x$I,na.rm=TRUE)+(0.5*(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))))$y),
                                                      rss=deviance(.$M1[[1]]),
                                                      CV_pct=ifelse(!is.null(.$CV_pct),.$CV_pct,NA),
                                                      AUC = pracma::trapz(.$M1[[1]]$fit[(which(abs(.$M1[[1]]$fit-0.5)==min(abs(.$M1[[1]]$fit-0.5)))-1):(which(abs(.$M1[[1]]$fit-0.5)==min(abs(.$M1[[1]]$fit-0.5)))+1)]),
@@ -3402,8 +3409,8 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE,filters=TRUE)
       mean1<-purrr::map2(mean1,rss1,function(x,y)cbind(x,y))
       #mean1_1<-purrr::map2(mean1_1,rss1,function(x,y)cbind(x,y))
       #params for null and alternative models
-      f0<-lapply(mean3,function(x) data.frame(np=length(x$M1[[1]]$fitted.values)))
-      f1<-purrr::map2(mean1,mean1_1,function(x,y) data.frame(nA=sum(nrow(x),nrow(y))))
+      f0<-lapply(mean3,function(x) data.frame(np=length(x$M1[[1]]$fitted.values)))#number of measurements
+      f1<-purrr::map2(mean1,mean1_1,function(x,y) data.frame(nA=sum(nrow(x),nrow(y))))#number of measurements alternative
       #bind data frames
       mean3<-purrr::map2(mean3,f0,function(x,y) cbind(x,y))
       mean1<-purrr::map2(mean1,f1,function(x,y) cbind(x,y))
@@ -3434,8 +3441,9 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE,filters=TRUE)
                                                               pAdj = p.adjust(pValue,"BH")))
       Fvals<-purrr::map2(Fvals,mean1,function(x,y) x %>% dplyr::mutate(uniqueID=y$uniqueID[1]))
       
+      mean1<-purrr::map(mean1,function(x) data.frame(x)%>% dplyr::select(-id,-temp_ref,-C,-I,-M1,-sum) )
       
-      mean1<-purrr::map(mean1,function(x) x %>% distinct(.))
+      mean1<-purrr::map(mean1,function(x) x %>% distinct(.) )
       
       #convert results to list
       testResults<-purrr::map2(mean1,Fvals,function(x,y)x%>% dplyr::right_join(y,by=c("uniqueID")))
@@ -4667,7 +4675,8 @@ TPPbenchmark<-function(f){
                                            n_intersections=5,
                                            stripes='white',
                                            sort_intersections_by="cardinality",
-                                           
+                                           stat='count',
+                                           position=position_fill(vjust = .5)
                                            # show_hide_scale,
                                            # rating_scale
                                            # 
@@ -4728,41 +4737,52 @@ TPPbenchmark<-function(f){
   
 }
 #CV<-his_sp(res_sp[[3]],df.temps,MD=FALSE)
-UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FALSE){
+UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FALSE,filter=FALSE){
   
-  if(any(names(f)=="rank_l")){
-    f<-dplyr::bind_rows(f) %>% dplyr::select(-rank,-rank_l,-C,-I,-temp_ref,-CV_pct,-missing_pct) %>%  dplyr::group_split(uniqueID,dataset,sample_name,sample)
-    f<-purrr::map(f,function(x) x %>% group_by(sample,dataset) %>% dplyr::summarise(uniqueID=uniqueID,dataset=dataset,
+  if(isTRUE(Peptide) & any(names(f)=="rank_l")){
+    f<-dplyr::bind_rows(f) %>% dplyr::mutate(sample_name=as.factor(sample_name),dataset=as.factor(dataset)) %>%
+      dplyr::select(-rank,-rank_l,-C,-I,-temp_ref,-CV_pct,-missing_pct) %>%
+      dplyr::group_split(uniqueID,dataset,sample_name,sample)
+    
+    f<-purrr::map(f,function(x) x %>% group_by(sample,dataset) %>% dplyr::summarise(uniqueID=uniqueID,
+                                                                                    dataset=dataset,
                                                                                     sample_name=sample_name,
                                                                                     M1=M1,
                                                                                     sample=sample,
-                                                                                    Coverage=Coverage,
-                                                                                    MW_kDa=MW_kDa,
                                                                                     Tm=mean(Tm,na.rm=TRUE),#for peptide groups, caculate averages for parameters
                                                                                     rss=mean(rss,na.rm=TRUE),
                                                                                     rsq=mean(rsq,na.rm=TRUE),
-                                                                                    AUC=mean(AUC,na.rm=TRUE)) 
-                  %>% ungroup(.) %>% distinct(.))
-  }else if(any(names(f) == "C")){
-    f<-dplyr::bind_rows(f) %>% dplyr::select(-rank,-C,-I,-temp_ref,-CV_pct,-missing_pct) %>%  dplyr::group_split(uniqueID,dataset,sample_name,sample)
-    f<-purrr::map(f,function(x) x %>% group_by(sample,dataset) %>% dplyr::summarise(uniqueID=uniqueID,dataset=dataset,
-                                                                                    sample_name=sample_name,
-                                                                                    M1=M1,
-                                                                                    sample=sample,
-                                                                                    Coverage=Coverage,
-                                                                                    MW_kDa=MW_kDa,
-                                                                                    Tm=mean(Tm,na.rm=TRUE),#for peptide groups, caculate averages for parameters
-                                                                                    rss=mean(rss,na.rm=TRUE),
-                                                                                    rsq=mean(rsq,na.rm=TRUE),
-                                                                                    AUC=mean(AUC,na.rm=TRUE)) 
-                  %>% ungroup(.) %>% distinct(.)) 
-  }else{#if this is a trilinear result
+                                                                                    AUC=mean(AUC,na.rm=TRUE)) %>% 
+                    ungroup(.) %>% distinct(.))
+  }else if(!isTRUE(Peptide)){
+    f<-dplyr::bind_rows(f)%>% dplyr::mutate(sample_name=sample_name,dataset=as.factor(dataset)) %>% 
+      dplyr::select(-rank,-C,-I,-temp_ref,-CV_pct,-missing_pct) %>%
+      dplyr::group_split(uniqueID,dataset,sample_name,sample)
+    
+    f<-purrr::map(f,function(x) x %>%
+                    group_by(sample,dataset) %>%
+                    dplyr::summarise(uniqueID=uniqueID,
+                                     dataset=dataset,
+                                     sample_name=sample_name,
+                                     M1=M1,
+                                     sample=sample,
+                                     Coverage=Coverage,
+                                     MW_kDa=MW_kDa,
+                                     Tm=mean(Tm,na.rm=TRUE),#for peptide groups, caculate averages for parameters
+                                     rss=mean(rss,na.rm=TRUE),
+                                     rsq=mean(rsq,na.rm=TRUE),
+                                     AUC=mean(AUC,na.rm=TRUE)) %>%
+                    ungroup(.) %>% distinct(.)) 
+  }else if (isTRUE(Trilinear)){#if this is a trilinear result
     #f<-f %>% dplyr::group_split(uniqueID,dataset)
     # f<-lapply(f,function(x) dplyr::bind_rows(x))
     # f<-lapply(f,function(x) x %>% dplyr::mutate(sample_name=x$data[[1]]$sample_name[1]))
     
+    f<-dplyr::bind_rows(f) %>% dplyr::mutate(sample_name=sample_name,dataset=as.factor(dataset)) %>%
+      dplyr::select(-rsq,-CI,-data) %>%
+      dplyr::group_split(uniqueID,dataset,sample_name)
     
-    f<-dplyr::bind_rows(f) %>% dplyr::mutate(sample_name=as.factor(sample_name)) %>% dplyr::select(-Rsq,-CI,-data) %>%  dplyr::group_split(uniqueID,dataset,sample_name)
+    
     f<-purrr::map(f,function(x) x %>% dplyr::summarise(uniqueID=uniqueID,
                                                        dataset=dataset,
                                                        M1=M1,
@@ -4775,50 +4795,64 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
                                                        Fvals=Fvals,
                                                        rssDiff=rssDiff,
                                                        pV=pV,
-                                                       pAdj=pAdj) 
-                  %>% ungroup(.) %>% distinct(.))
+                                                       pAdj=pAdj) %>% 
+                    ungroup(.) %>% distinct(.))
   }
   
   
   if(isTRUE(Trilinear)){
-    f<-f %>% purrr::keep(function(x) any(class(x$M1[[1]])=="lm"))
-    f<-purrr::map(f,function(x) x[1,])
     f<-dplyr::bind_rows(f) %>% dplyr::group_split(uniqueID,sample_name)
-    f<-purrr::map(f,function(x) x %>% dplyr::mutate(stabilized=ifelse(x$Tm[x$dataset=="treated"][1]>x$Tm[x$dataset=="vehicle"][1],1,0),
+    f<-f %>% purrr::keep(function(x) any(class(x$M1[[1]])=="lm"))
+    
+    f<-purrr::map(f,function(x) x %>% dplyr::mutate(stabilized=as.factor(ifelse(x$Tm[x$dataset=="treated"][1]>x$Tm[x$dataset=="vehicle"][1],"Stabilized","Destabilized")),
                                                     dTm=x$Tm[x$dataset=="treated"][1]-x$Tm[x$dataset=="vehicle"][1]))
     
     
+    f<-dplyr::bind_rows(f) %>% dplyr::mutate(stabilized=as.factor(stabilized))
+    f$sample_name<-str_replace(f$sample_name,"S","\u03A6")
+    f<-purrr::map(f,function(x) x[1,])
+    
+    f<-f %>% dplyr::mutate(model_converged=as.factor(ifelse(class(M1[[1]])=="lm",1,0)),
+                           rsq_greater_than_0.8=as.factor(ifelse(rsq>0.8,1,0)))
+    
+    df_1<-dplyr::bind_rows(f)%>% dplyr::mutate(sample_name=as.character(sample_name)) %>% dplyr::group_split(uniqueID,sample_name)
+    df_<-dplyr::bind_rows(df_1) %>% dplyr::select(uniqueID,sample_name,model_converged,stabilized,rsq_greater_than_0.8) %>% 
+      pivot_wider(names_from=sample_name,values_from=c(model_converged)) %>% distinct(.)
+    
+  }else if(isTRUE(Splines)){
+    f<-dplyr::bind_rows(f) %>% dplyr::select(-sample) %>% 
+      distinct(.) %>% dplyr::group_split(uniqueID,sample_name)
+    f<-f %>% purrr::keep(function(x) any(class(x$M1[[1]])=="gam"))
+    
+    
+    f<-purrr::map(f,function(x) x %>% dplyr::mutate(stabilized=as.factor(ifelse(x$Tm[x$dataset=="treated"][1]>x$Tm[x$dataset=="vehicle"][1],"Stabilized","Destabilized")),
+                                                    dTm=x$Tm[x$dataset=="treated"][1]-x$Tm[x$dataset=="vehicle"][1]))
+    
+    f<-purrr::map(f,function(x) x[1,])
+    
     f<-dplyr::bind_rows(f) 
     f$sample_name<-str_replace(f$sample_name,"S","\u03A6")
-    f<-f %>% dplyr::mutate(model_converged=ifelse(class(M1[[1]])=="lm",1,0),
-                           rsq_greater_than_0.8=ifelse(rsq>0.8,1,0))
+    f<-f %>% dplyr::mutate(model_converged=as.factor(ifelse(any(class(M1[[1]])=="gam"),1,0)),
+                           rsq_greater_than_0.8=as.factor(ifelse(rsq>0.8,1,0)))
     
-    df_1<-dplyr::bind_rows(f) %>% dplyr::group_split(uniqueID,sample_name)
-    df_<-dplyr::bind_rows(df_1) %>% dplyr::select(uniqueID,dataset,sample_name,model_converged,stabilized,rsq_greater_than_0.8) %>% 
-      pivot_wider(names_from=sample_name,values_from=c(model_converged))
-    df_$stabilized<-ifelse(df_$stabilized==1,"Stabilized",ifelse(df_$stabilized==0,"Destabilized",NA))
-    df_$stabilized<-as.factor(df_$stabilized)
-  }else if(isTRUE(Splines)){
-    f<-f %>% purrr::keep(function(x) any(class(x$M1[[1]])=="gam"))
-    f<-purrr::map(f,function(x) x[1,])
-    f<-dplyr::bind_rows(f) 
-    f<-f %>% dplyr::mutate(model_converged=ifelse(any(class(M1[[1]])=="gam"),1,0),
-                           rsq_greater_than_0.8=ifelse(rsq>0.8,1,0))
+    
     df_TPP<-dplyr::bind_rows(f) %>% 
-      select(uniqueID,dataset,sample,sample_name,Tm,rss,AUC,rsq,model_converged,rsq_greater_than_0.8) %>% 
-      distinct(.)#remove redundant peptide group data
+      select(uniqueID,sample_name,Tm,rss,AUC,rsq,rsq_greater_than_0.8,model_converged,stabilized) %>% 
+      distinct(.)
     
-    df_1<-df_TPP %>% dplyr::select(uniqueID,dataset,sample,sample_name,Tm,model_converged,rsq_greater_than_0.8)
+    df_1<-df_TPP %>% dplyr::select(uniqueID,sample_name,Tm,model_converged,rsq_greater_than_0.8,stabilized) %>% distinct(.)
     
-    df_1<-dplyr::bind_rows(df_1) %>% dplyr::group_split(uniqueID,sample_name)
-    df_1<-purrr::map(df_1,function(x) x %>% dplyr::mutate(stabilized=ifelse(x$Tm[x$dataset=="treated"][1]>x$Tm[x$dataset=="vehicle"][1],1,0),
-                                                          dTm=x$Tm[x$dataset=="treated"][1]-x$Tm[x$dataset=="vehicle"][1]))
-    df_<-dplyr::bind_rows(df_1) %>% dplyr::select(uniqueID,dataset,sample,sample_name,model_converged,stabilized,dTm) %>% 
-      pivot_wider(names_from=sample_name,values_from=c(model_converged))
-    df_$stabilized<-ifelse(df_$stabilized==1,"Stabilized",ifelse(df_$stabilized==0,"Destabilized",NA))
-    df_$stabilized<-as.factor(df_$stabilized)
+    df_1<-dplyr::bind_rows(df_1)%>% dplyr::mutate(sample_name=as.character(sample_name)) %>% dplyr::group_split(uniqueID,sample_name) 
+    
+    df_<-dplyr::bind_rows(df_1) %>% dplyr::select(uniqueID,sample_name,model_converged,stabilized) %>% 
+      pivot_wider(names_from=sample_name,values_from=c(model_converged)) %>% distinct(.)
+    
+    
   }
   
+  df_<-df_ %>% dplyr::mutate(uniqueID=as.character(uniqueID),stabilized=as.character(stabilized))
+  df_ <- df_ %>%
+    mutate_if(sapply(df_, is.factor), as.numeric)
   
   #keep the first row out of redundant peptide group data
   
@@ -4839,8 +4873,8 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
                                    values=c("Stabilized" ='#fee6ce', "Destabilized" ='#fdae6b', "NA"  = '#e6550d'))
   
   check<-list()
-  check<-upset(df_,colnames(df_)[!colnames(df_) %in% c("sample_name","uniqueID","dataset","sample","Tm","dTm","rsq_greater_than_0.8")],
-               min_degree=1,
+  check<-upset(df_,colnames(df_)[!colnames(df_) %in% c("sample_name","uniqueID","dataset","sample","Tm","dTm","rsq_greater_than_0.8","stabilized")],
+               min_degree=2,
                set_sizes=FALSE,
                guides='collect',
                n_intersections=10,
@@ -4863,7 +4897,7 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
                
                annotations =list(
                  'Stabilized Percentage'=list(
-                   aes=aes(x=intersection, fill=df_$stabilized),
+                   aes=aes(x=intersection, fill=as.factor(df_$stabilized)),
                    geom=list(
                      geom_bar(stat='count', position='fill', na.rm=TRUE),
                      geom_text(
@@ -4887,8 +4921,10 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
                  #     geom_violin(alpha=0.5, na.rm=TRUE)
                  # )
                ),
-               themes=upset_default_themes(text=element_text(size=20,colour="black"))
-  )+ggtitle(paste0("Number of fitted ", ifelse(isTRUE(Splines),"Spline","Trilinear") ," curves (",ifelse(isTRUE(Peptide),"Peptide","Protein"),"-level unfiltered): "))
+               width_ratio=0.1,
+               height_ratio=0.8,
+               themes=upset_default_themes(text=element_text(size=15,colour="black"))
+  )+ggtitle(paste0("Number of fitted ", ifelse(isTRUE(Splines),"Spline","Trilinear") ," curves (",ifelse(isTRUE(Peptide),"Peptide","Protein"),"-level ", ifelse(isTRUE(filter),"filtered","unfiltered"),"): "))
   
   
   print(check)
@@ -5035,7 +5071,7 @@ filter_Peptides<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm,
   
 }
 df_raw1<-df_raw %>% dplyr::group_split(sample_name)
-df_raw1<-furrr::future_map(df_raw1,function(x) try(filter_Peptides(x,20,0.01,2.3,30,2,1,6,5,filter_rank=FALSE,shared_proteins=TRUE,CFS=TRUE)))
+df_raw1<-furrr::future_map(df_raw1,function(x) try(filter_Peptides(x,20,0.2,1,30,4,1,7,15,filter_rank=FALSE,shared_proteins=TRUE,CFS=TRUE)))
 df_raw1<-dplyr::bind_rows(df_raw1)%>% dplyr::group_split(sample_name)
 df_raw1<-df_raw1 %>% purrr::keep(function(x) !nrow(x)==0)
 
@@ -5121,7 +5157,7 @@ df.s <- function(data_path,n,rep_,bio_,vehicle_name,treated_name,Batch=FALSE,PSM
 df.samples<-df.s(f,dplyr::bind_rows(df_raw),3,2,"DMSO","TREATED",Batch=TRUE,PSM=TRUE)
 #Peptides
 df_raw<-df_raw %>% group_split(sample_name)
-df_clean <- furrr::future_map(df_raw1,function(x) clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=TRUE,solvent="DMSO",CFS=TRUE))#assgns temperature and replicate values
+df_clean <- furrr::future_map(df_raw,function(x) clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=FALSE,solvent="DMSO",CFS=TRUE))#assgns temperature and replicate values
 
 #Covid data
 #df_clean<-purrr::map(seq_along(df_clean),function(x) rbind(df_clean[[1]],x))
@@ -5129,7 +5165,7 @@ df_clean <- furrr::future_map(df_raw1,function(x) clean_cetsa(x, temperatures = 
 #df_clean<-dplyr::bind_rows(df_clean) %>% dplyr::group_split(sample_name)
 
 #normalize data
-df_norm <- furrr::future_map(df_clean,function(x) normalize_cetsa(x, df.temps$temperature,Peptide=TRUE,filters=FALSE)) #normalizes according to Franken et. al. without R-squared filter
+df_norm <- furrr::future_map(df_clean,function(x) normalize_cetsa(x, df.temps$temperature,Peptide=FALSE,filters=FALSE)) #normalizes according to Franken et. al. without R-squared filter
 
 
 # rm(df_raw,df_clean)
@@ -5180,8 +5216,10 @@ PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,Peptide=FALSE,show_resul
     if(any(names(df_norm)=="I_Interference")){
       df_norm<-df_norm %>% dplyr::select(-I_Interference,-IonInjTime,-S_N,-Spectrum_File)
     }
-    df_norm<-df_norm %>% dplyr::mutate(I=I3)%>% dplyr::select(-I3,-I5,-I10)
     
+  }
+  if(isTRUE(Peptide)){
+    df_norm<-df_norm %>% dplyr::mutate(I=I3)%>% dplyr::select(-I3,-I5,-I10)
   }
   ##SCRIPT STARTS HERE
   DF<-df_norm %>% dplyr::group_split(uniqueID) #split null dataset only by protein ID
@@ -5229,10 +5267,9 @@ PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,Peptide=FALSE,show_resul
   DFN<-suppressWarnings(purrr::map2(results_n,DF,function(x,y) CP(x,y,PSM=Peptide)))
   #remove results to save space 
   rm(results,results_t,results_n,d_,d_1,DF)#10
-  df_<-lapply(df_,function(x)x[[1]])
-  df_1<-lapply(df_1,function(x)x[[1]])
-  DFN<-lapply(DFN,function(x)x[[1]])
-  
+  df_<-dplyr::bind_rows(df_) %>% dplyr::group_split(uniqueID)
+  df_1<-dplyr::bind_rows(df_1)%>% dplyr::group_split(uniqueID)
+  DFN<-dplyr::bind_rows(DFN)%>% dplyr::group_split(uniqueID)
   
   df_<-lapply(df_,function(x)x[order(x$C),])
   df_1<-lapply(df_1,function(x)x[order(x$C),])
@@ -5245,8 +5282,13 @@ PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,Peptide=FALSE,show_resul
   #prealloate variables
   tlresults<-list()
   tlresults_PI<-list()
+  #split data 
+  df_<-dplyr::bind_rows(df_)
+  df_1<-dplyr::bind_rows(df_1)
+  DFN<-dplyr::bind_rows(DFN)
   #confidence intervals
-  tlresults<-tlstat(DFN,df_,df_1,norm=TRUE,Filters=filt,Ftest=Ft)
+  
+  tlresults<-tlstat(DFN,df_,df_1,norm=TRUE,Filters=filt,Ftest=Ft,show_results=TRUE)
   if(isTRUE(show_results)){
     
     return(tlresults)
@@ -5260,7 +5302,7 @@ PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,Peptide=FALSE,show_resul
   return(plotTL1)
 }
 
-plot<-purrr::map(df_norm,function(x) try(PlotTrilinear(x,"P36507",df.temps,Ft=TRUE,filt=FALSE,Peptide=FALSE,show_results=FALSE)))
+plot<-purrr::map(df_norm1,function(x) try(PlotTrilinear(x,"P36507",df.temps,Ft=TRUE,filt=FALSE,Peptide=FALSE,show_results=TRUE)))
 check<-ggplot2::ggplot_build(plot[[1]])
 y<-get_legend(check$plot)
 data<-order(unlist(lapply(plot,function(x) x$labels$title)))
@@ -5282,7 +5324,7 @@ P2
 dev.off()
 
 #plot Number of curves
-Check<-UpSet_curves(plot,Trilinear=TRUE,Splines=FALSE,Sigmoidal=FALSE,Peptide=FALSE)
+Check<-UpSet_curves(plot,Trilinear=TRUE,Splines=FALSE,Sigmoidal=FALSE,Peptide=TRUE,filter=TRUE)
 pdf("Number_of_curves_upset_trilinear_peptide.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
 Check
 dev.off()
@@ -5324,7 +5366,7 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=FALSE,fT=FALSE,show_r
     spresults<-list()
     spresults_PI<-list()
     
-    spresults<-spstat(DFN,df_,df_1,Ftest=fT,norm=FALSE,filters=Filters)
+    spresults<-spstat(DFN,df_,df_1,Ftest=fT,norm=FALSE,show_results=TRUE,filters=Filters)
     if(isTRUE(show_results)){
       return(spresults)
     }
@@ -5347,7 +5389,11 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=FALSE,fT=FALSE,show_r
     spresults<-list()
     spresults_PI<-list()
     
-    spresults<-spstat(DFN,df_,df_1,Ftest=fT,norm=FALSE,filters=Filters)
+    spresults<-spstat(DFN,df_,df_1,Ftest=fT,norm=FALSE,show_results=TRUE,filters=Filters)
+    if(isTRUE(show_results)){
+      return(spresults)
+    }
+    
     if(class(spresults)=="list"){
       res_sp<-spf(spresults[[1]],DFN,filters=Filters)
     }else{
@@ -5359,14 +5405,10 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=FALSE,fT=FALSE,show_r
     Pred1<-spCI(i,res_sp[[1]],res_sp[[2]],res_sp[[3]],df.temps,overlay=TRUE,alpha=0.05)
     return(Pred1)
   }
-  if(isTRUE(show_results)){
-    return(spresults)
-  }else{
-    return(Pred1)
-  }
+  
 }
 
-plotS <- furrr::future_map(df_norm,function(x) try(plot_Splines(x,"P36507; Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
+plotS <- furrr::future_map(df_norm1,function(x) try(plot_Splines(x,"P36507; Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
 check<-ggplot2::ggplot_build(plotS[[1]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plotS,function(x) x$labels$title))
@@ -5376,7 +5418,7 @@ P3<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = 
 # check<-dplyr::bind_rows(df_norm) %>% dplyr::group_split(time_point)
 # plotS2 <- purrr::map(check,function(x) try(plot_Splines(x,"P0DTC2",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
 # 
-plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
+plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=TRUE,Peptide=FALSE)))
 check<-ggplot2::ggplot_build(plotS2[[1]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plotS2,function(x) x$labels$title))
@@ -5397,7 +5439,11 @@ P2
 
 dev.off()
 
-
+#plot Number of curves
+Check<-UpSet_curves(plotS2,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,filter=FALSE)
+pdf("Number_of_curves_upset_splines_Protein.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+Check
+dev.off()
 ###################################################                                                                                                                                                                                                                                                                                                                            ##################################################
 #Sigmoidal function with confidence intervals
 ###################################################
