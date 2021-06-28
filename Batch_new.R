@@ -5055,31 +5055,41 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
       dplyr::group_by(uniqueID,dataset,sample) %>% # group individual curve data to calculate individual Tm
       dplyr::mutate(sample_name=as.factor(sample_name),
                     dataset=as.factor(dataset),
-                    Tm=with(x, stats::approx(x$I,x$C, xout=min(x$I,na.rm=TRUE)+(0.5*(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))))$y),
-                    normal_dist_Tm_pvalue=with(shapiro.test(Tm[dataset == "vehicle"])),
-                    normal_dist_Tm_pvalue=with(shapiro.test(Tm[dataset == "treated"])),
-                    variance_equal_vt = var.test(Tm ~ dataset),
-                    p_dTm= ifelse(variance_equal_vt < 0.05,t.test(Tm ~ dataset, data = ., var.equal = FALSE),FALSE)) %>%
+                    Tm=with(x, stats::approx(x$I,x$C, xout=min(x$I,na.rm=TRUE)+(0.5*(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))))$y)) %>% 
       dplyr::select(-rank,-rank_l,-C,-I,-temp_ref,-CV_pct,-missing_pct) %>%
-      dplyr::group_split(uniqueID,dataset,sample_name,sample)
-    
-    f<-purrr::map(f,function(x) x %>% group_by(sample,dataset) %>% dplyr::summarise(uniqueID=uniqueID,
-                                                                                    dataset=dataset,
-                                                                                    sample_name=sample_name,
-                                                                                    M1=M1,
-                                                                                    sample=sample,
-                                                                                    Tm=mean(Tm,na.rm=TRUE),#for peptide groups, caculate averages for parameters
-                                                                                    rss=mean(rss,na.rm=TRUE),
-                                                                                    rsq=mean(rsq,na.rm=TRUE),
-                                                                                    AUC=mean(AUC,na.rm=TRUE),
-                                                                                    # Shapiro-Wilk normality test for Men's weights
-                                                                                    with(shapiro.test(weight[group == "Man"]))) %>% 
-                    ungroup(.) %>% distinct(.))
+      dplyr::group_split(uniqueID)
+    f<- purrr::map(f,function(x) x %>% dplyr::ungroup(.) %>% dplyr::group_by(uniqueID) %>% 
+                     dplyr::mutate(
+                       normal_dist_Tm_pvalue_v=with(shapiro.test(Tm[dataset == "vehicle"])),
+                       normal_dist_Tm_pvalue_t=with(shapiro.test(Tm[dataset == "treated"])),
+                       variance_equal_vt = var.test(Tm ~ dataset)$p.value,
+                       p_dTm= ifelse(variance_equal_vt$p.value < 0.05,t.test(Tm ~ dataset, data = ., var.equal = ifelse(variance_equal_vt<0.05,FALSE,TRUE)),FALSE)$p.value))
+    f<-purrr::map(f,function(x) x %>% dplyr::ungroup(.) %>% group_by(sample,dataset) %>% dplyr::summarise(uniqueID=uniqueID,
+                                                                                                          dataset=dataset,
+                                                                                                          sample_name=sample_name,
+                                                                                                          M1=M1,
+                                                                                                          sample=sample,
+                                                                                                          Tm=mean(Tm,na.rm=TRUE),#for peptide groups, caculate averages for parameters
+                                                                                                          rss=mean(rss,na.rm=TRUE),
+                                                                                                          rsq=mean(rsq,na.rm=TRUE),
+                                                                                                          AUC=mean(AUC,na.rm=TRUE)
+    )) %>% 
+      ungroup(.) %>% distinct(.))
   }else if(!isTRUE(Peptide)){
-    f<-dplyr::bind_rows(f)%>% dplyr::mutate(sample_name=sample_name,dataset=as.factor(dataset)) %>% 
+    
+    f<-dplyr::bind_rows(f) %>%
+      dplyr::group_by(uniqueID,dataset,sample) %>% # group individual curve data to calculate individual Tm
+      dplyr::mutate(sample_name=as.factor(sample_name),
+                    dataset=as.factor(dataset),
+                    Tm=with(x, stats::approx(x$I,x$C, xout=min(x$I,na.rm=TRUE)+(0.5*(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))))$y)) %>% 
       dplyr::select(-rank,-C,-I,-temp_ref,-CV_pct,-missing_pct) %>%
       dplyr::group_split(uniqueID,dataset,sample_name,sample)
-    
+    f<- purrr::map(f,function(x) x %>% dplyr::ungroup(.) %>% dplyr::group_by(uniqueID) %>% 
+                     dplyr::mutate(
+                       normal_dist_Tm_pvalue_v=with(shapiro.test(Tm[dataset == "vehicle"])),
+                       normal_dist_Tm_pvalue_t=with(shapiro.test(Tm[dataset == "treated"])),
+                       variance_equal_vt = var.test(Tm ~ dataset)$p.value,
+                       p_dTm= ifelse(variance_equal_vt$p.value < 0.05,t.test(Tm ~ dataset, data = ., var.equal = ifelse(variance_equal_vt<0.05,FALSE,TRUE)),FALSE)$p.value))
     f<-purrr::map(f,function(x) x %>%
                     group_by(sample,dataset) %>%
                     dplyr::summarise(uniqueID=uniqueID,
@@ -5294,7 +5304,7 @@ f<- list.files(pattern='*Proteins.xlsx')
 # f<-"C:/Users/figue/OneDrive - Northeastern University/CETSA R/CP_Exploris_20200811_DMSOvsMEKi_carrier_FAIMS_PhiSDM_PEPTIDES.xlsx"
 #df_raw <- read_cetsa("~/Files/Scripts/Files/PSM_validator","~/Files/Scripts/Files/PSM_validator","_Proteins",Peptide=FALSE,Batch=FALSE,CFS=TRUE,solvent="DMSO")     
 #df_raw <- read_cetsa("~/Files/Scripts/Files/Covid","~/Files/Scripts/Files/Covid","_Proteins",Peptide=FALSE,CFS=FALSE,Batch=FALSE)                                                              
-df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS","~/Files/Scripts/Files/CONSENSUS","_Proteins",Peptide=TRUE,Batch=FALSE)                                                              
+df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS","~/Files/Scripts/Files/CONSENSUS","_Proteins",Peptide=FALSE,Batch=FALSE)                                                              
 #saveRDS(df_raw,"df_raw.RDS")
 
 #filter Peptides
@@ -5479,7 +5489,7 @@ df.s <- function(data_path,n,rep_,bio_,vehicle_name,treated_name,Batch=FALSE,PSM
 df.samples<-df.s(f,dplyr::bind_rows(df_raw),3,2,"DMSO","TREATED",Batch=TRUE,PSM=TRUE)
 #Peptides
 df_raw<-df_raw %>% group_split(sample_name)
-df_clean <- furrr::future_map(df_raw1,function(x) clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=TRUE,solvent="DMSO",CFS=TRUE,CARRIER=TRUE))#assgns temperature and replicate values
+df_clean <- furrr::future_map(df_raw,function(x) clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=FALSE,solvent="DMSO",CFS=TRUE,CARRIER=TRUE))#assgns temperature and replicate values
 
 #Covid data
 #df_clean<-purrr::map(seq_along(df_clean),function(x) rbind(df_clean[[1]],x))
@@ -5487,18 +5497,19 @@ df_clean <- furrr::future_map(df_raw1,function(x) clean_cetsa(x, temperatures = 
 #df_clean<-dplyr::bind_rows(df_clean) %>% dplyr::group_split(sample_name)
 
 #normalize data
-df_norm <- furrr::future_map(df_clean,function(x) normalize_cetsa(x, df.temps$temperature,Peptide=TRUE,filters=FALSE)) #normalizes according to Franken et. al. without R-squared filter
+df_norm <- furrr::future_map(df_clean,function(x) normalize_cetsa(x, df.temps$temperature,Peptide=FALSE,filters=FALSE)) #normalizes according to Franken et. al. without R-squared filter
 
 
 # rm(df_raw,df_clean)
 
 Int_plot<-function(df_norm,Peptide=FALSE){
+  df_norm$sample_name<-f$sample_name<-str_replace(df_norm$sample_name,"S","\u03A6")
   if(!isTRUE(Peptide)){
-    list<-ggplot2::ggplot(df,mapping=aes(x=C,y=I))+
+    list<-ggplot2::ggplot(df_norm,mapping=aes(x=C,y=I))+
       geom_jitter(position=position_jitter(2),alpha=0.5)+
       geom_boxplot(mapping=aes(color=as.factor(C)))+xlab('Temperature (\u00B0C)')+
       ylab("Normalized intensity protein")+
-      ggtitle(df$sample_name[1])+
+      ggtitle(df_norm$sample_name[1])+
       ylim(-0.1,10)+
       theme(legend.position="bottom")+ labs(colour = "Temperature (\u00B0C)")
   }else{
@@ -5757,7 +5768,7 @@ P3<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = 
 # check<-dplyr::bind_rows(df_norm) %>% dplyr::group_split(time_point)
 # plotS2 <- purrr::map(check,function(x) try(plot_Splines(x,"P0DTC2",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
 # 
-plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
+plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=TRUE,Peptide=FALSE)))
 check<-ggplot2::ggplot_build(plotS2[[1]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plotS2,function(x) x$labels$title))
