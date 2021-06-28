@@ -32,7 +32,9 @@ library(furrr)
 library(parallel)
 library(janitor)
 library(EnhancedVolcano)
+library(ggpubr)
 requireNamespace("plyr")
+
 
 theme_set(theme_bw())
 
@@ -337,7 +339,10 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
 #' @import dplyr
 #'
 #' @export
-clean_cetsa <- function(df, temperatures = NULL, samples = NULL,Peptide=FALSE,solvent,CFS=TRUE){
+clean_cetsa <- function(df, temperatures = NULL, samples = NULL,Peptide=FALSE,solvent,CFS=TRUE,CARRIER=TRUE){
+  if(isTRUE(CARRIER)){
+    df<-df %>% dplyr::filter(!temp_ref=="131C")
+  }
   if (is.null(temperatures)) {return(warning('No temperature data'))}
   if (is.null(samples)) {return(warning('No sample data'))}
   if(any(names(df)=="I")){
@@ -483,7 +488,10 @@ clean_cetsa <- function(df, temperatures = NULL, samples = NULL,Peptide=FALSE,so
 #' @import tidyr
 #' @import nls2
 #' @export
-normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE) {
+normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER=TRUE) {
+  if(isTRUE(CARRIER)){
+    df<-df %>% dplyr::filter(!temp_ref=="131C")
+  }
   if(isTRUE(Peptide)){
     temperatures <- sort(temperatures)
     if(any(names(df)=="uniqueID")){
@@ -497,32 +505,32 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE) {
     df$temperature<-as.numeric(as.character(df$temperature))
     #select top3 top5 and top10 peptides according to rank
     df_filt3 <- df %>%dplyr::filter(!is.na(value),temperature==37) %>%  
-      dplyr::arrange(desc(value)) %>% 
-      dplyr::group_by(rank) %>% slice(1:10000) %>% dplyr::select(-temperature,-temp_ref,-value) %>% ungroup(.)
+      dplyr::group_by(rank) %>% slice(1:(nrow(df)/4)) %>% dplyr::select(Annotated_Sequence,Accession,Modifications,sample,sample_name,dataset,rank) %>% ungroup(.)
     if(any(names(df_filt3)=="id")){
       df_filt3<-df_filt3 %>% dplyr::select(-id)
     }
     df_filt5 <- df %>%dplyr::filter(!is.na(value),temperature==37) %>%  
       arrange(desc(value)) %>% 
-      group_by(rank) %>% slice(1:20000)%>% dplyr::select(-temperature,-temp_ref,-value) %>% ungroup(.)
+      group_by(rank) %>% slice(1:(nrow(df)/3)) %>%
+      dplyr::select(Annotated_Sequence,Accession,Modifications,sample,sample_name,dataset,rank) %>% ungroup(.)
     if(any(names(df_filt5)=="id")){
       df_filt5<-df_filt5 %>% dplyr::select(-id)
     }
     
     df_filt10 <- df %>% dplyr::filter(!is.na(value),temperature==37) %>%  
       arrange(desc(value)) %>% 
-      group_by(rank) %>% slice(1:30000)%>% dplyr::select(-temperature,-temp_ref,-value) %>% ungroup(.)
+      group_by(rank) %>% slice(1:(nrow(df)/2)) %>% dplyr::select(Annotated_Sequence,Accession,Modifications,sample,sample_name,dataset,rank) %>% ungroup(.)
     if(any(names(df_filt10)=="id")){
       df_filt10<-df_filt10 %>% dplyr::select(-id)
     }
     #preserve original dataset
     df1<-df %>%dplyr::filter(temperature<68)
     df<-df %>% group_by(sample_name)
-    
+    name<-intersect(names(df1),names(df_filt3))
     #Only keep curves with the topN values
-    df3<-df1 %>% dplyr::right_join(df_filt3,by=names(df_filt3))
-    df5<-df1 %>% dplyr::right_join(df_filt5,by=names(df_filt5))
-    df10<-df1 %>% dplyr::right_join(df_filt10,by=names(df_filt10))
+    df3<-df1 %>% dplyr::right_join(df_filt3,by=name)
+    df5<-df1 %>% dplyr::right_join(df_filt5,by=name)
+    df10<-df1 %>% dplyr::right_join(df_filt10,by=name)
     #remove missing values 
     df3<-df3[!is.na(df3$value),]
     df5<-df5[!is.na(df5$value),]
@@ -621,15 +629,15 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE) {
     df.jointP10<-dplyr::bind_rows(df.jointP10)
     #calculate median values for TopN
     df.median3 <- df.jointP3 %>%
-      dplyr::group_by(sample,temperature) %>%
+      dplyr::group_by(sample,temperature,dataset) %>%
       dplyr::mutate(value = median(value,na.rm=TRUE)) %>% ungroup(.)
     
     df.median5 <- df.jointP5 %>%
-      dplyr::group_by(sample,temperature) %>%
+      dplyr::group_by(sample,temperature,dataset) %>%
       dplyr::mutate(value = median(value,na.rm=TRUE)) %>% ungroup(.)
     
     df.median10 <- df.jointP10 %>%
-      dplyr::group_by(sample,temperature) %>%
+      dplyr::group_by(sample,temperature,dataset) %>%
       dplyr::mutate(value = median(value,na.rm=TRUE)) %>% ungroup(.)
     
     df.median3$temperature<-as.numeric(df.median3$temperature)
@@ -646,73 +654,107 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE) {
     df.median10<-df.median10 %>% dplyr::filter(temperature<68)
     #
     df.fit3 <- df.median3 %>%
-      dplyr::group_by(sample) %>% 
-      dplyr::mutate(fit = try(list(cetsa_fit(d = ., norm = FALSE)))) 
+      dplyr::group_by(sample,dataset) %>% 
+      dplyr::mutate(fit = try(list(try(nls(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl,
+                                           start = c(Pl=0, a = 550, b = 10),
+                                           data = list(x=temperature,y=value),
+                                           na.action = na.exclude,
+                                           algorithm = "port",
+                                           lower = c(0.0,1e-5,1e-5),
+                                           upper = c(1.5,15000,300),
+                                           control = nls.control(maxiter = 50)),
+                                       silent = TRUE)))) 
     
     df.fit3<- df.fit3%>% 
       dplyr::mutate(fitted_values3 = ifelse(!is.logical(fit[[1]]),list(data.frame(fitted_values=predict(fit[[1]]))),NA)) %>% 
-      dplyr::select(sample,fitted_values3,temperature) %>% ungroup(.)
+      dplyr::select(sample,fitted_values3,temperature,dataset) %>% ungroup(.)
     
     df.fit5 <- df.median5 %>%
-      dplyr::group_by(sample) %>% 
-      dplyr::mutate(fit = try(list(cetsa_fit(d = ., norm = FALSE)))) 
+      dplyr::group_by(sample,dataset) %>% 
+      dplyr::mutate(fit = try(list(try(nls(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl,
+                                           start = c(Pl=0, a = 550, b = 10),
+                                           data = list(x=temperature,y=value),
+                                           na.action = na.exclude,
+                                           algorithm = "port",
+                                           lower = c(0.0,1e-5,1e-5),
+                                           upper = c(1.5,15000,300),
+                                           control = nls.control(maxiter = 50)),
+                                       silent = TRUE)))) 
     
     df.fit5<- df.fit5%>% 
       dplyr::mutate(fitted_values5 = ifelse(!is.logical(fit[[1]]),list(data.frame(fitted_values=predict(fit[[1]]))),NA)) %>% 
-      dplyr::select(sample,fitted_values5,temperature) %>% ungroup(.)
+      dplyr::select(sample,fitted_values5,temperature,dataset) %>% ungroup(.)
     
     df.fit10 <- df.median10 %>%
-      dplyr::group_by(sample) %>% 
-      dplyr::mutate(fit = try(list(cetsa_fit(d = ., norm = FALSE)))) 
+      dplyr::group_by(sample,dataset) %>% 
+      dplyr::mutate(fit = try(list(try(nls(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl,
+                                           start = c(Pl=0, a = 550, b = 10),
+                                           data = list(x=temperature,y=value),
+                                           na.action = na.exclude,
+                                           algorithm = "port",
+                                           lower = c(0.0,1e-5,1e-5),
+                                           upper = c(1.5,15000,300),
+                                           control = nls.control(maxiter = 50)),
+                                       silent = TRUE))))  
     
     df.fit10<- df.fit10%>% 
       dplyr::mutate(fitted_values10 = ifelse(!is.logical(fit[[1]]),list(data.frame(fitted_values=predict(fit[[1]]))),NA)) %>% 
-      dplyr::select(sample,fitted_values10,temperature) %>% ungroup(.)
+      dplyr::select(sample,fitted_values10,temperature,dataset) %>% ungroup(.)
     
     ## calculate the fitted values
-    d3<-length(df.fit3$fitted_values3[[1]]$fitted_values)
-    d5<-length(df.fit5$fitted_values5[[1]]$fitted_values)
-    d10<-length(df.fit10$fitted_values10[[1]]$fitted_values)
+    d3<-length(dplyr::bind_rows(df.fit3$fitted_values3))
+    d5<-length(dplyr::bind_rows(df.fit5$fitted_values5))
+    d10<-length(dplyr::bind_rows(df.fit10$fitted_values10))
     #unnest fitted values from list and name value column and keep fitted values and temps
-    check3<-df.fit3 %>% dplyr::mutate(fitted_values3=fitted_values3[[1]]$fitted_values)%>% dplyr::select(-sample)%>% unique(.)
-    check5<-df.fit5 %>% dplyr::mutate(fitted_values5=fitted_values5[[1]]$fitted_values)%>% dplyr::select(-sample)%>% unique(.)
-    check10<-df.fit10 %>% dplyr::mutate(fitted_values10=fitted_values10[[1]]$fitted_values)%>% dplyr::select(-sample)%>% unique(.)
+    
+    #unnest fitted values from list and name value column
+    check3<-data.frame(fitted_values3=unique(df.fit3$fitted_values3[[1]]$fitted_values))%>% dplyr::select(-sample)%>% unique(.)
+    check_3<-df.fit3 %>% dplyr::select(-sample,-fitted_values3) %>% unique
+    check3<-cbind(check_3,check3)
+    
+    check5<-data.frame(fitted_values5=unique(df.fit5$fitted_values5[[1]]$fitted_values))%>% dplyr::select(-sample)%>% unique(.)
+    check_5<-df.fit5 %>% dplyr::select(-sample,-fitted_values5) %>% unique
+    check5<-cbind(check_5,check5)
+    
+    check10<-data.frame(fitted_values10=unique(df.fit10$fitted_values10[[1]]$fitted_values))%>% dplyr::select(-sample)%>% unique(.)
+    check_10<-df.fit10 %>% dplyr::select(-sample,-fitted_values10) %>% unique
+    check10<-cbind(check_10,check10)
     
     df1<-df1 %>% dplyr::filter(temperature<68)
-    test3<-df1 %>% dplyr::group_by(temperature) %>% dplyr::right_join(check3,'temperature')
-    test5<-df1 %>% dplyr::group_by(temperature) %>% dplyr::right_join(check5,'temperature')
-    test10<-df1 %>% dplyr::group_by(temperature) %>% dplyr::right_join(check10,'temperature')
+    test3<-df1 %>% dplyr::group_by(temperature) %>% dplyr::right_join(check3,c('temperature','dataset'))
+    test5<-df1 %>% dplyr::group_by(temperature) %>% dplyr::right_join(check5,c('temperature','dataset'))
+    test10<-df1 %>% dplyr::group_by(temperature) %>% dplyr::right_join(check10,c('temperature','dataset'))
     
     ## calculate ratios between the fitted curves and the median values
     df.out3 <- test3 %>%
       dplyr::mutate(correction3 = ifelse(is.na(fitted_values3 / value),NA,fitted_values3 / value)) %>%
-      dplyr::select('sample','temperature','correction3')
+      dplyr::select('sample','temperature','correction3','dataset')
     
     
     df.out5 <- test5 %>%
       dplyr::mutate(correction5 = ifelse(is.na(fitted_values5 / value),NA,fitted_values5 / value)) %>%
-      dplyr::select('sample','temperature','correction5')
+      dplyr::select('sample','temperature','correction5','dataset')
     
     
     df.out10 <- test10 %>%
       dplyr::mutate(correction10 = ifelse(is.na(fitted_values10 / value),NA,fitted_values10 / value)) %>%
-      dplyr::select('sample','temperature','correction10')
+      dplyr::select('sample','temperature','correction10','dataset')
     
     ## join correction factor to data
     df1$temperature<-as.factor(df1$temperature)
     df1<-df1 %>% dplyr::group_split(temperature)
     #group split data by temperature
     df.out3$temperature<-as.factor(df.out3$temperature)
-    df.out3<-df.out3 %>% dplyr::group_by(temperature) %>% dplyr::group_split(.)
+    df.out3<-df.out3 %>% dplyr::group_by(temperature,dataset) %>% dplyr::group_split(.)
     
     df.out5$temperature<-as.factor(df.out5$temperature)
-    df.out5<-df.out5 %>% dplyr::group_by(temperature) %>% dplyr::group_split(.)
+    df.out5<-df.out5 %>% dplyr::group_by(temperature,dataset) %>% dplyr::group_split(.)
     
     df.out10$temperature<-as.factor(df.out10$temperature)
-    df.out10<-df.out10 %>% dplyr::group_by(temperature) %>% dplyr::group_split(.)
+    df.out10<-df.out10 %>% dplyr::group_by(temperature,dataset) %>% dplyr::group_split(.)
     
     df1<-dplyr::bind_rows(df1)
-    df1<-df1 %>% dplyr::group_split(temperature)
+    df1<-df1 %>% dplyr::group_split(temperature,dataset)
     #apply correction factor by temperature to original data
     df3<-purrr::map2(df1,df.out3,function(x,y)x %>% dplyr::mutate(correction3=y$correction3))
     df5<-purrr::map2(df3,df.out5,function(x,y)x %>% dplyr::mutate(correction5=y$correction5))
@@ -778,32 +820,42 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE) {
     df.mynormset <- df %>% base::subset(Accession %in% norm.accessions)
     
     df.median <- df %>%
-      dplyr::group_by(sample,temperature) %>%
+      dplyr::group_by(sample,temperature,dataset) %>%
       dplyr::mutate(value = median(value,na.rm=TRUE))
     
     
-    ## fit curves to the median data for each sample (F1 through FN)
+    ## fit curves to the median data for each replicate (F1 through FN)
     df.fit <- df.median %>%
-      dplyr::group_by(sample) %>% 
-      dplyr::mutate(fit = try(list(cetsa_fit(d = ., norm = FALSE)))) 
+      dplyr::group_by(sample,dataset) %>% 
+      dplyr::mutate(fit = try(list(try(nls(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl,
+                                           start = c(Pl=0, a = 550, b = 10),
+                                           data = list(x=temperature,y=value),
+                                           na.action = na.exclude,
+                                           algorithm = "port",
+                                           lower = c(0.0,1e-5,1e-5),
+                                           upper = c(1.5,15000,300),
+                                           control = nls.control(maxiter = 50)),
+                                       silent = TRUE)))) 
     
     df.fit<- df.fit%>% 
       dplyr::mutate(fitted_values = ifelse(!is.logical(fit[[1]]),list(data.frame(fitted_values=predict(fit[[1]]))),NA)) %>% 
-      dplyr::select(sample,fitted_values,temperature) %>% ungroup(.)
+      dplyr::select(sample,dataset,fitted_values,temperature) %>% ungroup(.)
     
     ## calculate the fitted values
-    d<-length(df.fit$fitted_values[[1]])
+    d<-length(df.fit$fitted_values[[1]]$fitted_values)
+    check<-df.fit %>% dplyr::select(-sample,-fitted_values) %>% unique(.)
     #unnest fitted values from list and name value column
-    check<-df.fit %>% dplyr::mutate(fitted_values=fitted_values[[1]]$fitted_values)
+    check1<-data.frame(fitted_values=unique(df.fit$fitted_values[[1]]$fitted_values))
     
-    check<-check %>% unique(.) 
-    check$sample<-as.factor(check$sample)
+    check<-cbind(check,check1)
     
-    test<-df.median %>% dplyr::group_by(sample,temperature) %>% dplyr::right_join(check,c('sample','temperature'))
+    
+    
+    test<-df.median %>% dplyr::group_by(sample,temperature,dataset) %>% dplyr::right_join(check,c('temperature','dataset'))
     ## calculate ratios between the fitted curves and the median values
     df.out <- test %>%
       dplyr::mutate(correction = ifelse(is.na(fitted_values / value),NA,fitted_values / value)) %>%
-      dplyr::select('sample','temperature','correction')
+      dplyr::select('sample','temperature','dataset','correction')
     
     ## apply normalization factor to data
     
@@ -845,6 +897,33 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE) {
 #'
 #' @export
 
+cetsa_fit<-function(d, norm = FALSE) {
+  if (sum(!is.na(d$value)) < 2 | sum(!is.na(d$temperature)) < 2) return(NA)
+  result = tryCatch({
+    if (!norm) {
+      myData <- list(t = d$temperature, y = d$value)
+    } else {
+      myData <- list(t = d$temperature, y = d$norm_value)
+    }
+    #c(Pl=0, a = 550, b = 10
+    fine_start <- expand.grid(p=c(0,0.5),k=seq(0,1000,by=100),m=seq(5,45,by=10))
+    new_start <- nls2::nls2(y ~ fit.cetsa(p, k, m, t),
+                            data = myData,
+                            start = fine_start,
+                            algorithm = "grid-search",#note: check other ones
+                            control = nls.control(warnOnly=T,maxiter=5000))
+    nls2::nls2(y ~ fit.cetsa(p, k, m, t),
+               data = myData,
+               start = new_start,
+               control = nls.control(warnOnly=F),
+               algorithm = "grid-search",
+               lower = c(0, 1, 10),
+               upper = c(0.4, 100000, 100))
+  }, error = function(err) {
+    return(NA)
+  })
+  return(result)
+}
 
 
 #' calculate CETSA statistics
@@ -1044,7 +1123,7 @@ cetsa_fit <- function(d, norm = FALSE) {
       myData <- list(t = d$temperature, y = d$norm_value)
     }
     #c(Pl=0, a = 550, b = 10
-    fine_start <- expand.grid(p=c(0,0.5),k=seq(0,1000,by=100),m=seq(5,45,by=10))
+    fine_start <- expand.grid(p=c(0,0.01),k=seq(500,600),m=seq(5,15,by=10))
     new_start <- nls2::nls2(y ~ fit.cetsa(p, k, m, t),
                             data = myData,
                             start = fine_start,
@@ -1931,7 +2010,7 @@ DLR<-function(d){
   return(df_0)
 }
 #this function takes original data with replicates as an input
-CP<-function(df_0,d,PSM=FALSE){#df_0 is the result data frame and d is the orginal data with replicates
+CP<-function(df_0,d,PSM=FALSE,CARRIER=TRUE){#df_0 is the result data frame and d is the orginal data with replicates
   
   df_0<-df_0 %>% unique(.)
   d<-d %>% unique(.)
@@ -1972,7 +2051,12 @@ CP<-function(df_0,d,PSM=FALSE){#df_0 is the result data frame and d is the orgin
   if(isTRUE(PSM)){
     
     if(!any(names(df_0)=="missing_pct")){
-      df.temps<-length(unique(df.temps$temperature))
+      if(isTRUE(CARRIER)){
+        df.temps<-length(unique(df.temps$temperature))-1
+      }else{
+        df.temps<-length(unique(df.temps$temperature))
+      }
+      
       #missing values
       miss_v<-data.frame(NA)
       #max replicates
@@ -1986,7 +2070,7 @@ CP<-function(df_0,d,PSM=FALSE){#df_0 is the result data frame and d is the orgin
       if(length(unique(miss_v$C))==df.temps & length(miss_v$C)>df.temps){
         
       }else{
-        df_0$missing_pct<-(100*(num-length(unique(df_0$C)))/num)
+        df_0$missing_pct<-(100*(num-df.temps)/num)
       }
       
     }
@@ -2523,6 +2607,11 @@ tlf<-function(tlresults,DFN,APfilt=TRUE,PF=TRUE){
   }
   Nsum<-list()
   Nsum[[1]]<-data.frame(RSS=0,Tm=0)
+  
+  tlresults<-purrr::map(tlresults,function(x) x %>% dplyr::mutate(sample_name=data[[1]]$sample_name[1]))
+  if(any(class(tlresults)=="data.frame")){
+    tlresults<-tlresults %>% dplyr::group_split(sample_name)
+  }
   #get the summed rss values for null
   Nsum<-purrr::map(tlresults, function(x) x %>% subset(stringr::str_detect(tolower(dataset), pattern = "null")) %>% 
                      dplyr::rowwise(.) %>%  dplyr::mutate(RSS=sum(unlist(.$rss)))%>% dplyr::select(RSS,Tm,dataset,uniqueID)%>% head(.,1))
@@ -2543,7 +2632,7 @@ tlf<-function(tlresults,DFN,APfilt=TRUE,PF=TRUE){
   Rssv<-Rssv %>% purrr::keep(function(x) isTRUE(x$uniqueID %in% CID)) 
   Rsst<-Rsst %>% purrr::keep(function(x) isTRUE(x$uniqueID %in% CID))
   Nsum<-Nsum %>% purrr::keep(function(x) isTRUE(x$uniqueID %in% CID))                           
-  K1<-data.frame(dplyr::bind_rows(purrr::map2(Rsst,Rssv,function(x,y) data.frame(RSSd = x$RSS-y$RSS, Tma = x$Tm[1]$Tm - y$Tm[1]$Tm)))) 
+  K1<-data.frame(dplyr::bind_rows(purrr::map2(Rsst,Rssv,function(x,y) data.frame(RSSd = x$RSS-y$RSS, Tma = x$Tm[1] - y$Tm[1])))) 
   K2<-data.frame(uniqueID = dplyr::bind_rows(Rssv)$uniqueID)
   Dsum<-data.frame(K1,K2)
   
@@ -2617,7 +2706,7 @@ tlf<-function(tlresults,DFN,APfilt=TRUE,PF=TRUE){
   
   return(list(df1,df2,Df1))
 }
-tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs){
+tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs,CARRIER=TRUE){
   roundUpNice <- function(x, nice=c(1,2,4,5,6,8,10)) {
     if(length(x) != 1) stop("'x' must be of length 1")
     10^floor(log10(x)) * nice[[which(x <= 10^floor(log10(x)) * nice)[[1]]]]
@@ -2899,7 +2988,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs){
       annotate("segment", x = round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), y = 0.5, yend = 0.5,
                colour = "red",linetype=2)+
       annotate("segment", x = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
-               colour = "red",linetype=2)+ylim(-0.6,1.5)+xlim(37,68)+theme(legend.position="bottom")+
+               colour = "red",linetype=2)+ylim(-0.6,1.6)+xlim(37,68)+theme(legend.position="bottom")+
       annotate("text",
                x = 50,
                y = 1.1,
@@ -2924,18 +3013,31 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs){
       miss_v<-DF1%>% dplyr::filter(dataset=="vehicle")
       miss_t<-DF1 %>% dplyr::filter(dataset=="treated")
       #get unique TMT channels
-      df.temps<-length(unique(df.temps$temp_ref))
-      num<-max(roundUpNice(length(miss_v$C)),roundUpNice(length(miss_t$C)))
+      if(isTRUE(CARRIER)){
+        df.temps<-length(unique(df.temps$temperature))-1
+      }else{
+        df.temps<-length(unique(df.temps$temperature))
+      }
+      num<-max(roundUpNice(length(unique(miss_v$C))),roundUpNice(length(unique(miss_t$C))))
       
       if(length(unique(miss_v$C))==df.temps & length(miss_v$C)>df.temps){
-        Pred1$missing_v<-rep(max(miss_v$missing_pct,na.rm=TRUE),nrow(Pred1))
+        getmode <- function(v) {
+          uniqv <- unique(v)
+          uniqv[which.max(tabulate(match(v, uniqv)))]
+        }
+        Pred1$missing_v<-rep(getmode(miss_v$missing_pct),nrow(Pred1))
       }else{
-        Pred1$missing_v<-rep((100*(num-length(miss_v$C))/num),nrow(Pred1))
+        
+        Pred1$missing_v<-rep((100*(num-df.temps)/num),nrow(Pred1))
       }
       if(length(unique(miss_t$C))==df.temps & length(miss_t$C)>df.temps){
-        Pred2$missing_t<-rep(max(miss_t$missing_pct,na.rm=TRUE),nrow(Pred2))
+        getmode <- function(v) {
+          uniqv <- unique(v)
+          uniqv[which.max(tabulate(match(v, uniqv)))]
+        }
+        Pred2$missing_t<-rep(getmode(miss_t$missing_pct),nrow(Pred2))
       }else{
-        Pred2$missing_t<-rep((100*(num-length(miss_t$C))/num),nrow(Pred2))
+        Pred2$missing_t<-rep((100*(num-df.temps)/num),nrow(Pred2))
       }
       
       Pred1$missing_v<-round(Pred1$missing_v,0)
@@ -2959,7 +3061,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs){
         annotate("segment", x = round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), y = 0.5, yend = 0.5,
                  colour = "red",linetype=2)+
         annotate("segment", x = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
-                 colour = "red",linetype=2)+ylim(-0.8,1.5)+xlim(37,68)+theme(legend.position="bottom")+
+                 colour = "red",linetype=2)+ylim(-0.8,1.6)+xlim(37,68)+theme(legend.position="bottom")+
         annotate("text",
                  x = max(50,na.rm=TRUE),
                  y = max(1.2,na.rm=TRUE),
@@ -2994,7 +3096,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs){
       annotate("segment", x = round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
                colour = "blue",linetype=2)+
       ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+
-      ggplot2::ggtitle(paste(Df1$uniqueID[1],str_replace(DF1$sample_name[1],"S",paste0("\u03A6"))))+ylim(-0.4,1.5)+xlim(37,68)+theme(legend.position="bottom")
+      ggplot2::ggtitle(paste(Df1$uniqueID[1],str_replace(DF1$sample_name[1],"S",paste0("\u03A6"))))+ylim(-0.6,1.6)+xlim(37,68)+theme(legend.position="bottom")
     
     
     PLR_P2<-PLR_P1+ggplot2::geom_point(Pred2, mapping=ggplot2::aes(x = C,y = I,color=Treatment,shape=replicate)) +
@@ -3010,7 +3112,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs){
       annotate("segment", x = round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), y = 0.5, yend = 0.5,
                colour = "red",linetype=2)+
       annotate("segment", x = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
-               colour = "red",linetype=2)+ylim(-0.4,1.5)+xlim(37,68)+theme(legend.position="bottom")
+               colour = "red",linetype=2)+ylim(-0.6,1.6)+xlim(37,68)+theme(legend.position="bottom")
     if(overlay=="TRUE"){
       AUCd<-abs(round(P2_AUC-P1_AUC,2))
       p<-expression(paste(Delta, "AUCdiff"))
@@ -3027,12 +3129,12 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs){
       if(length(unique(miss_v$C))==df.temps & length(miss_v$C)>df.temps){
         Pred1$missing_v<-rep(max(miss_v$missing_pct,na.rm=TRUE),nrow(Pred1))
       }else{
-        Pred1$missing_v<-rep((100*(num-length(miss_v$C))/num),nrow(Pred1))
+        Pred1$missing_v<-rep((100*(num-df.temps)/num),nrow(Pred1))
       }
       if(length(unique(miss_t$C))==df.temps & length(miss_t$C)>df.temps){
         Pred2$missing_t<-rep(max(miss_t$missing_pct,na.rm=TRUE),nrow(Pred2))
       }else{
-        Pred2$missing_t<-rep((100*(num-length(miss_t$C))/num),nrow(Pred2))
+        Pred2$missing_t<-rep((100*(num-df.temps)/num),nrow(Pred2))
       }
       
       Pred1$missing_v<-round(Pred1$missing_v,0)
@@ -3069,7 +3171,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs){
         annotate("segment", x = round(with(Pred1, stats::approx(Pred1$fit,Pred1$C,xout=max(Pred1$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), y = 0.5, yend = 0.5,
                  colour = "red",linetype=2)+
         annotate("segment", x = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(Pred2, stats::approx(Pred2$fit,Pred2$C,xout=max(Pred2$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
-                 colour = "red",linetype=2)+ylim(-0.8,1.5)+xlim(37,68)+theme(legend.position="bottom")
+                 colour = "red",linetype=2)+ylim(-0.8,1.6)+xlim(37,68)+theme(legend.position="bottom")
       
       par(mfrow=c(2,2))
       
@@ -3090,18 +3192,22 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs){
       miss_v<-DF1%>% dplyr::filter(dataset=="vehicle")
       miss_t<-DF1 %>% dplyr::filter(dataset=="treated")
       #get unique TMT channels
-      df.temps<-length(unique(df.temps$temp_ref))
-      num<-max(roundUpNice(length(miss_v$C)),roundUpNice(length(miss_t$C)))
+      if(isTRUE(CARRIER)){
+        df.temps<-length(unique(df.temps$temperature))-1
+      }else{
+        df.temps<-length(unique(df.temps$temperature))
+      }
+      num<-max(roundUpNice(length(unique(miss_v$C))),roundUpNice(length(unique(miss_t$C))))
       
       if(length(unique(miss_v$C))==df.temps & length(miss_v$C)>df.temps){
         Pred1$missing_v<-rep(max(miss_v$missing_pct,na.rm=TRUE),nrow(Pred1))
       }else{
-        Pred1$missing_v<-rep((100*(num-length(miss_v$C))/num),nrow(Pred1))
+        Pred1$missing_v<-rep((100*(num-df.temps)/num),nrow(Pred1))
       }
-      if(length(unique(miss_t$C))==df.temps & length(miss_t$C)>df.temps){
+      if(length(unique(miss_t$C))==df.temps & length(unique(miss_t$C))>df.temps){
         Pred2$missing_t<-rep(max(miss_t$missing_pct,na.rm=TRUE),nrow(Pred2))
       }else{
-        Pred2$missing_t<-rep((100*(num-length(miss_t$C))/num),nrow(Pred2))
+        Pred2$missing_t<-rep((100*(num-df.temps)/num),nrow(Pred2))
       }
       
       Pred1$missing_v<-round(Pred1$missing_v,0)
@@ -3592,8 +3698,12 @@ spf<-function(spresults,DFN,filters = TRUE){
   ret[[3]]<-Df1
   return(ret)
 }
-spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulations=FALSE,CI=TRUE,Peptide=FALSE){
-  df.temps<-length(unique(df.temps$temperature))
+spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulations=FALSE,CI=TRUE,Peptide=FALSE,CARRIER=TRUE){
+  if(isTRUE(CARRIER)){
+    df.temps<-length(unique(df.temps$temperature))-1
+  }else{
+    df.temps<-length(unique(df.temps$temperature))
+  }
   null<-data.frame()
   i<-i
   
@@ -3727,7 +3837,7 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
   plot<-ggplot(pred,mapping= ggplot2::aes(x = C,y=fit ))+
     geom_point(BSVar, mapping=ggplot2::aes(x=C,y=I,color = dataset,shape=factor(CC)))+
     geom_ribbon(aes(ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2) +
-    ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::ggtitle("")+ylim(-0.4,1.5)+xlim(37,68)+theme(legend.position="bottom")
+    ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::ggtitle("")+ylim(-0.4,1.6)+xlim(37,68)+theme(legend.position="bottom")
   
   pred1<- transform(cbind(data.frame(pred1),newd1),
                     uprP = fit + (2 * se.fit),
@@ -3819,11 +3929,16 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
     
     #append missing value data
     if(length(unique(miss_v$C))==df.temps & length(miss_v$C)>df.temps){
-      BSVar$missing_v<-rep(max(miss_v$missing_pct,na.rm=TRUE),nrow(BSVar))
-      BSVar$missing_t<-rep(max(miss_t$missing_pct,na.rm=TRUE),nrow(BSVar))
+      getmode <- function(v) {
+        uniqv <- unique(v)
+        uniqv[which.max(tabulate(match(v, uniqv)))]
+      }
+      
+      BSVar$missing_v<-rep(getmode(miss_v$missing_pct),nrow(BSVar))
+      BSVar$missing_t<-rep(getmode(miss_t$missing_pct),nrow(BSVar))
     }else{
-      BSVar$missing_v<-rep((100*(num-length(unique(miss_v$I)))/num),nrow(BSVar))
-      BSVar$missing_t<-rep((100*(num-length(unique(miss_t$I)))/num),nrow(BSVar))
+      BSVar$missing_v<-rep((100*(num-df.temps)/num),nrow(BSVar))
+      BSVar$missing_t<-rep((100*(num-df.temps)/num),nrow(BSVar))
     }
     p<-data.frame(BSVar$fit[[1]])
     p1<-data.frame(BSVar1$fit[[1]])
@@ -3897,7 +4012,7 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
                  colour = "red",linetype=2)+
         annotate("segment", x = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
                  colour = "red",linetype=2)+ ggplot2::ggtitle(paste0(as.character(df1[1])," ",str_replace(df2$sample_name[1],"S",paste0("\u03A6"))))+
-        ylim(-0.60,1.5)+xlim(37,68)+
+        ylim(-0.60,1.6)+xlim(37,68)+
         theme(legend.position="bottom")
       
       return(plot)
@@ -3943,7 +4058,7 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
                  colour = "red",linetype=2)+
         annotate("segment", x = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
                  colour = "red",linetype=2)+ ggplot2::ggtitle(paste0(as.character(df1[1])," ",str_replace(df2$sample_name[1],"S",paste0("\u03A6"))))+
-        ylim(-0.5,1.5)+xlim(37,68)+
+        ylim(-0.5,1.6)+xlim(37,68)+
         theme(legend.position="bottom")
       return(plot)
     }
@@ -4623,6 +4738,8 @@ MSStats_converter<-function(df_raw,solvent){
   Annotation<-Annotation %>% dplyr::group_split(Run)
 }
 
+
+
 #TPP TR Reader
 TPPbenchmark<-function(f){
   f<-list.files(f)
@@ -4895,32 +5012,32 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
                #   )
                # )#,
                
-               annotations =list(
-                 'Stabilized Percentage'=list(
-                   aes=aes(x=intersection, fill=as.factor(df_$stabilized)),
-                   geom=list(
-                     geom_bar(stat='count', position='fill', na.rm=TRUE),
-                     geom_text(
-                       aes(
-                         label=!!aes_percentage(relative_to='group'),
-                         group=df_$stabilized
-                       ),
-                       stat='count',
-                       position=position_fill(vjust = .5)
-                     ),
-                     scale_y_continuous(labels=scales::percent_format()),
-                     rating_scale
-                   )
-                 )
-                 # ,
-                 # 'Tm'=(
-                 #   # note that aes(x=intersection) is supplied by default and can be skipped
-                 #   ggplot(mapping=aes(y=log10(df_$dTm)))+
-                 #     # checkout ggbeeswarm::geom_quasirandom for better results!
-                 #     geom_jitter(aes(color=log2(df_$dTm), na.rm=TRUE))+
-                 #     geom_violin(alpha=0.5, na.rm=TRUE)
-                 # )
-               ),
+               # annotations =list(
+               #   'Stabilized Percentage'=list(
+               #     aes=aes(x=intersection, fill=as.factor(df_$stabilized)),
+               #     geom=list(
+               #       geom_bar(stat='count', position='fill', na.rm=TRUE),
+               #       geom_text(
+               #         aes(
+               #           label=!!aes_percentage(relative_to='group'),
+               #           group=df_$stabilized
+               #         ),
+               #         stat='count',
+               #         position=position_fill(vjust = .5)
+               #       ),
+               #       scale_y_continuous(labels=scales::percent_format()),
+               #       rating_scale
+               #     )
+               #   )
+               # ,
+               # 'Tm'=(
+               #   # note that aes(x=intersection) is supplied by default and can be skipped
+               #   ggplot(mapping=aes(y=log10(df_$dTm)))+
+               #     # checkout ggbeeswarm::geom_quasirandom for better results!
+               #     geom_jitter(aes(color=log2(df_$dTm), na.rm=TRUE))+
+               #     geom_violin(alpha=0.5, na.rm=TRUE)
+               # )
+               #),
                width_ratio=0.1,
                height_ratio=0.8,
                themes=upset_default_themes(text=element_text(size=15,colour="black"))
@@ -4931,6 +5048,211 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
   
   
 }
+volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FALSE,filter=FALSE){
+  
+  if(isTRUE(Peptide) & any(names(f)=="rank_l")){
+    f<-dplyr::bind_rows(f) %>%
+      dplyr::group_by(uniqueID,dataset,sample) %>% # group individual curve data to calculate individual Tm
+      dplyr::mutate(sample_name=as.factor(sample_name),
+                    dataset=as.factor(dataset),
+                    Tm=with(x, stats::approx(x$I,x$C, xout=min(x$I,na.rm=TRUE)+(0.5*(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))))$y),
+                    normal_dist_Tm_pvalue=with(shapiro.test(Tm[dataset == "vehicle"])),
+                    normal_dist_Tm_pvalue=with(shapiro.test(Tm[dataset == "treated"])),
+                    variance_equal_vt = var.test(Tm ~ dataset),
+                    p_dTm= ifelse(variance_equal_vt < 0.05,t.test(Tm ~ dataset, data = ., var.equal = FALSE),FALSE)) %>%
+      dplyr::select(-rank,-rank_l,-C,-I,-temp_ref,-CV_pct,-missing_pct) %>%
+      dplyr::group_split(uniqueID,dataset,sample_name,sample)
+    
+    f<-purrr::map(f,function(x) x %>% group_by(sample,dataset) %>% dplyr::summarise(uniqueID=uniqueID,
+                                                                                    dataset=dataset,
+                                                                                    sample_name=sample_name,
+                                                                                    M1=M1,
+                                                                                    sample=sample,
+                                                                                    Tm=mean(Tm,na.rm=TRUE),#for peptide groups, caculate averages for parameters
+                                                                                    rss=mean(rss,na.rm=TRUE),
+                                                                                    rsq=mean(rsq,na.rm=TRUE),
+                                                                                    AUC=mean(AUC,na.rm=TRUE),
+                                                                                    # Shapiro-Wilk normality test for Men's weights
+                                                                                    with(shapiro.test(weight[group == "Man"]))) %>% 
+                    ungroup(.) %>% distinct(.))
+  }else if(!isTRUE(Peptide)){
+    f<-dplyr::bind_rows(f)%>% dplyr::mutate(sample_name=sample_name,dataset=as.factor(dataset)) %>% 
+      dplyr::select(-rank,-C,-I,-temp_ref,-CV_pct,-missing_pct) %>%
+      dplyr::group_split(uniqueID,dataset,sample_name,sample)
+    
+    f<-purrr::map(f,function(x) x %>%
+                    group_by(sample,dataset) %>%
+                    dplyr::summarise(uniqueID=uniqueID,
+                                     dataset=dataset,
+                                     sample_name=sample_name,
+                                     M1=M1,
+                                     sample=sample,
+                                     Coverage=Coverage,
+                                     MW_kDa=MW_kDa,
+                                     Tm=mean(Tm,na.rm=TRUE),#for peptide groups, caculate averages for parameters
+                                     rss=mean(rss,na.rm=TRUE),
+                                     rsq=mean(rsq,na.rm=TRUE),
+                                     AUC=mean(AUC,na.rm=TRUE)) %>%
+                    ungroup(.) %>% distinct(.)) 
+  }else if (isTRUE(Trilinear)){#if this is a trilinear result
+    #f<-f %>% dplyr::group_split(uniqueID,dataset)
+    # f<-lapply(f,function(x) dplyr::bind_rows(x))
+    # f<-lapply(f,function(x) x %>% dplyr::mutate(sample_name=x$data[[1]]$sample_name[1]))
+    
+    f<-dplyr::bind_rows(f) %>% dplyr::mutate(sample_name=sample_name,dataset=as.factor(dataset)) %>%
+      dplyr::select(-rsq,-CI,-data) %>%
+      dplyr::group_split(uniqueID,dataset,sample_name)
+    
+    
+    f<-purrr::map(f,function(x) x %>% dplyr::summarise(uniqueID=uniqueID,
+                                                       dataset=dataset,
+                                                       M1=M1,
+                                                       Tm=mean(Tm,na.rm=TRUE),#for peptide groups, caculate averages for parameters
+                                                       rss=sum(rss,na.rm=TRUE),
+                                                       rsq=mean(rsq,na.rm=TRUE),
+                                                       AUC=mean(AUC,na.rm=TRUE),
+                                                       rssDiff=rssDiff,
+                                                       sample_name=x$sample_name,
+                                                       Fvals=Fvals,
+                                                       rssDiff=rssDiff,
+                                                       pV=pV,
+                                                       pAdj=pAdj) %>% 
+                    ungroup(.) %>% distinct(.))
+  }
+  
+  
+  if(isTRUE(Trilinear)){
+    f<-dplyr::bind_rows(f) %>% dplyr::group_split(uniqueID,sample_name)
+    f<-f %>% purrr::keep(function(x) any(class(x$M1[[1]])=="lm"))
+    
+    f<-purrr::map(f,function(x) x %>% dplyr::mutate(stabilized=as.factor(ifelse(x$Tm[x$dataset=="treated"][1]>x$Tm[x$dataset=="vehicle"][1],"Stabilized","Destabilized")),
+                                                    dTm=x$Tm[x$dataset=="treated"][1]-x$Tm[x$dataset=="vehicle"][1]))
+    
+    
+    f<-dplyr::bind_rows(f) %>% dplyr::mutate(stabilized=as.factor(stabilized))
+    f$sample_name<-str_replace(f$sample_name,"S","\u03A6")
+    f<-purrr::map(f,function(x) x[1,])
+    
+    f<-f %>% dplyr::mutate(model_converged=as.factor(ifelse(class(M1[[1]])=="lm",1,0)),
+                           rsq_greater_than_0.8=as.factor(ifelse(rsq>0.8,1,0)))
+    
+    df_1<-dplyr::bind_rows(f)%>% dplyr::mutate(sample_name=as.character(sample_name)) %>% dplyr::group_split(uniqueID,sample_name)
+    df_<-dplyr::bind_rows(df_1) %>% dplyr::select(uniqueID,sample_name,model_converged,stabilized,rsq_greater_than_0.8) %>% 
+      pivot_wider(names_from=sample_name,values_from=c(model_converged)) %>% distinct(.)
+    
+  }else if(isTRUE(Splines)){
+    f<-dplyr::bind_rows(f) %>% dplyr::select(-sample) %>% 
+      distinct(.) %>% dplyr::group_split(uniqueID,sample_name)
+    f<-f %>% purrr::keep(function(x) any(class(x$M1[[1]])=="gam"))
+    
+    
+    f<-purrr::map(f,function(x) x %>% dplyr::mutate(stabilized=as.factor(ifelse(x$Tm[x$dataset=="treated"][1]>x$Tm[x$dataset=="vehicle"][1],"Stabilized","Destabilized")),
+                                                    dTm=x$Tm[x$dataset=="treated"][1]-x$Tm[x$dataset=="vehicle"][1]))
+    
+    f<-purrr::map(f,function(x) x[1,])
+    
+    f<-dplyr::bind_rows(f) 
+    f$sample_name<-str_replace(f$sample_name,"S","\u03A6")
+    f<-f %>% dplyr::mutate(model_converged=as.factor(ifelse(any(class(M1[[1]])=="gam"),1,0)),
+                           rsq_greater_than_0.8=as.factor(ifelse(rsq>0.8,1,0)))
+    
+    
+    df_TPP<-dplyr::bind_rows(f) %>% 
+      select(uniqueID,sample_name,Tm,rss,AUC,rsq,rsq_greater_than_0.8,model_converged,stabilized) %>% 
+      distinct(.)
+    
+    df_1<-df_TPP %>% dplyr::select(uniqueID,sample_name,Tm,model_converged,rsq_greater_than_0.8,stabilized) %>% distinct(.)
+    
+    df_1<-dplyr::bind_rows(df_1)%>% dplyr::mutate(sample_name=as.character(sample_name)) %>% dplyr::group_split(uniqueID,sample_name) 
+    
+    df_<-dplyr::bind_rows(df_1) %>% dplyr::select(uniqueID,sample_name,model_converged,stabilized) %>% 
+      pivot_wider(names_from=sample_name,values_from=c(model_converged)) %>% distinct(.)
+    
+    
+  }
+  
+  df_<-df_ %>% dplyr::mutate(uniqueID=as.character(uniqueID),stabilized=as.character(stabilized))
+  df_ <- df_ %>%
+    mutate_if(sapply(df_, is.factor), as.numeric)
+  
+  #keep the first row out of redundant peptide group data
+  
+  #f<-purrr::map(f,function(x) x %>% dplyr::mutate(stabilized=ifelse(x$Tm[x$dataset=="treated"]>x$Tm[x$dataset=="vehicle"],1,0)))
+  # f<-lapply(f,function(x) x %>% dplyr::group_by(uniqueID,dataset) %>% 
+  #             dplyr::mutate(RSS=sum(rss,na.rm=TRUE),
+  #                           RSQ=mean(Rsq,na.rm=TRUE)))
+  # f<-dplyr::bind_rows(f) 
+  # f<-f %>% dplyr::mutate(rss_a=ifelse(dataset=="vehicle"|dataset=="treated",RSS,NA),
+  #                        rss_n=ifelse(dataset=="null",RSS,NA))
+  # f<-f %>% dplyr::ungroup(.) %>% dplyr::group_by(uniqueID) %>% dplyr::mutate(rss_a=sum(unique(rss_a),na.rm=TRUE))
+  
+  #select columns of interest
+  
+  
+  #,rsq_greater_than_0.8,stabilized
+  rating_scale = scale_fill_manual(name="Stabilization (Tm-based)",
+                                   values=c("Stabilized" ='#fee6ce', "Destabilized" ='#fdae6b', "NA"  = '#e6550d'))
+  
+  check<-list()
+  check<-upset(df_,colnames(df_)[!colnames(df_) %in% c("sample_name","uniqueID","dataset","sample","Tm","dTm","rsq_greater_than_0.8","stabilized")],
+               min_degree=2,
+               set_sizes=FALSE,
+               guides='collect',
+               n_intersections=10,
+               stripes='white',
+               sort_intersections_by="cardinality",
+               base_annotations=list(
+                 '# of Protein Events'=intersection_size(
+                   counts=TRUE
+                 )
+               ),
+               # base_annotations=list(
+               #   'Number of protein events'=upset_annotate(
+               #     '..count..',
+               #     list(
+               #       geom_bar(aes(fill=df_$stabilized)),
+               #       scale_fill_manual(values=c("Stabilized" ='#fee6ce', "Destabilized" ='#fdae6b', "NA"  = '#e6550d'))
+               #     )
+               #   )
+               # )#,
+               
+               # annotations =list(
+               #   'Stabilized Percentage'=list(
+               #     aes=aes(x=intersection, fill=as.factor(df_$stabilized)),
+               #     geom=list(
+               #       geom_bar(stat='count', position='fill', na.rm=TRUE),
+               #       geom_text(
+               #         aes(
+               #           label=!!aes_percentage(relative_to='group'),
+               #           group=df_$stabilized
+               #         ),
+               #         stat='count',
+               #         position=position_fill(vjust = .5)
+               #       ),
+               #       scale_y_continuous(labels=scales::percent_format()),
+               #       rating_scale
+               #     )
+               #   )
+               # ,
+               # 'Tm'=(
+               #   # note that aes(x=intersection) is supplied by default and can be skipped
+               #   ggplot(mapping=aes(y=log10(df_$dTm)))+
+               #     # checkout ggbeeswarm::geom_quasirandom for better results!
+               #     geom_jitter(aes(color=log2(df_$dTm), na.rm=TRUE))+
+               #     geom_violin(alpha=0.5, na.rm=TRUE)
+               # )
+               #),
+               width_ratio=0.1,
+               height_ratio=0.8,
+               themes=upset_default_themes(text=element_text(size=15,colour="black"))
+  )+ggtitle(paste0("Number of fitted ", ifelse(isTRUE(Splines),"Spline","Trilinear") ," curves (",ifelse(isTRUE(Peptide),"Peptide","Protein"),"-level ", ifelse(isTRUE(filter),"filtered","unfiltered"),"): "))
+  
+  
+  print(check)
+  
+  
+}
+
 ###############################
 memory.limit(175921900000)#set for 16 GB RAM
 plan(multicore,workers=availableCores())
@@ -4972,7 +5294,7 @@ f<- list.files(pattern='*Proteins.xlsx')
 # f<-"C:/Users/figue/OneDrive - Northeastern University/CETSA R/CP_Exploris_20200811_DMSOvsMEKi_carrier_FAIMS_PhiSDM_PEPTIDES.xlsx"
 #df_raw <- read_cetsa("~/Files/Scripts/Files/PSM_validator","~/Files/Scripts/Files/PSM_validator","_Proteins",Peptide=FALSE,Batch=FALSE,CFS=TRUE,solvent="DMSO")     
 #df_raw <- read_cetsa("~/Files/Scripts/Files/Covid","~/Files/Scripts/Files/Covid","_Proteins",Peptide=FALSE,CFS=FALSE,Batch=FALSE)                                                              
-df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS","~/Files/Scripts/Files/CONSENSUS","_Proteins",Peptide=FALSE,Batch=FALSE)                                                              
+df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS","~/Files/Scripts/Files/CONSENSUS","_Proteins",Peptide=TRUE,Batch=FALSE)                                                              
 #saveRDS(df_raw,"df_raw.RDS")
 
 #filter Peptides
@@ -5071,7 +5393,7 @@ filter_Peptides<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm,
   
 }
 df_raw1<-df_raw %>% dplyr::group_split(sample_name)
-df_raw1<-furrr::future_map(df_raw1,function(x) try(filter_Peptides(x,20,0.2,1,30,4,1,7,15,filter_rank=FALSE,shared_proteins=TRUE,CFS=TRUE)))
+df_raw1<-furrr::future_map(df_raw1,function(x) try(filter_Peptides(x,20,0.01,2.3,30,2,1,7,5,filter_rank=FALSE,shared_proteins=TRUE,CFS=TRUE)))
 df_raw1<-dplyr::bind_rows(df_raw1)%>% dplyr::group_split(sample_name)
 df_raw1<-df_raw1 %>% purrr::keep(function(x) !nrow(x)==0)
 
@@ -5157,7 +5479,7 @@ df.s <- function(data_path,n,rep_,bio_,vehicle_name,treated_name,Batch=FALSE,PSM
 df.samples<-df.s(f,dplyr::bind_rows(df_raw),3,2,"DMSO","TREATED",Batch=TRUE,PSM=TRUE)
 #Peptides
 df_raw<-df_raw %>% group_split(sample_name)
-df_clean <- furrr::future_map(df_raw,function(x) clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=FALSE,solvent="DMSO",CFS=TRUE))#assgns temperature and replicate values
+df_clean <- furrr::future_map(df_raw1,function(x) clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=TRUE,solvent="DMSO",CFS=TRUE,CARRIER=TRUE))#assgns temperature and replicate values
 
 #Covid data
 #df_clean<-purrr::map(seq_along(df_clean),function(x) rbind(df_clean[[1]],x))
@@ -5165,23 +5487,37 @@ df_clean <- furrr::future_map(df_raw,function(x) clean_cetsa(x, temperatures = d
 #df_clean<-dplyr::bind_rows(df_clean) %>% dplyr::group_split(sample_name)
 
 #normalize data
-df_norm <- furrr::future_map(df_clean,function(x) normalize_cetsa(x, df.temps$temperature,Peptide=FALSE,filters=FALSE)) #normalizes according to Franken et. al. without R-squared filter
+df_norm <- furrr::future_map(df_clean,function(x) normalize_cetsa(x, df.temps$temperature,Peptide=TRUE,filters=FALSE)) #normalizes according to Franken et. al. without R-squared filter
 
 
 # rm(df_raw,df_clean)
 
-Int_plot<-function(df_norm){
-  list<-ggplot2::ggplot(dplyr::bind_rows(df_norm),mapping=aes(x=C,y=I3,color=sample_name))+
-    geom_jitter(position=position_jitter(2),alpha=0.5)+
-    geom_boxplot(mapping=aes(color="black"))+xlab('Temperature (\u00B0C)')+ylab("Normalized Intensity (Top2000)")
+Int_plot<-function(df_norm,Peptide=FALSE){
+  if(!isTRUE(Peptide)){
+    list<-ggplot2::ggplot(df,mapping=aes(x=C,y=I))+
+      geom_jitter(position=position_jitter(2),alpha=0.5)+
+      geom_boxplot(mapping=aes(color=as.factor(C)))+xlab('Temperature (\u00B0C)')+
+      ylab("Normalized intensity protein")+
+      ggtitle(df$sample_name[1])+
+      ylim(-0.1,10)+
+      theme(legend.position="bottom")+ labs(colour = "Temperature (\u00B0C)")
+  }else{
+    list<-ggplot2::ggplot(df_norm,mapping=aes(x=C,y=I3))+
+      geom_jitter(position=position_jitter(2),alpha=0.5)+
+      geom_boxplot(mapping=aes(color=as.factor(C)))+xlab('Temperature (\u00B0C)')+
+      ylab("Normalized intensity (top 25%)")+
+      ggtitle(df_norm$sample_name[1])+
+      ylim(-0.1,5)+
+      theme(legend.position="bottom")+labs(colour = "Temperature (\u00B0C)")
+  }
 }
-plot_I<-purrr::map(df_norm,function(x) Int_plot(x))
+plot_I<-purrr::map(df_norm1,function(x) Int_plot(x,Peptide=FALSE))
 check<-ggplot2::ggplot_build(plot_I[[2]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plot_I,function(x) x$labels$title))
 plot_I<-plot_I[order(data)]
 P<-ggarrange(plotlist=plot_I,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
-pdf("Intensity_values.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
+pdf("Intensity_values_Protein_all.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 P
 dev.off()
 ##Generate upset plots for missing value data###
@@ -5218,7 +5554,7 @@ PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,Peptide=FALSE,show_resul
     }
     
   }
-  if(isTRUE(Peptide)){
+  if(any(names(df_norm)=="I3")){
     df_norm<-df_norm %>% dplyr::mutate(I=I3)%>% dplyr::select(-I3,-I5,-I10)
   }
   ##SCRIPT STARTS HERE
@@ -5265,6 +5601,8 @@ PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,Peptide=FALSE,show_resul
   df_<-suppressWarnings(purrr::map2(results,d_,function(x,y) CP(x,y,PSM=Peptide)))
   df_1<-suppressWarnings(purrr::map2(results_t,d_1,function(x,y) CP(x,y,PSM=Peptide)))
   DFN<-suppressWarnings(purrr::map2(results_n,DF,function(x,y) CP(x,y,PSM=Peptide)))
+  
+  
   #remove results to save space 
   rm(results,results_t,results_n,d_,d_1,DF)#10
   df_<-dplyr::bind_rows(df_) %>% dplyr::group_split(uniqueID)
@@ -5288,7 +5626,7 @@ PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,Peptide=FALSE,show_resul
   DFN<-dplyr::bind_rows(DFN)
   #confidence intervals
   
-  tlresults<-tlstat(DFN,df_,df_1,norm=TRUE,Filters=filt,Ftest=Ft,show_results=TRUE)
+  tlresults<-tlstat(DFN,df_,df_1,norm=FALSE,Filters=filt,Ftest=Ft,show_results=show_results)
   if(isTRUE(show_results)){
     
     return(tlresults)
@@ -5302,7 +5640,8 @@ PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,Peptide=FALSE,show_resul
   return(plotTL1)
 }
 
-plot<-purrr::map(df_norm1,function(x) try(PlotTrilinear(x,"P36507",df.temps,Ft=TRUE,filt=FALSE,Peptide=FALSE,show_results=TRUE)))
+plot<-purrr::map(df_norm,function(x) try(PlotTrilinear(x,"P36507",df.temps,Ft=FALSE,filt=FALSE,Peptide=FALSE,show_results=FALSE)))
+
 check<-ggplot2::ggplot_build(plot[[1]])
 y<-get_legend(check$plot)
 data<-order(unlist(lapply(plot,function(x) x$labels$title)))
@@ -5318,7 +5657,7 @@ P2<-ggarrange(plotlist=plot2,ncol=4,nrow=2,font.label = list(size = 14, color = 
 
 #saveIDs filtered
 
-pdf("Target_curves_trilinear_unfilt.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
+pdf("Target_curves_trilinear_unfilt_unshared.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
 P1
 P2
 dev.off()
@@ -5408,7 +5747,7 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=FALSE,fT=FALSE,show_r
   
 }
 
-plotS <- furrr::future_map(df_norm1,function(x) try(plot_Splines(x,"P36507; Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
+plotS <- furrr::future_map(df_norm,function(x) try(plot_Splines(x,"P36507; Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
 check<-ggplot2::ggplot_build(plotS[[1]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plotS,function(x) x$labels$title))
@@ -5418,7 +5757,7 @@ P3<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = 
 # check<-dplyr::bind_rows(df_norm) %>% dplyr::group_split(time_point)
 # plotS2 <- purrr::map(check,function(x) try(plot_Splines(x,"P0DTC2",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
 # 
-plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=TRUE,Peptide=FALSE)))
+plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
 check<-ggplot2::ggplot_build(plotS2[[1]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plotS2,function(x) x$labels$title))
@@ -5433,7 +5772,7 @@ plotS<-plotS[order(data)]
 P1<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
 
-pdf("Protein_Target_curves_MD_PD_HR_Settings_unfilt.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
+pdf("Protein_Target_curves_MD_PD_HR_Settings_unfilt_unshared.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
 P1
 P2
 
