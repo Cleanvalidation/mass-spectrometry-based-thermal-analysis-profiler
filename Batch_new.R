@@ -5051,86 +5051,94 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
 volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FALSE,filter=FALSE){
   
   if(isTRUE(Peptide) & any(names(f)=="rank_l")){
-    f<-dplyr::bind_rows(f) %>%
-      dplyr::group_by(uniqueID,dataset,sample) %>% # group individual curve data to calculate individual Tm
-      dplyr::mutate(sample_name=as.factor(sample_name),
-                    dataset=as.factor(dataset),
-                    Tm=with(x, stats::approx(x$I,x$C, xout=min(x$I,na.rm=TRUE)+(0.5*(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))))$y)) %>% 
-      dplyr::select(-rank,-rank_l,-C,-I,-temp_ref,-CV_pct,-missing_pct) %>%
-      dplyr::group_split(uniqueID)
-    f<- purrr::map(f,function(x) x %>% dplyr::ungroup(.) %>% dplyr::group_by(uniqueID) %>% 
-                     dplyr::mutate(
-                       normal_dist_Tm_pvalue_v=with(shapiro.test(Tm[dataset == "vehicle"])),
-                       normal_dist_Tm_pvalue_t=with(shapiro.test(Tm[dataset == "treated"])),
-                       variance_equal_vt = var.test(Tm ~ dataset)$p.value,
-                       p_dTm= ifelse(variance_equal_vt$p.value < 0.05,t.test(Tm ~ dataset, data = ., var.equal = ifelse(variance_equal_vt<0.05,FALSE,TRUE)),FALSE)$p.value))
-    f<-purrr::map(f,function(x) x %>% dplyr::ungroup(.) %>% group_by(sample,dataset) %>% dplyr::summarise(uniqueID=uniqueID,
-                                                                                                          dataset=dataset,
-                                                                                                          sample_name=sample_name,
-                                                                                                          M1=M1,
-                                                                                                          sample=sample,
-                                                                                                          Tm=mean(Tm,na.rm=TRUE),#for peptide groups, caculate averages for parameters
-                                                                                                          rss=mean(rss,na.rm=TRUE),
-                                                                                                          rsq=mean(rsq,na.rm=TRUE),
-                                                                                                          AUC=mean(AUC,na.rm=TRUE)
-    )) %>% 
-      ungroup(.) %>% distinct(.))
-  }else if(!isTRUE(Peptide)){
+    f<-f %>% 
+      dplyr::group_split(uniqueID,dataset,sample)
+    addTm<-function(x){
+      f<-dplyr::bind_rows(x) %>%
+        dplyr::group_by(uniqueID,dataset,sample) %>% # group individual curve data to calculate individual Tm
+        dplyr::mutate(sample_name=as.factor(sample_name),
+                      dataset=as.factor(dataset),
+                      Tm=with(.,stats::approx(I,C, xout=min(I,na.rm=TRUE)+(0.5*(max(I, na.rm=TRUE)-min(I, na.rm=TRUE))))$y)) %>% 
+        dplyr::select(-rank,-rank_l,-C,-I,-temp_ref,-CV_pct,-missing_pct) %>% dplyr::ungroup(.)
+    }
+    f<-mclapply(f,addTm,mc.cores=availableCores())
+    f<-dplyr::bind_rows(f)
+    f<-f %>% dplyr::group_split(uniqueID)
+    f<-f %>% purrr::keep(function(x) any(x$dataset %in% c("vehicle")) & any(x$dataset%in% c("treated")))
+    FC<- function(x){ x %>% dplyr::ungroup(.) %>% dplyr::group_by(uniqueID) %>% 
+        dplyr::mutate(
+          v_Tm=mean(x$Tm[x$dataset == "vehicle"],na.rm=TRUE),
+          t_Tm=mean(x$Tm[x$dataset == "treated"],na.rm=TRUE),
+          FC=log2(v_Tm/t_Tm),
+          variance_equal_vt = var.test(x$Tm ~ x$dataset)$p.value,
+          p_dTm= ifelse(all(x$variance_equal_vt < 0.05),t.test(x$Tm ~ x$dataset, data = x, var.equal = ifelse(all(x$variance_equal_vt<0.05),FALSE,TRUE))$p.value
+    }
     
-    f<-dplyr::bind_rows(f) %>%
-      dplyr::group_by(uniqueID,dataset,sample) %>% # group individual curve data to calculate individual Tm
-      dplyr::mutate(sample_name=as.factor(sample_name),
-                    dataset=as.factor(dataset),
-                    Tm=with(x, stats::approx(x$I,x$C, xout=min(x$I,na.rm=TRUE)+(0.5*(max(x$I, na.rm=TRUE)-min(x$I, na.rm=TRUE))))$y)) %>% 
-      dplyr::select(-rank,-C,-I,-temp_ref,-CV_pct,-missing_pct) %>%
-      dplyr::group_split(uniqueID,dataset,sample_name,sample)
-    f<- purrr::map(f,function(x) x %>% dplyr::ungroup(.) %>% dplyr::group_by(uniqueID) %>% 
-                     dplyr::mutate(
-                       normal_dist_Tm_pvalue_v=with(shapiro.test(Tm[dataset == "vehicle"])),
-                       normal_dist_Tm_pvalue_t=with(shapiro.test(Tm[dataset == "treated"])),
-                       variance_equal_vt = var.test(Tm ~ dataset)$p.value,
-                       p_dTm= ifelse(variance_equal_vt$p.value < 0.05,t.test(Tm ~ dataset, data = ., var.equal = ifelse(variance_equal_vt<0.05,FALSE,TRUE)),FALSE)$p.value))
-    f<-purrr::map(f,function(x) x %>%
-                    group_by(sample,dataset) %>%
-                    dplyr::summarise(uniqueID=uniqueID,
-                                     dataset=dataset,
-                                     sample_name=sample_name,
-                                     M1=M1,
-                                     sample=sample,
-                                     Coverage=Coverage,
-                                     MW_kDa=MW_kDa,
-                                     Tm=mean(Tm,na.rm=TRUE),#for peptide groups, caculate averages for parameters
-                                     rss=mean(rss,na.rm=TRUE),
-                                     rsq=mean(rsq,na.rm=TRUE),
-                                     AUC=mean(AUC,na.rm=TRUE)) %>%
-                    ungroup(.) %>% distinct(.)) 
+    f<-mclapply(f,FC,mc.cores=availableCores())
+    ######
+    
+    f<-purrr::map(f,function(x) x %>% dplyr::ungroup(.) %>% group_by(sample,dataset) %>% 
+                    dplyr::mutate(uniqueID=uniqueID,
+                                  dataset=dataset,
+                                  sample_name=sample_name,
+                                  M1=M1,
+                                  sample=sample,
+                                  Tm=mean(Tm,na.rm=TRUE),#for peptide groups, caculate averages for parameters
+                                  rss=mean(rss,na.rm=TRUE),
+                                  rsq=mean(rsq,na.rm=TRUE),
+                                  AUC=mean(AUC,na.rm=TRUE)
+                    ) %>% 
+                    ungroup(.) %>% distinct(.))
+  }else if(!isTRUE(Peptide)){
+    f<-f %>% 
+      dplyr::group_split(uniqueID,dataset,sample)
+    addTm<-function(x){
+      f<-dplyr::bind_rows(x) %>%
+        dplyr::group_by(uniqueID,dataset,sample) %>% # group individual curve data to calculate individual Tm
+        dplyr::mutate(sample_name=as.factor(sample_name),
+                      dataset=as.factor(dataset),
+                      Tm=with(.,stats::approx(I,C, xout=min(I,na.rm=TRUE)+(0.5*(max(I, na.rm=TRUE)-min(I, na.rm=TRUE))))$y)) %>% 
+        dplyr::select(-rank,-C,-I,-temp_ref,-CV_pct,-missing_pct) %>% dplyr::ungroup(.)
+    }
+    f<-mclapply(f,addTm,mc.cores=availableCores())
+    f<-dplyr::bind_rows(f)
+    f<-f %>% dplyr::group_split(uniqueID)
+    f<-f %>% purrr::keep(function(x) any(x$dataset %in% c("vehicle")) & any(x$dataset%in% c("treated")))
+    FC<- function(x){ x %>% dplyr::ungroup(.) %>% dplyr::group_by(uniqueID) %>% 
+        dplyr::mutate(
+          v_Tm=mean(x$Tm[x$dataset == "vehicle"],na.rm=TRUE),
+          t_Tm=mean(x$Tm[x$dataset == "treated"],na.rm=TRUE),
+          FC=log2(v_Tm/t_Tm),
+          variance_equal_vt = var.test(x$Tm ~ x$dataset)$p.value,
+          p_dTm= ifelse(all(x$variance_equal_vt < 0.05),t.test(x$Tm ~ x$dataset, data = x, var.equal = ifelse(all(x$variance_equal_vt<0.05),FALSE,TRUE))$p.value
+    }
+    
+    f<-mclapply(f,FC,mc.cores=availableCores())
+    
   }else if (isTRUE(Trilinear)){#if this is a trilinear result
     #f<-f %>% dplyr::group_split(uniqueID,dataset)
     # f<-lapply(f,function(x) dplyr::bind_rows(x))
     # f<-lapply(f,function(x) x %>% dplyr::mutate(sample_name=x$data[[1]]$sample_name[1]))
-    
-    f<-dplyr::bind_rows(f) %>% dplyr::mutate(sample_name=sample_name,dataset=as.factor(dataset)) %>%
-      dplyr::select(-rsq,-CI,-data) %>%
-      dplyr::group_split(uniqueID,dataset,sample_name)
-    
-    
-    f<-purrr::map(f,function(x) x %>% dplyr::summarise(uniqueID=uniqueID,
-                                                       dataset=dataset,
-                                                       M1=M1,
-                                                       Tm=mean(Tm,na.rm=TRUE),#for peptide groups, caculate averages for parameters
-                                                       rss=sum(rss,na.rm=TRUE),
-                                                       rsq=mean(rsq,na.rm=TRUE),
-                                                       AUC=mean(AUC,na.rm=TRUE),
-                                                       rssDiff=rssDiff,
-                                                       sample_name=x$sample_name,
-                                                       Fvals=Fvals,
-                                                       rssDiff=rssDiff,
-                                                       pV=pV,
-                                                       pAdj=pAdj) %>% 
-                    ungroup(.) %>% distinct(.))
+    f<-dplyr::bind_rows(f) %>%
+      dplyr::group_by(uniqueID,dataset,sample) %>% # group individual curve data to calculate individual Tm
+      dplyr::mutate(sample_name=as.factor(sample_name),
+                    dataset=as.factor(dataset),
+                    Tm=with(.,stats::approx(I,C, xout=min(I,na.rm=TRUE)+(0.5*(max(I, na.rm=TRUE)-min(I, na.rm=TRUE))))$y)) %>% 
+      dplyr::select(-rsq,-CI,-data) %>% dplyr::ungroup(.)
+    f<-f %>% 
+      dplyr::group_split(uniqueID)
+    FC<- function(x){ x %>% dplyr::ungroup(.) %>% dplyr::group_by(uniqueID) %>% 
+        dplyr::mutate(
+          normal_dist_Tm_pvalue_v=with(shapiro.test(Tm[dataset == "vehicle"])),
+          normal_dist_Tm_pvalue_t=with(shapiro.test(Tm[dataset == "treated"])),
+          v_Tm=mean(Tm[dataset == "vehicle"],na.rm=TRUE),
+          t_Tm=mean(Tm[dataset == "treated"],na.rm=TRUE),
+          FC=log2(v_Tm/t_Tm),
+          variance_equal_vt = var.test(Tm ~ dataset)$p.value,
+          p_dTm= ifelse(variance_equal_vt$p.value < 0.05,t.test(Tm ~ dataset, data = ., var.equal = ifelse(variance_equal_vt<0.05,FALSE,TRUE)),FALSE)$p.value))
+    }
+    f<-mclapply(f,FC,mc.cores=availableCores())
   }
-  
-  
   if(isTRUE(Trilinear)){
     f<-dplyr::bind_rows(f) %>% dplyr::group_split(uniqueID,sample_name)
     f<-f %>% purrr::keep(function(x) any(class(x$M1[[1]])=="lm"))
