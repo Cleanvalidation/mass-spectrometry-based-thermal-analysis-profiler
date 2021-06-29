@@ -702,9 +702,9 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
       dplyr::select(sample,fitted_values10,temperature,dataset) %>% ungroup(.)
     
     ## calculate the fitted values
-    d3<-length(dplyr::bind_rows(df.fit3$fitted_values3))
-    d5<-length(dplyr::bind_rows(df.fit5$fitted_values5))
-    d10<-length(dplyr::bind_rows(df.fit10$fitted_values10))
+    # d3<-length(dplyr::bind_rows(df.fit3$fitted_values3))
+    # d5<-length(dplyr::bind_rows(df.fit5$fitted_values5))
+    # d10<-length(dplyr::bind_rows(df.fit10$fitted_values10))
     #unnest fitted values from list and name value column and keep fitted values and temps
     
     #unnest fitted values from list and name value column
@@ -727,23 +727,33 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     check10<-check_10 %>% dplyr::right_join(check10,by=c("temperature","dataset"))
     
     df1<-df1 %>% dplyr::filter(temperature<68)
+    col_n<-dplyr::intersect(names(df1),names(check3))
+    check3<-data.table(check3)
+    check5<-data.table(check5)
+    check10<-data.table(check10)
+    df1<-data.table(df1)
     
-    test3<-df1 %>% dplyr::group_by(temperature,dataset) %>% dplyr::right_join(check3,by=c('temperature','dataset'))
-    test5<-df1 %>% dplyr::group_by(temperature,dataset) %>% dplyr::right_join(check5,c('temperature','dataset'))
-    test10<-df1 %>% dplyr::group_by(temperature,dataset) %>% dplyr::right_join(check10,c('temperature','dataset'))
+    setkeyv(df1,cols=col_n)
+    setkeyv(check3,cols=col_n)
+    setkeyv(check5,cols=col_n)
+    setkeyv(check10,cols=col_n)
+    #right_join
+    test3 <- data.frame(merge(df1,check3, all.y=TRUE))
+    test5 <- data.frame(merge(df1,check5, all.y=TRUE))
+    test10 <- data.frame(merge(df1,check10, all.y=TRUE))
     
     ## calculate ratios between the fitted curves and the median values
-    df.out3 <- test3 %>%
+    df.out3 <- test3 %>% as.data.frame() %>% 
       dplyr::mutate(correction3 = ifelse(is.na(fitted_values / value),NA,fitted_values / value)) %>%
       dplyr::select('sample','temperature','correction3','dataset')
     
     
-    df.out5 <- test5 %>%
+    df.out5 <- test5 %>%as.data.frame() %>% 
       dplyr::mutate(correction5 = ifelse(is.na(fitted_values / value),NA,fitted_values / value)) %>%
       dplyr::select('sample','temperature','correction5','dataset')
     
     
-    df.out10 <- test10 %>%
+    df.out10 <- test10 %>%as.data.frame() %>% 
       dplyr::mutate(correction10 = ifelse(is.na(fitted_values / value),NA,fitted_values / value)) %>%
       dplyr::select('sample','temperature','correction10','dataset')
     
@@ -855,11 +865,24 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     check_<-df.fit %>% dplyr::select(-sample,-fitted_values) %>% unique
     check<-check_ %>% dplyr::right_join(check3,by=c("temperature","dataset"))
     
-    test<-df.median %>% dplyr::group_by(sample,temperature,dataset) %>% dplyr::right_join(check,c('temperature','dataset'))
+    col_n<-dplyr::intersect(names(df),names(check))
+    
+    check<-data.table(check)
+    
+    df<-data.table(df)
+    
+    setkeyv(df,cols=col_n)
+    setkeyv(check,cols=col_n)
+    
+    #right_join
+    test <- data.frame(merge(df,check, all.y=TRUE))
+    
+    
     ## calculate ratios between the fitted curves and the median values
-    df.out <- test %>%
+    df.out <- test %>% as.data.frame() %>% 
       dplyr::mutate(correction = ifelse(is.na(fitted_values / value),NA,fitted_values / value)) %>%
-      dplyr::select('sample','temperature','dataset','correction')
+      dplyr::select('sample','temperature','correction','dataset')
+    
     
     ## apply normalization factor to data
     
