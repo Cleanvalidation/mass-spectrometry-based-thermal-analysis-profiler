@@ -708,15 +708,21 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     #unnest fitted values from list and name value column and keep fitted values and temps
     
     #unnest fitted values from list and name value column
-    check3<-data.frame(fitted_values3=unique(df.fit3$fitted_values3[[1]]$fitted_values))%>% dplyr::select(-sample)%>% unique(.)
+    check3<-data.frame(fitted_values3=unique(df.fit3$fitted_values3[df.fit3$dataset=="treated"][[1]]),dataset="treated",temperature=unique(df.fit3$temperature))
+    check31<-data.frame(fitted_values3=unique(df.fit3$fitted_values3[df.fit3$dataset=="vehicle"][[1]]),dataset="vehicle",temperature=unique(df.fit3$temperature))
+    check3<-rbind(check3,check31)
     check_3<-df.fit3 %>% dplyr::select(-sample,-fitted_values3) %>% unique
     check3<-cbind(check_3,check3)
     
-    check5<-data.frame(fitted_values5=unique(df.fit5$fitted_values5[[1]]$fitted_values))%>% dplyr::select(-sample)%>% unique(.)
+    check5<-data.frame(fitted_values5=unique(df.fit5$fitted_values5[df.fit5$dataset=="treated"][[1]]),dataset="treated",temperature=unique(df.fit5$temperature))
+    check51<-data.frame(fitted_values5=unique(df.fit5$fitted_values5[df.fit5$dataset=="vehicle"][[1]]),dataset="vehicle",temperature=unique(df.fit5$temperature))
+    check5<-rbind(check5,check51)
     check_5<-df.fit5 %>% dplyr::select(-sample,-fitted_values5) %>% unique
     check5<-cbind(check_5,check5)
     
-    check10<-data.frame(fitted_values10=unique(df.fit10$fitted_values10[[1]]$fitted_values))%>% dplyr::select(-sample)%>% unique(.)
+    check10<-data.frame(fitted_values10=unique(df.fit10$fitted_values10[df.fit10$dataset=="treated"][[1]]),dataset="treated",temperature=unique(df.fit10$temperature))
+    check101<-data.frame(fitted_values10=unique(df.fit10$fitted_values10[df.fit10$dataset=="vehicle"][[1]]),dataset="vehicle",temperature=unique(df.fit10$temperature))
+    check10<-rbind(check10,check101)
     check_10<-df.fit10 %>% dplyr::select(-sample,-fitted_values10) %>% unique
     check10<-cbind(check_10,check10)
     
@@ -842,14 +848,11 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
       dplyr::select(sample,dataset,fitted_values,temperature) %>% ungroup(.)
     
     ## calculate the fitted values
-    d<-length(df.fit$fitted_values[[1]]$fitted_values)
-    check<-df.fit %>% dplyr::select(-sample,-fitted_values) %>% unique(.)
-    #unnest fitted values from list and name value column
-    check1<-data.frame(fitted_values=unique(df.fit$fitted_values[[1]]$fitted_values))
-    
-    check<-cbind(check,check1)
-    
-    
+    check<-data.frame(fitted_values=unique(df.fit$fitted_values[df.fit$dataset=="treated"][[1]]),dataset="treated",temperature=unique(df.fit$temperature))
+    check3<-data.frame(fitted_values=unique(df.fit$fitted_values[df.fit$dataset=="vehicle"][[1]]),dataset="vehicle",temperature=unique(df.fit$temperature))
+    check3<-rbind(check,check3)
+    check_<-df.fit %>% dplyr::select(-sample,-fitted_values) %>% unique
+    check<-cbind(check_,check3)
     
     test<-df.median %>% dplyr::group_by(sample,temperature,dataset) %>% dplyr::right_join(check,c('temperature','dataset'))
     ## calculate ratios between the fitted curves and the median values
@@ -5171,11 +5174,12 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
     df_$delabel <- NA
     df_$delabel[df_$uniqueID %in%c("P36507","Q02750")] <- as.character(df_$uniqueID[df_$uniqueID %in%c("P36507","Q02750")])
     
-    ggplot(data=df_,mapping=aes(x=dTm,y=-log10(p_dTm),color=diffexpressed))+geom_point()+ geom_vline(xintercept=c(-1, 1), col="red") +
+    check<-ggplot(data=df_,mapping=aes(x=dTm,y=-log10(p_dTm),color=diffexpressed))+geom_point()+ geom_vline(xintercept=c(-1, 1), col="red") +
       geom_hline(yintercept=-log10(0.05), col="red")+ scale_color_manual("Stabilization",values=c("blue", "black", "red"))+
       labs(y=expression(-log["10"]*(P-value)),x=expression(Delta*T["m"]))+
       geom_text(aes(dTm, -log10(p_dTm), label = delabel), data = df_)+
-      geom_text_repel(aes(dTm, -log10(p_dTm),label=delabel))+ggtitle(df_$sample_name[1])
+      geom_text_repel(aes(dTm, -log10(p_dTm),label=delabel))+ggtitle(df_$sample_name[1])+
+      theme(legend.position="bottom", legend.box = "horizontal")
     
   }else if(isTRUE(Splines)){
     f<-f %>% purrr::keep(function(x) !class(x$p_dTm)=='try-error')
@@ -5184,7 +5188,7 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
     f<-f %>% purrr::keep(function(x) any(class(x$M1[[1]])=="gam"))
     
     
-    f<-purrr::map(f,function(x) x %>% dplyr::mutate(stabilized=as.factor(ifelse(x$Tm[x$dataset=="treated"][1]>x$Tm[x$dataset=="vehicle"][1],"Stabilized","Destabilized"))))
+    f<-purrr::map(f,function(x) x %>% dplyr::mutate(stabilized=as.factor(ifelse(dTm>0,"Stabilized",ifelse(dTm<0,"Destabilized","No")))))
     
     f<-purrr::map(f,function(x) x[1,])
     
@@ -5205,16 +5209,17 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
     df_$delabel <- NA
     df_$delabel[df_$uniqueID %in%c("P36507","Q02750")] <- as.character(df_$uniqueID[df_$uniqueID %in%c("P36507","Q02750")])
     
-    ggplot(data=df_,mapping=aes(x=dTm,y=-log10(p_dTm),color=diffexpressed))+geom_point()+ geom_vline(xintercept=c(-1, 1), col="red") +
+    check<-ggplot(data=df_,mapping=aes(x=dTm,y=-log10(p_dTm),color=diffexpressed))+geom_point()+ geom_vline(xintercept=c(-1, 1), col="red") +
       geom_hline(yintercept=-log10(0.05), col="red")+ scale_color_manual("Stabilization",values=c("blue", "black", "red"))+
       labs(y=expression(-log["10"]*(P-value)),x=expression(Delta*T["m"]))+
       geom_text(aes(dTm, -log10(p_dTm), label = delabel), data = df_)+
-      geom_text_repel(aes(dTm, -log10(p_dTm),label=delabel))+ggtitle(df_$sample_name[1])
+      geom_text_repel(aes(dTm, -log10(p_dTm),label=delabel))+ggtitle(df_$sample_name[1])+
+      theme(legend.position="bottom", legend.box = "horizontal")
     
     
   }
   
-  
+  return(check)
   
 }
 
@@ -5483,7 +5488,7 @@ y<-get_legend(check$plot)
 data<-unlist(lapply(plot_I,function(x) x$labels$title))
 plot_I<-plot_I[order(data)]
 P<-ggarrange(plotlist=plot_I,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
-pdf("Intensity_values_Protein_all.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+pdf("Intensity_values_Peptide_filt.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 P
 dev.off()
 ##Generate upset plots for missing value data###
@@ -5743,8 +5748,17 @@ P1
 P2
 
 dev.off()
+#plot volcano 
+check<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,filter=FALSE)))
+check1<-ggplot2::ggplot_build(check[[1]])
+y<-get_legend(check1$plot)
+P1<-ggarrange(plotlist=check,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-#plot Number of curves
+pdf("volcano_splines_Protein_panels.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+P1
+dev.off()
+
+#ot Number of curves
 Check<-UpSet_curves(plotS2,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,filter=FALSE)
 pdf("Number_of_curves_upset_splines_Protein.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 Check
