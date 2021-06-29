@@ -712,38 +712,39 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     check31<-data.frame(fitted_values3=unique(df.fit3$fitted_values3[df.fit3$dataset=="vehicle"][[1]]),dataset="vehicle",temperature=unique(df.fit3$temperature))
     check3<-rbind(check3,check31)
     check_3<-df.fit3 %>% dplyr::select(-sample,-fitted_values3) %>% unique
-    check3<-cbind(check_3,check3)
+    check3<-check_3 %>% dplyr::right_join(check3,by=c("temperature","dataset"))
     
     check5<-data.frame(fitted_values5=unique(df.fit5$fitted_values5[df.fit5$dataset=="treated"][[1]]),dataset="treated",temperature=unique(df.fit5$temperature))
     check51<-data.frame(fitted_values5=unique(df.fit5$fitted_values5[df.fit5$dataset=="vehicle"][[1]]),dataset="vehicle",temperature=unique(df.fit5$temperature))
     check5<-rbind(check5,check51)
     check_5<-df.fit5 %>% dplyr::select(-sample,-fitted_values5) %>% unique
-    check5<-cbind(check_5,check5)
+    check5<-check_5 %>% dplyr::right_join(check5,by=c("temperature","dataset"))
     
     check10<-data.frame(fitted_values10=unique(df.fit10$fitted_values10[df.fit10$dataset=="treated"][[1]]),dataset="treated",temperature=unique(df.fit10$temperature))
     check101<-data.frame(fitted_values10=unique(df.fit10$fitted_values10[df.fit10$dataset=="vehicle"][[1]]),dataset="vehicle",temperature=unique(df.fit10$temperature))
     check10<-rbind(check10,check101)
     check_10<-df.fit10 %>% dplyr::select(-sample,-fitted_values10) %>% unique
-    check10<-cbind(check_10,check10)
+    check10<-check_10 %>% dplyr::right_join(check10,by=c("temperature","dataset"))
     
     df1<-df1 %>% dplyr::filter(temperature<68)
-    test3<-df1 %>% dplyr::group_by(temperature) %>% dplyr::right_join(check3,c('temperature','dataset'))
-    test5<-df1 %>% dplyr::group_by(temperature) %>% dplyr::right_join(check5,c('temperature','dataset'))
-    test10<-df1 %>% dplyr::group_by(temperature) %>% dplyr::right_join(check10,c('temperature','dataset'))
+    
+    test3<-df1 %>% dplyr::group_by(temperature,dataset) %>% dplyr::right_join(check3,by=c('temperature','dataset'))
+    test5<-df1 %>% dplyr::group_by(temperature,dataset) %>% dplyr::right_join(check5,c('temperature','dataset'))
+    test10<-df1 %>% dplyr::group_by(temperature,dataset) %>% dplyr::right_join(check10,c('temperature','dataset'))
     
     ## calculate ratios between the fitted curves and the median values
     df.out3 <- test3 %>%
-      dplyr::mutate(correction3 = ifelse(is.na(fitted_values3 / value),NA,fitted_values3 / value)) %>%
+      dplyr::mutate(correction3 = ifelse(is.na(fitted_values / value),NA,fitted_values / value)) %>%
       dplyr::select('sample','temperature','correction3','dataset')
     
     
     df.out5 <- test5 %>%
-      dplyr::mutate(correction5 = ifelse(is.na(fitted_values5 / value),NA,fitted_values5 / value)) %>%
+      dplyr::mutate(correction5 = ifelse(is.na(fitted_values / value),NA,fitted_values / value)) %>%
       dplyr::select('sample','temperature','correction5','dataset')
     
     
     df.out10 <- test10 %>%
-      dplyr::mutate(correction10 = ifelse(is.na(fitted_values10 / value),NA,fitted_values10 / value)) %>%
+      dplyr::mutate(correction10 = ifelse(is.na(fitted_values / value),NA,fitted_values / value)) %>%
       dplyr::select('sample','temperature','correction10','dataset')
     
     ## join correction factor to data
@@ -852,7 +853,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     check3<-data.frame(fitted_values=unique(df.fit$fitted_values[df.fit$dataset=="vehicle"][[1]]),dataset="vehicle",temperature=unique(df.fit$temperature))
     check3<-rbind(check,check3)
     check_<-df.fit %>% dplyr::select(-sample,-fitted_values) %>% unique
-    check<-cbind(check_,check3)
+    check<-check_ %>% dplyr::right_join(check3,by=c("temperature","dataset"))
     
     test<-df.median %>% dplyr::group_by(sample,temperature,dataset) %>% dplyr::right_join(check,c('temperature','dataset'))
     ## calculate ratios between the fitted curves and the median values
