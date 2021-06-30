@@ -31,7 +31,7 @@ library(ggpubr)
 library(furrr)
 library(parallel)
 library(janitor)
-library(EnhancedVolcano)
+library(ggrepel)
 library(ggpubr)
 requireNamespace("plyr")
 
@@ -4768,26 +4768,70 @@ MSStats_converter<-function(df_raw,solvent){
 
 
 #TPP TR Reader
-TPPbenchmark<-function(f){
+TPPbenchmark<-function(f,volcano=TRUE){
+  f<-"~/Files/Scripts/Files/TPP_results"
   f<-list.files(f)
   #read data
   df_TPP<-lapply(f,function(x) read_excel(x,.name_repair = "unique"))
   #extract experiment names
   f<-str_extract_all(f,c("C_F_E","C_F_S","C_nF_E","C_nF_S","nC_F_E","nC_F_S","nC_nF_E","nC_nF_S"))
   f<-lapply(f,function(x) data.frame(sample_name=as.factor(x)))
+  
   #join data
   df_TPP<-purrr::map2(df_TPP,f,function(x,y)cbind(x,y))
+  
+  
   #select columns of interest
   df_TPP<-dplyr::bind_rows(df_TPP) %>% 
-    select(Protein_ID,fulfills_all_4_requirements,model_converged_DMSO_1,model_converged_DMSO_2,model_converged_MEKi_1,model_converged_MEKi_2,sample_name)
+    select(Protein_ID,fulfills_all_4_requirements,
+           model_converged_DMSO_1,model_converged_DMSO_2,model_converged_MEKi_1,model_converged_MEKi_2,
+           sample_name,
+           diff_meltP_MEKi_1_vs_DMSO_1,diff_meltP_MEKi_2_vs_DMSO_2,
+           pVal_adj_MEKi_1_vs_DMSO_1,pVal_adj_MEKi_2_vs_DMSO_2)%>% dplyr::filter(model_converged_DMSO_1=="Yes" & model_converged_DMSO_2 =="Yes" ,model_converged_MEKi_2=="Yes" & model_converged_MEKi_1 =="Yes")
   
   df_TPP$Protein_ID<-as.factor(df_TPP$Protein_ID)
-  
+  df_TPP$sample_name<-str_replace(df_TPP$sample_name,"S","\u03A6")
   #get names
   
   df_TPP<-df_TPP %>% dplyr::group_split(sample_name)
+  if(isTRUE(volcano)){
+    
+    df_TPP1<-purrr::map(df_TPP,function(x)x %>% dplyr::select(Protein_ID,sample_name,pVal_adj_MEKi_1_vs_DMSO_1,pVal_adj_MEKi_2_vs_DMSO_2,diff_meltP_MEKi_1_vs_DMSO_1,diff_meltP_MEKi_2_vs_DMSO_2) %>% 
+                          pivot_longer(c(pVal_adj_MEKi_1_vs_DMSO_1,pVal_adj_MEKi_2_vs_DMSO_2),
+                                       names_to = c("hi","dTm"),
+                                       names_pattern = c("(.+)pVal_(.+)"),
+                          ) %>% dplyr::rename("p_dTm"="value"))
+    df_TPP2<-purrr::map(df_TPP1,function(x)x %>% dplyr::select(Protein_ID,sample_name,diff_meltP_MEKi_1_vs_DMSO_1,diff_meltP_MEKi_2_vs_DMSO_2,p_dTm) %>% 
+                          pivot_longer(c(diff_meltP_MEKi_1_vs_DMSO_1,diff_meltP_MEKi_2_vs_DMSO_2),
+                                       names_to = c("hi","set"),
+                                       names_pattern = "(.+)diff_(.+)"
+                          ) %>% dplyr::rename("dTm"="value") %>% dplyr::select(-hi,-set))
+    df_TPP3<-purrr::map(df_TPP2,function(x) x[!is.na(x$dTm),])
+    df_TPP2<-dplyr::bind_rows(df_TPP3) 
+    df_TPP2$diffexpressed <- "No"
+    # if log2Foldchange > 0.6 and pvalue < 0.05, set as "UP" 
+    df_TPP2$diffexpressed[df_TPP2$dTm > 1 & df_TPP2$p_dTm < 0.05] <- "Stabilized"
+    # if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"
+    df_TPP2$diffexpressed[df_TPP2$dTm < -1 & df_TPP2$p_dTm < 0.05] <- "Destabilized"
+    df_TPP2$delabel <- NA
+    df_TPP2$delabel[df_TPP2$Protein_ID %in%c("P36507","Q02750")] <- as.character(df_TPP2$Protein_ID[df_TPP2$Protein_ID %in%c("P36507","Q02750")])
+    df_TPP2<-dplyr::bind_rows(df_TPP2) %>% dplyr::group_split(sample_name,Protein_ID)
+    df_TPP2<-purrr::map(df_TPP2,function(x) x[1,])
+    df_TPP2<-dplyr::bind_rows(df_TPP2) %>% dplyr::group_split(sample_name)
+    df_TPP2<-purrr::map(df_TPP2,function(x)
+      ggplot(data=x,mapping=aes(x=dTm,y=-log10(p_dTm),color=diffexpressed))+geom_point()+ geom_vline(xintercept=c(-1, 1), col="red") +
+        geom_hline(yintercept=-log10(0.05), col="red")+ scale_color_manual("Stabilization",values=c("blue", "black", "red"))+
+        labs(y=expression(-log["10"]*(P-value)),x=expression(Delta*T["m"]))+
+        geom_text(aes(dTm, -log10(p_dTm), label = delabel), data = df_,color="black")+
+        geom_text_repel(aes(dTm, -log10(p_dTm),label=delabel))+ggtitle(x$sample_name[1])+
+        theme(legend.position="bottom", legend.box = "horizontal")+ylim(-0.1,55))
+    
+    
+    return(df_TPP2)
+  }
+  #for upset plots
   df_1<-purrr::map(df_TPP,function(x)
-    pivot_wider(x,names_from=sample_name,values_from=c(fulfills_all_4_requirements,model_converged_DMSO_1,model_converged_DMSO_2,model_converged_MEKi_1,model_converged_MEKi_2),values_fill=as.character(FALSE)))
+    pivot_wider(x,names_from=pVal_adj_MEKi_1_vs_DMSO_1,values_from=c(pVal_adj_MEKi_1_vs_DMSO_1,pVal_adj_MEKi_2_vs_DMSO_2),values_fill=NA))
   
   # df_1<-dplyr::bind_rows(df_1)
   df_1<-dplyr::bind_rows(df_TPP)
@@ -5086,7 +5130,7 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
         dplyr::mutate(sample_name=as.factor(sample_name),
                       dataset=as.factor(dataset),
                       Tm=with(.,stats::approx(I,C, xout=min(I,na.rm=TRUE)+(0.5*(max(I, na.rm=TRUE)-min(I, na.rm=TRUE))))$y)) %>% 
-        dplyr::select(-rank,-rank_l,-C,-I,-temp_ref,-CV_pct,-missing_pct) %>% dplyr::ungroup(.)
+        dplyr::select(-rank,-C,-I,-temp_ref,-CV_pct,-missing_pct) %>% dplyr::ungroup(.)
     }
     f<-mclapply(f,addTm,mc.cores=availableCores())
     f<-dplyr::bind_rows(f)
@@ -5123,12 +5167,12 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
     f<-f %>% 
       dplyr::group_split(uniqueID,dataset,sample)
     addTm<-function(x){
-      f<-dplyr::bind_rows(x) %>%
+      f<-x %>%
         dplyr::group_by(uniqueID,dataset,sample) %>% # group individual curve data to calculate individual Tm
         dplyr::mutate(sample_name=as.factor(sample_name),
                       dataset=as.factor(dataset),
                       Tm=with(.,stats::approx(I,C, xout=min(I,na.rm=TRUE)+(0.5*(max(I, na.rm=TRUE)-min(I, na.rm=TRUE))))$y)) %>% 
-        dplyr::select(-rank,-C,-I,-temp_ref,-CV_pct,-missing_pct) %>% dplyr::ungroup(.)
+        dplyr::select(-rank,-C,-I,-CV_pct,-missing_pct) %>% dplyr::ungroup(.)
     }
     f<-mclapply(f,addTm,mc.cores=availableCores())
     f<-dplyr::bind_rows(f)
@@ -5137,7 +5181,7 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
     FC<-function(x){ x %>% dplyr::ungroup(.) %>% dplyr::group_by(uniqueID) %>% 
         dplyr::mutate(v_Tm=mean(x$Tm[x$dataset == "vehicle"],na.rm=TRUE),
                       t_Tm=mean(x$Tm[x$dataset == "treated"],na.rm=TRUE),
-                      dTm=mean(Tm[dataset == "treated"],na.rm=TRUE)-mean(Tm[dataset == "vehicle"],na.rm=TRUE),
+                      dTm=try(mean(Tm[dataset == "treated"],na.rm=TRUE)-mean(Tm[dataset == "vehicle"],na.rm=TRUE)),
                       FC=log2(v_Tm/t_Tm),
                       variance_equal_vt = var.test(x$Tm ~ x$dataset)$p.value,
                       p_dTm= try(ifelse(all(x$variance_equal_vt < 0.05),
@@ -5236,7 +5280,7 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
     check<-ggplot(data=df_,mapping=aes(x=dTm,y=-log10(p_dTm),color=diffexpressed))+geom_point()+ geom_vline(xintercept=c(-1, 1), col="red") +
       geom_hline(yintercept=-log10(0.05), col="red")+ scale_color_manual("Stabilization",values=c("blue", "black", "red"))+
       labs(y=expression(-log["10"]*(P-value)),x=expression(Delta*T["m"]))+
-      geom_text(aes(dTm, -log10(p_dTm), label = delabel), data = df_)+
+      geom_text(aes(dTm, -log10(p_dTm), label = delabel), data = df_,color="black")+
       geom_text_repel(aes(dTm, -log10(p_dTm),label=delabel))+ggtitle(df_$sample_name[1])+
       theme(legend.position="bottom", legend.box = "horizontal")
     
@@ -5782,6 +5826,14 @@ pdf("volcano_splines_Protein_panels.pdf",encoding="CP1253.enc",compress=TRUE,wid
 P1
 dev.off()
 
+check<-TPPbenchmark(f,volcano=TRUE)
+check1<-ggplot2::ggplot_build(check[[1]])
+y<-get_legend(check1$plot)
+P1<-ggarrange(plotlist=check,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
+
+pdf("volcano_TPP_Protein_panels.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+P1
+dev.off()
 #ot Number of curves
 Check<-UpSet_curves(plotS2,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,filter=FALSE)
 pdf("Number_of_curves_upset_splines_Protein.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
