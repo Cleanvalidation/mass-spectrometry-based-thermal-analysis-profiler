@@ -5124,32 +5124,38 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
   if(isTRUE(Peptide) & any(names(f)=="rank_l")){
     f<-f %>% 
       dplyr::group_split(uniqueID,dataset,sample)
+    
     addTm<-function(x){
       f<-dplyr::bind_rows(x) %>%
         dplyr::group_by(uniqueID,dataset,sample) %>% # group individual curve data to calculate individual Tm
         dplyr::mutate(sample_name=as.factor(sample_name),
                       dataset=as.factor(dataset),
-                      Tm=with(.,stats::approx(I,C, xout=min(I,na.rm=TRUE)+(0.5*(max(I, na.rm=TRUE)-min(I, na.rm=TRUE))))$y)) %>% 
+                      Tm=try(with(.,stats::approx(I,C, xout=min(I,na.rm=TRUE)+(0.5*(max(I, na.rm=TRUE)-min(I, na.rm=TRUE))))$y))) %>% 
         dplyr::select(-rank,-C,-I,-temp_ref,-CV_pct,-missing_pct) %>% dplyr::ungroup(.)
     }
     f<-mclapply(f,addTm,mc.cores=availableCores())
+    #remove data where TM cannot be calculated
+    
+    f<-f %>% purrr::keep(function(x) !is.null(x))
     f<-dplyr::bind_rows(f)
     f<-f %>% dplyr::group_split(uniqueID)
     f<-f %>% purrr::keep(function(x) any(x$dataset %in% c("vehicle")) & any(x$dataset%in% c("treated")))
     FC<-function(x){ x %>% dplyr::ungroup(.) %>% dplyr::group_by(uniqueID) %>% 
         dplyr::mutate(v_Tm=mean(x$Tm[x$dataset == "vehicle"],na.rm=TRUE),
                       t_Tm=mean(x$Tm[x$dataset == "treated"],na.rm=TRUE),
-                      dTm=mean(Tm[dataset == "treated"],na.rm=TRUE)-mean(Tm[dataset == "vehicle"],na.rm=TRUE),
+                      dTm=try(mean(Tm[dataset == "treated"],na.rm=TRUE)-mean(Tm[dataset == "vehicle"],na.rm=TRUE)),
                       FC=log2(v_Tm/t_Tm),
                       variance_equal_vt = var.test(x$Tm ~ x$dataset)$p.value,
-                      p_dTm= ifelse(all(x$variance_equal_vt < 0.05),
-                                    t.test(x$Tm ~ x$dataset, data = x,
-                                           var.equal = ifelse(all(x$variance_equal_vt<0.05),FALSE,TRUE))$p.value,NA))
+                      p_dTm= try(ifelse(all(x$variance_equal_vt < 0.05),
+                                        t.test(x$Tm ~ x$dataset, data = x,
+                                               var.equal = ifelse(all(x$variance_equal_vt<0.05),FALSE,TRUE))$p.value,NA)))
     }
     
     f<-mclapply(f,FC,mc.cores=availableCores())
     ######
-    
+    f<-f %>% dplyr::group_split(uniqueID,sample_name)
+    f<-purrr::map(f,function(x) x[1,])
+    f<-dplyr::bind_rows(f) %>% dplyr::group_split(uniqueID)
     f<-purrr::map(f,function(x) x %>% dplyr::ungroup(.) %>% group_by(sample,dataset) %>% 
                     dplyr::mutate(uniqueID=uniqueID,
                                   dataset=dataset,
