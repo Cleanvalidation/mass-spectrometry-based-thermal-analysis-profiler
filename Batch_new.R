@@ -3589,7 +3589,7 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE,filters=TRUE)
         theme_bw() +
         ggplot2::xlab("F-values")+
         ggplot2::xlim(0,0.05)
-      print(Unscaled)
+      # print(Unscaled)
       #scale variables
       M<-median(testResults$dRSS,na.rm=TRUE)
       V<-mad(testResults$dRSS,na.rm=TRUE)
@@ -3620,7 +3620,7 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE,filters=TRUE)
         theme_bw() + 
         ggplot2::xlab("F-values")+
         ggplot2::xlim(0,0.05)
-      print(TestScaled)
+      # print(TestScaled)
       #Define checked as filtered protein IDs
       check<-testScaled$uniqueID
       test<-testScaled %>% dplyr::filter(.$pValue<0.01)
@@ -3633,7 +3633,7 @@ spstat<-function(DF,df,df1,norm=FALSE,Ftest=TRUE,show_results=TRUE,filters=TRUE)
         theme_bw() +
         coord_cartesian(xlim=c(0,10))+
         ggplot2::xlab("F-values")
-      print(testS)
+      # print(testS)
       
       
       mean1<-mean1 %>% dplyr::filter(mean1$uniqueID %in% test$uniqueID)
@@ -4822,8 +4822,8 @@ TPPbenchmark<-function(f,volcano=TRUE){
       ggplot(data=x,mapping=aes(x=dTm,y=-log10(p_dTm),color=diffexpressed))+geom_point()+ geom_vline(xintercept=c(-1, 1), col="red") +
         geom_hline(yintercept=-log10(0.05), col="red")+ scale_color_manual("Stabilization",values=c("blue", "black", "red"))+
         labs(y=expression(-log["10"]*(P-value)),x=expression(Delta*T["m"]))+
-        geom_text(aes(dTm, -log10(p_dTm), label = delabel), data = df_,color="black")+
-        geom_text_repel(aes(dTm, -log10(p_dTm),label=delabel))+ggtitle(x$sample_name[1])+
+        #geom_text(aes(dTm, -log10(p_dTm), label = delabel), data = df_,color="black")+
+        geom_text_repel(aes(dTm, -log10(p_dTm),label=delabel),color="black")+ggtitle(x$sample_name[1])+
         theme(legend.position="bottom", legend.box = "horizontal")+ylim(-0.1,55))
     
     
@@ -5119,108 +5119,166 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
   
   
 }
-volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FALSE,filter=FALSE){
-  
-  if(isTRUE(Peptide) & any(names(f)=="rank_l")){
-    f<-f %>% 
-      dplyr::group_split(uniqueID,dataset,sample)
-    
-    addTm<-function(x){
-      f<-dplyr::bind_rows(x) %>%
-        dplyr::group_by(uniqueID,dataset,sample) %>% # group individual curve data to calculate individual Tm
-        dplyr::mutate(sample_name=as.factor(sample_name),
-                      dataset=as.factor(dataset),
-                      Tm=try(with(.,stats::approx(I,C, xout=min(I,na.rm=TRUE)+(0.5*(max(I, na.rm=TRUE)-min(I, na.rm=TRUE))))$y))) %>% 
-        dplyr::select(-rank,-C,-I,-temp_ref,-CV_pct,-missing_pct) %>% dplyr::ungroup(.)
+volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FALSE,fT=FALSE){
+  if(isTRUE(fT)){
+    if(isTRUE(Peptide) & any(names(f)=="rank_l")){
+      f<-data.frame(f)
+      f<-f %>% 
+        dplyr::select(uniqueID,sample,sample_name,Tm,AUC,rsq,fStatistic,pValue,pAdj,dataset,Fvals)
+      f$sample_name<-str_replace(f$sample_name,"S","\u03A6")
+      f<-f %>% dplyr::group_split(uniqueID)
+      
+      f<-dplyr::bind_rows(f)
+      f$diffexpressed <- "No"
+      # if log2Foldchange > 0.6 and pvalue < 0.05, set as "UP" 
+      f$diffexpressed[f$Fvals < f$fStatistic & f$pAdj < 0.05] <- "Shifted"
+      #if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"
+      f$diffexpressed[f$Fvals < f$fStatistic & f$pAdj > 0.05] <- "Not shifted"
+      f$diffexpressed[f$Fvals > f$fStatistic & f$pAdj > 0.05] <- "NA"
+      f$delabel <- NA
+      others<-as.character(f$uniqueID[which(f$Fvals>20)])
+      f$delabel[f$uniqueID %in%c("P36507","Q02750",others)] <- as.character(f$uniqueID[f$uniqueID %in%c("P36507","Q02750",others)])
+      
+      f<-data.frame(f)
+      check<-ggplot(data=f,mapping=aes(x=Fvals,y=pAdj,color=diffexpressed))+geom_point()+
+        geom_hline(yintercept=0.05, col="red")+ scale_color_manual("Stabilization",values=c("blue","red","orange"),labels = c("Shifted", "Not shifted"))+
+        labs(y="P-value",x="F-values")+
+        #geom_text(mapping=aes(Fvals, pAdj, label = delabel), data = f,color="black")+
+        geom_text_repel(f,mapping=aes(Fvals, pAdj,label=delabel),color="black")+ggtitle(f$sample_name[1])+
+        theme(legend.position="bottom", legend.box = "horizontal")
+      
+      return(check)
+      
+    }else if(!isTRUE(Peptide)){
+      f<-data.frame(f)
+      f<-f %>% 
+        dplyr::select(uniqueID,sample,sample_name,Tm,AUC,rsq,fStatistic,pValue,pAdj,dataset,Fvals)
+      f$sample_name<-str_replace(f$sample_name,"S","\u03A6")
+      f<-f %>% dplyr::group_split(uniqueID)
+      
+      f<-dplyr::bind_rows(f)
+      f$diffexpressed <- "No"
+      # if log2Foldchange > 0.6 and pvalue < 0.05, set as "UP" 
+      f$diffexpressed[f$Fvals < f$fStatistic & f$pAdj < 0.05] <- "Shifted"
+      #if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"
+      f$diffexpressed[f$Fvals < f$fStatistic & f$pAdj > 0.05] <- "Not shifted"
+      f$diffexpressed[f$Fvals > f$fStatistic] <- "NA"
+      f$delabel <- NA
+      others<-as.character(f$uniqueID[which(f$Fvals>20)])
+      f$delabel[f$uniqueID %in%c("P36507","Q02750",others)] <- as.character(f$uniqueID[f$uniqueID %in%c("P36507","Q02750",others)])
+      
+      f<-data.frame(f)
+      check<-ggplot(data=f,mapping=aes(x=Fvals,y=pAdj,color=diffexpressed))+geom_point()+
+        geom_hline(yintercept=0.05, col="red")+ scale_color_manual("Stabilization",values=c("blue","red","orange"))+
+        labs(y="P-value",x="F-values")+
+        #geom_text(mapping=aes(Fvals, pAdj, label = delabel), data = f,color="black")+
+        geom_text_repel(f,mapping=aes(Fvals, pAdj,label=delabel),color="black")+ggtitle(f$sample_name[1])+
+        theme(legend.position="bottom", legend.box = "horizontal")
+      
+      return(check)
     }
-    f<-mclapply(f,addTm,mc.cores=availableCores())
-    #remove data where TM cannot be calculated
-    
-    f<-f %>% purrr::keep(function(x) !is.null(x))
-    f<-dplyr::bind_rows(f)
-    f<-f %>% dplyr::group_split(uniqueID)
-    f<-f %>% purrr::keep(function(x) any(x$dataset %in% c("vehicle")) & any(x$dataset%in% c("treated")))
-    FC<-function(x){ x %>% dplyr::ungroup(.) %>% dplyr::group_by(uniqueID) %>% 
-        dplyr::mutate(v_Tm=mean(x$Tm[x$dataset == "vehicle"],na.rm=TRUE),
-                      t_Tm=mean(x$Tm[x$dataset == "treated"],na.rm=TRUE),
-                      dTm=try(mean(Tm[dataset == "treated"],na.rm=TRUE)-mean(Tm[dataset == "vehicle"],na.rm=TRUE)),
-                      FC=log2(v_Tm/t_Tm),
-                      variance_equal_vt = var.test(x$Tm ~ x$dataset)$p.value,
-                      p_dTm= try(ifelse(all(x$variance_equal_vt < 0.05),
-                                        t.test(x$Tm ~ x$dataset, data = x,
-                                               var.equal = ifelse(all(x$variance_equal_vt<0.05),FALSE,TRUE))$p.value,NA)))
-    }
-    
-    f<-mclapply(f,FC,mc.cores=availableCores())
-    ######
-    f<-f %>% dplyr::group_split(uniqueID,sample_name)
-    f<-purrr::map(f,function(x) x[1,])
-    f<-dplyr::bind_rows(f) %>% dplyr::group_split(uniqueID)
-    f<-purrr::map(f,function(x) x %>% dplyr::ungroup(.) %>% group_by(sample,dataset) %>% 
-                    dplyr::mutate(uniqueID=uniqueID,
-                                  dataset=dataset,
-                                  sample_name=sample_name,
-                                  M1=M1,
-                                  sample=sample,
-                                  Tm=mean(Tm,na.rm=TRUE),#for peptide groups, caculate averages for parameters
-                                  rss=mean(rss,na.rm=TRUE),
-                                  rsq=mean(rsq,na.rm=TRUE),
-                                  AUC=mean(AUC,na.rm=TRUE)
-                    ) %>% 
-                    ungroup(.) %>% distinct(.))
-    
-  }else if(!isTRUE(Peptide)){
-    f<-f %>% 
-      dplyr::group_split(uniqueID,dataset,sample)
-    addTm<-function(x){
-      f<-x %>%
+  }else{
+    if(isTRUE(Peptide) & any(names(f)=="rank_l")){
+      f<-f %>% 
+        dplyr::group_split(uniqueID,dataset,sample)
+      
+      addTm<-function(x){
+        f<-dplyr::bind_rows(x) %>%
+          dplyr::group_by(uniqueID,dataset,sample) %>% # group individual curve data to calculate individual Tm
+          dplyr::mutate(sample_name=as.factor(sample_name),
+                        dataset=as.factor(dataset),
+                        Tm=try(with(.,stats::approx(I,C, xout=min(I,na.rm=TRUE)+(0.5*(max(I, na.rm=TRUE)-min(I, na.rm=TRUE))))$y))) %>% 
+          dplyr::select(-rank,-C,-I,-temp_ref,-CV_pct,-missing_pct) %>% dplyr::ungroup(.)
+      }
+      f<-mclapply(f,addTm,mc.cores=availableCores())
+      #remove data where TM cannot be calculated
+      
+      f<-f %>% purrr::keep(function(x) !is.null(x))
+      f<-dplyr::bind_rows(f)
+      f<-f %>% dplyr::group_split(uniqueID)
+      f<-f %>% purrr::keep(function(x) any(x$dataset %in% c("vehicle")) & any(x$dataset%in% c("treated")))
+      FC<-function(x){ x %>% dplyr::ungroup(.) %>% dplyr::group_by(uniqueID) %>% 
+          dplyr::mutate(v_Tm=mean(x$Tm[x$dataset == "vehicle"],na.rm=TRUE),
+                        t_Tm=mean(x$Tm[x$dataset == "treated"],na.rm=TRUE),
+                        dTm=try(mean(Tm[dataset == "treated"],na.rm=TRUE)-mean(Tm[dataset == "vehicle"],na.rm=TRUE)),
+                        FC=log2(v_Tm/t_Tm),
+                        variance_equal_vt = var.test(x$Tm ~ x$dataset)$p.value,
+                        p_dTm= try(ifelse(all(x$variance_equal_vt < 0.05),
+                                          t.test(x$Tm ~ x$dataset, data = x,
+                                                 var.equal = ifelse(all(x$variance_equal_vt<0.05),FALSE,TRUE))$p.value,NA)))
+      }
+      
+      f<-mclapply(f,FC,mc.cores=availableCores())
+      ######
+      f<-f %>% dplyr::group_split(uniqueID,sample_name)
+      f<-purrr::map(f,function(x) x[1,])
+      f<-dplyr::bind_rows(f) %>% dplyr::group_split(uniqueID)
+      f<-purrr::map(f,function(x) x %>% dplyr::ungroup(.) %>% group_by(sample,dataset) %>% 
+                      dplyr::mutate(uniqueID=uniqueID,
+                                    dataset=dataset,
+                                    sample_name=sample_name,
+                                    M1=M1,
+                                    sample=sample,
+                                    Tm=mean(Tm,na.rm=TRUE),#for peptide groups, caculate averages for parameters
+                                    rss=mean(rss,na.rm=TRUE),
+                                    rsq=mean(rsq,na.rm=TRUE),
+                                    AUC=mean(AUC,na.rm=TRUE)
+                      ) %>% 
+                      ungroup(.) %>% distinct(.))
+      
+    }else if(!isTRUE(Peptide)){
+      f<-f %>% 
+        dplyr::group_split(uniqueID,dataset,sample)
+      addTm<-function(x){
+        f<-x %>%
+          dplyr::group_by(uniqueID,dataset,sample) %>% # group individual curve data to calculate individual Tm
+          dplyr::mutate(sample_name=as.factor(sample_name),
+                        dataset=as.factor(dataset),
+                        Tm=with(.,stats::approx(I,C, xout=min(I,na.rm=TRUE)+(0.5*(max(I, na.rm=TRUE)-min(I, na.rm=TRUE))))$y)) %>% 
+          dplyr::select(-rank,-C,-I,-CV_pct,-missing_pct) %>% dplyr::ungroup(.)
+      }
+      f<-mclapply(f,addTm,mc.cores=availableCores())
+      f<-dplyr::bind_rows(f)
+      f<-f %>% dplyr::group_split(uniqueID)
+      f<-f %>% purrr::keep(function(x) any(x$dataset %in% c("vehicle")) & any(x$dataset%in% c("treated")))
+      FC<-function(x){ x %>% dplyr::ungroup(.) %>% dplyr::group_by(uniqueID) %>% 
+          dplyr::mutate(v_Tm=mean(x$Tm[x$dataset == "vehicle"],na.rm=TRUE),
+                        t_Tm=mean(x$Tm[x$dataset == "treated"],na.rm=TRUE),
+                        dTm=try(mean(Tm[dataset == "treated"],na.rm=TRUE)-mean(Tm[dataset == "vehicle"],na.rm=TRUE)),
+                        FC=log2(v_Tm/t_Tm),
+                        variance_equal_vt = var.test(x$Tm ~ x$dataset)$p.value,
+                        p_dTm= try(ifelse(all(x$variance_equal_vt < 0.05),
+                                          t.test(x$Tm ~ x$dataset, data = x,
+                                                 var.equal = ifelse(all(x$variance_equal_vt<0.05),FALSE,TRUE))$p.value[1],NA)))
+      }
+      
+      f<-mclapply(f,FC,mc.cores=availableCores())
+      
+    }else if (isTRUE(Trilinear)){#if this is a trilinear result
+      #f<-f %>% dplyr::group_split(uniqueID,dataset)
+      # f<-lapply(f,function(x) dplyr::bind_rows(x))
+      # f<-lapply(f,function(x) x %>% dplyr::mutate(sample_name=x$data[[1]]$sample_name[1]))
+      f<-dplyr::bind_rows(f) %>%
         dplyr::group_by(uniqueID,dataset,sample) %>% # group individual curve data to calculate individual Tm
         dplyr::mutate(sample_name=as.factor(sample_name),
                       dataset=as.factor(dataset),
                       Tm=with(.,stats::approx(I,C, xout=min(I,na.rm=TRUE)+(0.5*(max(I, na.rm=TRUE)-min(I, na.rm=TRUE))))$y)) %>% 
-        dplyr::select(-rank,-C,-I,-CV_pct,-missing_pct) %>% dplyr::ungroup(.)
+        dplyr::select(-rsq,-CI,-data) %>% dplyr::ungroup(.)
+      f<-f %>% 
+        dplyr::group_split(uniqueID)
+      FC<-function(x){ x %>% dplyr::ungroup(.) %>% dplyr::group_by(uniqueID) %>% 
+          dplyr::mutate(v_Tm=mean(x$Tm[x$dataset == "vehicle"],na.rm=TRUE),
+                        t_Tm=mean(x$Tm[x$dataset == "treated"],na.rm=TRUE),
+                        dTm=mean(Tm[dataset == "treated"],na.rm=TRUE)-mean(Tm[dataset == "vehicle"],na.rm=TRUE),
+                        FC=log2(v_Tm/t_Tm),
+                        variance_equal_vt = var.test(x$Tm ~ x$dataset)$p.value,
+                        p_dTm= ifelse(all(x$variance_equal_vt < 0.05),
+                                      t.test(x$Tm ~ x$dataset, data = x,
+                                             var.equal = ifelse(all(x$variance_equal_vt<0.05),FALSE,TRUE))$p.value,NA))
+      }
+      
+      f<-mclapply(f,FC,mc.cores=availableCores())
     }
-    f<-mclapply(f,addTm,mc.cores=availableCores())
-    f<-dplyr::bind_rows(f)
-    f<-f %>% dplyr::group_split(uniqueID)
-    f<-f %>% purrr::keep(function(x) any(x$dataset %in% c("vehicle")) & any(x$dataset%in% c("treated")))
-    FC<-function(x){ x %>% dplyr::ungroup(.) %>% dplyr::group_by(uniqueID) %>% 
-        dplyr::mutate(v_Tm=mean(x$Tm[x$dataset == "vehicle"],na.rm=TRUE),
-                      t_Tm=mean(x$Tm[x$dataset == "treated"],na.rm=TRUE),
-                      dTm=try(mean(Tm[dataset == "treated"],na.rm=TRUE)-mean(Tm[dataset == "vehicle"],na.rm=TRUE)),
-                      FC=log2(v_Tm/t_Tm),
-                      variance_equal_vt = var.test(x$Tm ~ x$dataset)$p.value,
-                      p_dTm= try(ifelse(all(x$variance_equal_vt < 0.05),
-                                        t.test(x$Tm ~ x$dataset, data = x,
-                                               var.equal = ifelse(all(x$variance_equal_vt<0.05),FALSE,TRUE))$p.value[1],NA)))
-    }
-    
-    f<-mclapply(f,FC,mc.cores=availableCores())
-    
-  }else if (isTRUE(Trilinear)){#if this is a trilinear result
-    #f<-f %>% dplyr::group_split(uniqueID,dataset)
-    # f<-lapply(f,function(x) dplyr::bind_rows(x))
-    # f<-lapply(f,function(x) x %>% dplyr::mutate(sample_name=x$data[[1]]$sample_name[1]))
-    f<-dplyr::bind_rows(f) %>%
-      dplyr::group_by(uniqueID,dataset,sample) %>% # group individual curve data to calculate individual Tm
-      dplyr::mutate(sample_name=as.factor(sample_name),
-                    dataset=as.factor(dataset),
-                    Tm=with(.,stats::approx(I,C, xout=min(I,na.rm=TRUE)+(0.5*(max(I, na.rm=TRUE)-min(I, na.rm=TRUE))))$y)) %>% 
-      dplyr::select(-rsq,-CI,-data) %>% dplyr::ungroup(.)
-    f<-f %>% 
-      dplyr::group_split(uniqueID)
-    FC<-function(x){ x %>% dplyr::ungroup(.) %>% dplyr::group_by(uniqueID) %>% 
-        dplyr::mutate(v_Tm=mean(x$Tm[x$dataset == "vehicle"],na.rm=TRUE),
-                      t_Tm=mean(x$Tm[x$dataset == "treated"],na.rm=TRUE),
-                      dTm=mean(Tm[dataset == "treated"],na.rm=TRUE)-mean(Tm[dataset == "vehicle"],na.rm=TRUE),
-                      FC=log2(v_Tm/t_Tm),
-                      variance_equal_vt = var.test(x$Tm ~ x$dataset)$p.value,
-                      p_dTm= ifelse(all(x$variance_equal_vt < 0.05),
-                                    t.test(x$Tm ~ x$dataset, data = x,
-                                           var.equal = ifelse(all(x$variance_equal_vt<0.05),FALSE,TRUE))$p.value,NA))
-    }
-    
-    f<-mclapply(f,FC,mc.cores=availableCores())
   }
   if(isTRUE(Trilinear)){
     f<-f %>% purrr::keep(function(x) !class(x$p_dTm)=='try-error')
@@ -5251,8 +5309,8 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
     check<-ggplot(data=df_,mapping=aes(x=dTm,y=-log10(p_dTm),color=diffexpressed))+geom_point()+ geom_vline(xintercept=c(-1, 1), col="red") +
       geom_hline(yintercept=-log10(0.05), col="red")+ scale_color_manual("Stabilization",values=c("blue", "black", "red"))+
       labs(y=expression(-log["10"]*(P-value)),x=expression(Delta*T["m"]))+
-      geom_text(aes(dTm, -log10(p_dTm), label = delabel), data = df_)+
-      geom_text_repel(aes(dTm, -log10(p_dTm),label=delabel))+ggtitle(df_$sample_name[1])+
+      #geom_text(aes(dTm, -log10(p_dTm), label = delabel), data = df_)+
+      geom_text_repel(aes(dTm, -log10(p_dTm),label=delabel),color="black")+ggtitle(df_$sample_name[1])+
       theme(legend.position="bottom", legend.box = "horizontal")
     
   }else if(isTRUE(Splines)){
@@ -5286,8 +5344,8 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
     check<-ggplot(data=df_,mapping=aes(x=dTm,y=-log10(p_dTm),color=diffexpressed))+geom_point()+ geom_vline(xintercept=c(-1, 1), col="red") +
       geom_hline(yintercept=-log10(0.05), col="red")+ scale_color_manual("Stabilization",values=c("blue", "black", "red"))+
       labs(y=expression(-log["10"]*(P-value)),x=expression(Delta*T["m"]))+
-      geom_text(aes(dTm, -log10(p_dTm), label = delabel), data = df_,color="black")+
-      geom_text_repel(aes(dTm, -log10(p_dTm),label=delabel))+ggtitle(df_$sample_name[1])+
+      #geom_text(aes(dTm, -log10(p_dTm), label = delabel), data = df_,color="black")+
+      geom_text_repel(aes(dTm, -log10(p_dTm),label=delabel),color="black")+ggtitle(df_$sample_name[1])+
       theme(legend.position="bottom", legend.box = "horizontal")
     
     
@@ -5802,7 +5860,7 @@ P3<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = 
 # check<-dplyr::bind_rows(df_norm) %>% dplyr::group_split(time_point)
 # plotS2 <- purrr::map(check,function(x) try(plot_Splines(x,"P0DTC2",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
 # 
-plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=TRUE,Peptide=FALSE)))
+plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=TRUE,show_results=TRUE,Peptide=FALSE)))
 check<-ggplot2::ggplot_build(plotS2[[1]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plotS2,function(x) x$labels$title))
@@ -5822,13 +5880,22 @@ P1
 P2
 
 dev.off()
-#plot volcano 
-check<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,filter=FALSE)))
+#plot volcano for unfiltered data
+check<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,fT=FALSE)))
 check1<-ggplot2::ggplot_build(check[[1]])
 y<-get_legend(check1$plot)
 P1<-ggarrange(plotlist=check,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
 pdf("volcano_splines_Protein_panels.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+P1
+dev.off()
+#plot volcano for gof filtered data (F statistic)
+check<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,fT=TRUE)))
+check1<-ggplot2::ggplot_build(check[[1]])
+y<-get_legend(check1$plot)
+P1<-ggarrange(plotlist=check,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
+
+pdf("volcano_splines_Protein_gof_panels.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 P1
 dev.off()
 
