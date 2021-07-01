@@ -4822,9 +4822,12 @@ TPPbenchmark<-function(f,volcano=TRUE){
       ggplot(data=x,mapping=aes(x=dTm,y=-log10(p_dTm),color=diffexpressed))+geom_point()+ geom_vline(xintercept=c(-1, 1), col="red") +
         geom_hline(yintercept=-log10(0.05), col="red")+ scale_color_manual("Stabilization",values=c("blue", "black", "red"))+
         labs(y=expression(-log["10"]*(P-value)),x=expression(Delta*T["m"]))+
+        xlim(-20,20)+
+        theme(legend.position="bottom", legend.box = "horizontal")+
+        geom_label(aes(16,y=40),label=paste0("S = ",nrow(x[x$diffexpressed=="Stabilized",])),show.legend=FALSE)+
+        geom_label(aes(-16,y=40),label=paste0("DS = ",nrow(x[x$diffexpressed=="Destabilized",])),show.legend=FALSE)+
         #geom_text(aes(dTm, -log10(p_dTm), label = delabel), data = df_,color="black")+
-        geom_text_repel(aes(dTm, -log10(p_dTm),label=delabel),color="black")+ggtitle(x$sample_name[1])+
-        theme(legend.position="bottom", legend.box = "horizontal")+ylim(-0.1,55))
+        geom_text_repel(aes(dTm, -log10(p_dTm),label=delabel),color="black")+ggtitle(x$sample_name[1])+ylim(-0.1,55))
     
     
     return(df_TPP2)
@@ -5346,8 +5349,9 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
       labs(y=expression(-log["10"]*(P-value)),x=expression(Delta*T["m"]))+
       #geom_text(aes(dTm, -log10(p_dTm), label = delabel), data = df_,color="black")+
       geom_text_repel(aes(dTm, -log10(p_dTm),label=delabel),color="black")+ggtitle(df_$sample_name[1])+
-      theme(legend.position="bottom", legend.box = "horizontal")
-    
+      theme(legend.position="bottom", legend.box = "horizontal")+
+      geom_text(aes(x=min(dTm,na.rm=TRUE),y=40),label=paste0("Stabilized targets = ",nrow(df_[df_$diffexpressed=="Stabilized"],color="red")))+
+      geom_text(aes(x=min(dTm,na.rm=TRUE),y=38),label=paste0("Destabilized targets = ",nrow(df_[df_$diffexpressed=="Destabilized"],color="blue")))
     
   }
   
