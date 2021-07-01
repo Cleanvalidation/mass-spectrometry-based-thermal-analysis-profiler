@@ -491,72 +491,67 @@ clean_cetsa <- function(df, temperatures = NULL, samples = NULL,Peptide=FALSE,so
 normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER=TRUE) {
   if(isTRUE(CARRIER)){
     df<-df %>% dplyr::filter(!temp_ref=="131C")
+    temperatures<-temperatures[temperatures<68]
   }
   if(isTRUE(Peptide)){
     temperatures <- sort(temperatures)
     if(any(names(df)=="uniqueID")){
-      df<-df %>% dplyr::rename("Accession"="uniqueID")
-    }
-    if(any(names(df)=="I")){
-      df<-df %>% dplyr::rename("value"="I")
-    }
-    df$Accession<-as.factor(df$Accession)
-    df$dataset<-as.factor(df$dataset)
-    df$temperature<-as.numeric(as.character(df$temperature))
-    #select top3 top5 and top10 peptides according to rank
-    df_filt3 <- df %>%dplyr::filter(!is.na(value),temperature==37) %>%  
-      dplyr::group_by(rank) %>% slice(1:(nrow(df)/4)) %>% dplyr::select(Annotated_Sequence,Accession,Modifications,sample,sample_name,dataset,rank) %>% ungroup(.)
-    if(any(names(df_filt3)=="id")){
-      df_filt3<-df_filt3 %>% dplyr::select(-id)
-    }
-    df_filt5 <- df %>%dplyr::filter(!is.na(value),temperature==37) %>%  
-      arrange(desc(value)) %>% 
-      group_by(rank) %>% slice(1:(nrow(df)/3)) %>%
-      dplyr::select(Annotated_Sequence,Accession,Modifications,sample,sample_name,dataset,rank) %>% ungroup(.)
-    if(any(names(df_filt5)=="id")){
-      df_filt5<-df_filt5 %>% dplyr::select(-id)
+      df<-df %>% dplyr::rename("Accession"="uniqueID","value"="I")
     }
     
-    df_filt10 <- df %>% dplyr::filter(!is.na(value),temperature==37) %>%  
+    df$Accession<-as.factor(df$Accession)
+    #rank by intensity at the lowest temperature channel
+    df_filt<-df %>% dplyr::filter(temp_ref=="126") %>% dplyr::mutate(rank=dplyr::ntile(desc(value),3)) %>%
+      dplyr::select(Accession,Annotated_Sequence,value,sample,dataset,Spectrum_File,sample_name,rank)
+    df_filt$rank<-as.factor(df_filt$rank)
+    #select top3 top5 and top10 peptides according to rank
+    df_filt3 <- df_filt %>%dplyr::filter(!is.na(value)) %>%  
+      dplyr::arrange(desc(value)) %>% 
+      group_by(rank) %>% slice(1:2000)
+    df_filt5 <- df_filt %>%dplyr::filter(!is.na(value)) %>%  
       arrange(desc(value)) %>% 
-      group_by(rank) %>% slice(1:(nrow(df)/2)) %>% dplyr::select(Annotated_Sequence,Accession,Modifications,sample,sample_name,dataset,rank) %>% ungroup(.)
-    if(any(names(df_filt10)=="id")){
-      df_filt10<-df_filt10 %>% dplyr::select(-id)
-    }
+      group_by(rank) %>% slice(1:6000)
+    df_filt10 <- df_filt %>% dplyr::filter(!is.na(value)) %>%  
+      arrange(desc(value)) %>% 
+      group_by(rank) %>% slice(1:9000)
+    
+    df_filt3<-df_filt3 %>% dplyr::ungroup(.) %>%  dplyr::select(-value,-rank)
+    df_filt5<-df_filt5 %>% dplyr::ungroup(.) %>%  dplyr::select(-value,-rank)
+    df_filt10<-df_filt10 %>% dplyr::ungroup(.) %>%  dplyr::select(-value,-rank)
     #preserve original dataset
-    df1<-df %>%dplyr::filter(temperature<68)
-    df<-df %>% group_by(sample_name)
-    name<-intersect(names(df1),names(df_filt3))
+    df1<-df
+    df<-df %>% group_by(Spectrum_File)
+    
     #Only keep curves with the topN values
-    df3<-df1 %>% dplyr::right_join(df_filt3,by=name)
-    df5<-df1 %>% dplyr::right_join(df_filt5,by=name)
-    df10<-df1 %>% dplyr::right_join(df_filt10,by=name)
+    df3<-df1 %>% dplyr::right_join(df_filt3,by=names(df_filt3))
+    df5<-df1 %>% dplyr::right_join(df_filt5,by=names(df_filt5))
+    df10<-df1 %>% dplyr::right_join(df_filt10,by=names(df_filt10))
     #remove missing values 
     df3<-df3[!is.na(df3$value),]
     df5<-df5[!is.na(df5$value),]
     df10<-df10[!is.na(df10$value),]
     
     #Calculate fold changes acros temperatures 7, 9 and 10
-    df.jointP3 <- suppressWarnings(df3 %>%
-                                     dplyr::group_split(Accession,sample) %>% 
-                                     purrr::map(function(x) x %>% dplyr::mutate(n=dplyr::n()) %>% 
-                                                  dplyr::mutate(.,T7 = try(mean(value[temperature == temperatures[7]]/value[temperature == temperatures[1]],na.rm=TRUE)),
-                                                                T9 = try(mean(value[temperature == temperatures[9]]/value[temperature == temperatures[1]],na.rm=TRUE)),
-                                                                T10 = try(mean(value[temperature == temperatures[10]]/value[temperature == temperatures[1]],na.rm=TRUE)))))
+    df3<-df3 %>%
+      dplyr::group_split(Accession,sample)
+    df.jointP3 <- suppressWarnings(purrr::map(df3,function(x) x %>%  
+                                                dplyr::mutate(.,T7 = try(mean(x[x$temperature %in% temperatures[7],]$I/x[x$temperature %in% temperatures[1],]$I,na.rm=TRUE)),
+                                                              T9 = try(mean(x[x$temperature %in% temperatures[9],]$I/x[x$temperature %in% temperatures[1],]$I,na.rm=TRUE)),
+                                                              T10 = try(mean(x[x$temperature %in% temperatures[10],]$I/x[x$temperature %in% temperatures[1],]$I,na.rm=TRUE)))))
+    df5<-df5 %>%
+      dplyr::group_split(Accession,sample)
+    df.jointP5 <- suppressWarnings(purrr::map(df5,function(x) x %>%  
+                                                dplyr::mutate(.,T7 = try(mean(x[x$temperature %in% temperatures[7],]$I/x[x$temperature %in% temperatures[1],]$I,na.rm=TRUE)),
+                                                              T9 = try(mean(x[x$temperature %in% temperatures[9],]$I/x[x$temperature %in% temperatures[1],]$I,na.rm=TRUE)),
+                                                              T10 = try(mean(x[x$temperature %in% temperatures[10],]$I/x[x$temperature %in% temperatures[1],]$I,na.rm=TRUE)))))
     
-    df.jointP5 <- suppressWarnings(df5 %>%
-                                     dplyr::group_split(Accession,sample) %>% 
-                                     purrr::map(function(x) x %>% dplyr::mutate(n=dplyr::n()) %>% 
-                                                  dplyr::mutate(T7 = try(mean(x$value[temperature == temperatures[7]]/value[temperature == temperatures[1]],na.rm=TRUE)),
-                                                                T9 = try(mean(x$value[temperature == temperatures[9]]/value[temperature == temperatures[1]],na.rm=TRUE)),
-                                                                T10 = try(mean(x$value[temperature == temperatures[10]]/value[temperature == temperatures[1]],na.rm=TRUE)))))
+    df10<-df10 %>%
+      dplyr::group_split(Accession,sample)
+    df.jointP10 <- suppressWarnings(purrr::map(df10,function(x) x %>%  
+                                                 dplyr::mutate(.,T7 = try(mean(x[x$temperature %in% temperatures[7],]$I/x[x$temperature %in% temperatures[1],]$I,na.rm=TRUE)),
+                                                               T9 = try(mean(x[x$temperature %in% temperatures[9],]$I/x[x$temperature %in% temperatures[1],]$I,na.rm=TRUE)),
+                                                               T10 = try(mean(x[x$temperature %in% temperatures[10],]$I/x[x$temperature %in% temperatures[1],]$I,na.rm=TRUE)))))
     
-    df.jointP10 <- suppressWarnings(df10 %>%
-                                      dplyr::group_split(Accession,sample) %>% 
-                                      purrr::map(function(x) x %>% dplyr::mutate(n=dplyr::n()) %>% 
-                                                   dplyr::mutate(.,T7 = try(mean(value[temperature == temperatures[7]]/value[temperature == temperatures[1]],na.rm=TRUE)),
-                                                                 T9 = try(mean(value[temperature == temperatures[9]]/value[temperature == temperatures[1]],na.rm=TRUE)),
-                                                                 T10 = try(mean(value[temperature == temperatures[10]]/value[temperature == temperatures[1]],na.rm=TRUE)))))
     
     df.jointP3<- dplyr::bind_rows(df.jointP3)
     df.jointP5<- dplyr::bind_rows(df.jointP5)
@@ -585,9 +580,11 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
       df1<-dplyr::bind_rows(df1)
       df1 <- suppressWarnings(df1 %>% dplyr::group_split(Accession,sample) %>% 
                                 purrr::map(function(x) x %>% dplyr::mutate(n=dplyr::n()) %>% 
-                                             dplyr::mutate(.,T7 = try(mean(value[temperature == temperatures[7]]/value[temperature == temperatures[1]],na.rm=TRUE)),
-                                                           T9 = try(mean(value[temperature == temperatures[9]]/value[temperature == temperatures[1]],na.rm=TRUE)),
-                                                           T10 = try(mean(value[temperature == temperatures[10]]/value[temperature == temperatures[1]],na.rm=TRUE)))))
+                                             dplyr::mutate(.,T7 = try(mean(x[x$temperature %in% temperatures[7],]$I/x[x$temperature %in% temperatures[1],]$I,na.rm=TRUE)),
+                                                           T9 = try(mean(x[x$temperature %in% temperatures[9],]$I/x[x$temperature %in% temperatures[1],]$I,na.rm=TRUE)),
+                                                           T10 = try(mean(x[x$temperature %in% temperatures[10],]$I/x[x$temperature %in% temperatures[1],]$I,na.rm=TRUE)))))
+      
+      
       df1<-dplyr::bind_rows(df1)
       df1<-df1 %>% dplyr::filter(T7 >= 0.4 & T7 <= 0.6)
       df1<-df1 %>% dplyr::filter(T9 < 0.3)%>% dplyr::select(-T7,-T9,-n)
@@ -627,191 +624,128 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     df.jointP3<-dplyr::bind_rows(df.jointP3)
     df.jointP5<-dplyr::bind_rows(df.jointP5)
     df.jointP10<-dplyr::bind_rows(df.jointP10)
-    #calculate median values for TopN
+    
     df.median3 <- df.jointP3 %>%
-      dplyr::group_by(sample,temperature,dataset) %>%
-      dplyr::mutate(value = median(value,na.rm=TRUE)) %>% ungroup(.)
+      dplyr::group_by(sample,temperature) %>%
+      dplyr::mutate(value = median(I,na.rm=TRUE))
     
     df.median5 <- df.jointP5 %>%
-      dplyr::group_by(sample,temperature,dataset) %>%
-      dplyr::mutate(value = median(value,na.rm=TRUE)) %>% ungroup(.)
+      dplyr::group_by(sample,temperature) %>%
+      dplyr::mutate(value = median(I,na.rm=TRUE))
     
     df.median10 <- df.jointP10 %>%
-      dplyr::group_by(sample,temperature,dataset) %>%
-      dplyr::mutate(value = median(value,na.rm=TRUE)) %>% ungroup(.)
+      dplyr::group_by(sample,temperature) %>%
+      dplyr::mutate(value = median(I,na.rm=TRUE))
     
-    df.median3$temperature<-as.numeric(df.median3$temperature)
-    df.median5$temperature<-as.numeric(df.median5$temperature)
-    df.median10$temperature<-as.numeric(df.median10$temperature)
     
-    df.median3<-df.median3[!is.na(df.median3$value),]
-    df.median5<-df.median5[!is.na(df.median5$value),]
-    df.median10<-df.median10[!is.na(df.median10$value),]
+    #fit curves to median 
     ## fit curves to the median data for each sample (F1 through FN)
-    
-    df.median3<-df.median3 %>% dplyr::filter(temperature<68)
-    df.median5<-df.median5 %>% dplyr::filter(temperature<68)
-    df.median10<-df.median10 %>% dplyr::filter(temperature<68)
-    #
     df.fit3 <- df.median3 %>%
-      dplyr::group_by(sample,dataset) %>% 
-      dplyr::mutate(fit = try(list(try(nls(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl,
-                                           start = c(Pl=0, a = 550, b = 10),
-                                           data = list(x=temperature,y=value),
-                                           na.action = na.exclude,
-                                           algorithm = "port",
-                                           lower = c(0.0,1e-5,1e-5),
-                                           upper = c(1.5,15000,300),
-                                           control = nls.control(maxiter = 50)),
-                                       silent = TRUE)))) 
-    
-    df.fit3<- df.fit3%>% 
-      dplyr::mutate(fitted_values3 = ifelse(!is.logical(fit[[1]]),list(data.frame(fitted_values=predict(fit[[1]]))),NA)) %>% 
-      dplyr::select(sample,fitted_values3,temperature,dataset) %>% ungroup(.)
+      dplyr::group_by(sample) %>% 
+      dplyr::do(fit = cetsa_fit(d = ., norm = FALSE)) %>% 
+      dplyr::rowwise(.) %>% 
+      dplyr::mutate(fitted_values3 = ifelse(!is.logical(fit),list(data.frame(fitted_values=predict(fit))),NA),
+                    temperature=ifelse(!is.logical(fit),list(data.frame(temperature=fit$data$t)),NA)) %>% 
+      dplyr::select(sample,fitted_values,temperature) 
     
     df.fit5 <- df.median5 %>%
-      dplyr::group_by(sample,dataset) %>% 
-      dplyr::mutate(fit = try(list(try(nls(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl,
-                                           start = c(Pl=0, a = 550, b = 10),
-                                           data = list(x=temperature,y=value),
-                                           na.action = na.exclude,
-                                           algorithm = "port",
-                                           lower = c(0.0,1e-5,1e-5),
-                                           upper = c(1.5,15000,300),
-                                           control = nls.control(maxiter = 50)),
-                                       silent = TRUE)))) 
-    
-    df.fit5<- df.fit5%>% 
-      dplyr::mutate(fitted_values5 = ifelse(!is.logical(fit[[1]]),list(data.frame(fitted_values=predict(fit[[1]]))),NA)) %>% 
-      dplyr::select(sample,fitted_values5,temperature,dataset) %>% ungroup(.)
+      dplyr::group_by(sample) %>% 
+      dplyr::do(fit = cetsa_fit(d = ., norm = FALSE)) %>% 
+      dplyr::rowwise(.) %>% 
+      dplyr::mutate(fitted_values3 = ifelse(!is.logical(fit),list(data.frame(fitted_values=predict(fit))),NA),
+                    temperature=ifelse(!is.logical(fit),list(data.frame(temperature=fit$data$t)),NA)) %>% 
+      dplyr::select(sample,fitted_values,temperature) 
     
     df.fit10 <- df.median10 %>%
-      dplyr::group_by(sample,dataset) %>% 
-      dplyr::mutate(fit = try(list(try(nls(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl,
-                                           start = c(Pl=0, a = 550, b = 10),
-                                           data = list(x=temperature,y=value),
-                                           na.action = na.exclude,
-                                           algorithm = "port",
-                                           lower = c(0.0,1e-5,1e-5),
-                                           upper = c(1.5,15000,300),
-                                           control = nls.control(maxiter = 50)),
-                                       silent = TRUE))))  
-    
-    df.fit10<- df.fit10%>% 
-      dplyr::mutate(fitted_values10 = ifelse(!is.logical(fit[[1]]),list(data.frame(fitted_values=predict(fit[[1]]))),NA)) %>% 
-      dplyr::select(sample,fitted_values10,temperature,dataset) %>% ungroup(.)
+      dplyr::group_by(sample) %>% 
+      dplyr::do(fit = cetsa_fit(d = ., norm = FALSE)) %>% 
+      dplyr::rowwise(.) %>% 
+      dplyr::mutate(fitted_values3 = ifelse(!is.logical(fit),list(data.frame(fitted_values=predict(fit))),NA),
+                    temperature=ifelse(!is.logical(fit),list(data.frame(temperature=fit$data$t)),NA)) %>% 
+      dplyr::select(sample,fitted_values,temperature) 
     
     ## calculate the fitted values
-    # d3<-length(dplyr::bind_rows(df.fit3$fitted_values3))
-    # d5<-length(dplyr::bind_rows(df.fit5$fitted_values5))
-    # d10<-length(dplyr::bind_rows(df.fit10$fitted_values10))
+    d3<-length(df.fit3$fitted_values3[[1]]$fitted_values)
+    d5<-length(df.fit5$fitted_values5[[1]]$fitted_values)
+    d10<-length(df.fit10$fitted_values10[[1]]$fitted_values)
     #unnest fitted values from list and name value column and keep fitted values and temps
+    check3<-df.fit3 %>% unnest(c(fitted_values3,temperature))%>% unique(.)
+    check5<-df.fit5 %>% unnest(c(fitted_values5,temperature))%>% unique(.)
+    check10<-df.fit10 %>% unnest(c(fitted_values10,temperature))%>% unique(.)
     
-    #unnest fitted values from list and name value column
-    check3<-data.frame(fitted_values3=unique(df.fit3$fitted_values3[df.fit3$dataset=="treated"][[1]]),dataset="treated",temperature=unique(df.fit3$temperature))
-    check31<-data.frame(fitted_values3=unique(df.fit3$fitted_values3[df.fit3$dataset=="vehicle"][[1]]),dataset="vehicle",temperature=unique(df.fit3$temperature))
-    check3<-rbind(check3,check31)
-    check_3<-df.fit3 %>% dplyr::select(-sample,-fitted_values3) %>% unique
-    check3<-check_3 %>% dplyr::right_join(check3,by=c("temperature","dataset"))
     
-    check5<-data.frame(fitted_values5=unique(df.fit5$fitted_values5[df.fit5$dataset=="treated"][[1]]),dataset="treated",temperature=unique(df.fit5$temperature))
-    check51<-data.frame(fitted_values5=unique(df.fit5$fitted_values5[df.fit5$dataset=="vehicle"][[1]]),dataset="vehicle",temperature=unique(df.fit5$temperature))
-    check5<-rbind(check5,check51)
-    check_5<-df.fit5 %>% dplyr::select(-sample,-fitted_values5) %>% unique
-    check5<-check_5 %>% dplyr::right_join(check5,by=c("temperature","dataset"))
-    
-    check10<-data.frame(fitted_values10=unique(df.fit10$fitted_values10[df.fit10$dataset=="treated"][[1]]),dataset="treated",temperature=unique(df.fit10$temperature))
-    check101<-data.frame(fitted_values10=unique(df.fit10$fitted_values10[df.fit10$dataset=="vehicle"][[1]]),dataset="vehicle",temperature=unique(df.fit10$temperature))
-    check10<-rbind(check10,check101)
-    check_10<-df.fit10 %>% dplyr::select(-sample,-fitted_values10) %>% unique
-    check10<-check_10 %>% dplyr::right_join(check10,by=c("temperature","dataset"))
-    
-    df1<-df1 %>% dplyr::filter(temperature<68)
-    col_n<-dplyr::intersect(names(df1),names(check3))
-    check3<-data.table(check3)
-    check5<-data.table(check5)
-    check10<-data.table(check10)
-    df1<-data.table(df1)
-    
-    setkeyv(df1,cols=col_n)
-    setkeyv(check3,cols=col_n)
-    setkeyv(check5,cols=col_n)
-    setkeyv(check10,cols=col_n)
-    #right_join
-    test3 <- data.frame(merge(df1,check3, all.y=TRUE))
-    test5 <- data.frame(merge(df1,check5, all.y=TRUE))
-    test10 <- data.frame(merge(df1,check10, all.y=TRUE))
+    test3<-df1 %>% dplyr::group_by(temperature) %>% dplyr::right_join(check3,c('sample','temperature'))
+    test5<-df1 %>% dplyr::group_by(temperature) %>% dplyr::right_join(check5,c('sample','temperature'))
+    test10<-df1 %>% dplyr::group_by(temperature) %>% dplyr::right_join(check10,c('sample','temperature'))
     
     ## calculate ratios between the fitted curves and the median values
-    df.out3 <- test3 %>% as.data.frame() %>% 
+    df.out3 <- test3 %>%
       dplyr::mutate(correction3 = ifelse(is.na(fitted_values / value),NA,fitted_values / value)) %>%
-      dplyr::select('sample','temperature','correction3','dataset')
+      dplyr::select('sample','temperature','value','fitted_values','correction3')
+    df.out3<-df.out3 %>% dplyr::select(-fitted_values,-value,-sample)
     
-    
-    df.out5 <- test5 %>%as.data.frame() %>% 
+    df.out5 <- test5 %>%
       dplyr::mutate(correction5 = ifelse(is.na(fitted_values / value),NA,fitted_values / value)) %>%
-      dplyr::select('sample','temperature','correction5','dataset')
+      dplyr::select('sample','temperature','value','fitted_values','correction5')
+    df.out5<-df.out5 %>% dplyr::select(-fitted_values,-value,-sample)
     
-    
-    df.out10 <- test10 %>%as.data.frame() %>% 
+    df.out10 <- test10 %>%
       dplyr::mutate(correction10 = ifelse(is.na(fitted_values / value),NA,fitted_values / value)) %>%
-      dplyr::select('sample','temperature','correction10','dataset')
-    
+      dplyr::select('sample','temperature','value','fitted_values','correction10')
+    df.out10<-df.out10 %>% dplyr::select(-fitted_values,-value,-sample)
     ## join correction factor to data
     df1$temperature<-as.factor(df1$temperature)
     df1<-df1 %>% dplyr::group_split(temperature)
     #group split data by temperature
     df.out3$temperature<-as.factor(df.out3$temperature)
-    df.out3<-df.out3 %>% dplyr::group_by(temperature,dataset) %>% dplyr::group_split(.)
+    df.out3<-df.out3 %>% dplyr::group_by(temperature) %>% dplyr::group_split(.)
     
     df.out5$temperature<-as.factor(df.out5$temperature)
-    df.out5<-df.out5 %>% dplyr::group_by(temperature,dataset) %>% dplyr::group_split(.)
+    df.out5<-df.out5 %>% dplyr::group_by(temperature) %>% dplyr::group_split(.)
     
     df.out10$temperature<-as.factor(df.out10$temperature)
-    df.out10<-df.out10 %>% dplyr::group_by(temperature,dataset) %>% dplyr::group_split(.)
+    df.out10<-df.out10 %>% dplyr::group_by(temperature) %>% dplyr::group_split(.)
     
     df1<-dplyr::bind_rows(df1)
-    df1<-df1 %>% dplyr::group_split(temperature,dataset)
+    df1<-df1 %>% dplyr::group_split(temperature)
     #apply correction factor by temperature to original data
-    df3<-purrr::map2(df1,df.out3,function(x,y)x %>% dplyr::mutate(correction3=y$correction3))
-    df5<-purrr::map2(df3,df.out5,function(x,y)x %>% dplyr::mutate(correction5=y$correction5))
-    df<-purrr::map2(df5,df.out10,function(x,y)x %>% dplyr::mutate(correction10=y$correction10))
+    df3<-purrr::map2(df1,df.out3,function(x,y)x %>% dplyr::mutate(correction3=y$correction3[1]))
+    df5<-purrr::map2(df3,df.out5,function(x,y)x %>% dplyr::mutate(correction5=y$correction5[1]))
+    df<-purrr::map2(df5,df.out10,function(x,y)x %>% dplyr::mutate(correction10=y$correction10[1]))
     #bind_rows
     df<-dplyr::bind_rows(df)
     
     df3 <- df%>% 
-      dplyr::mutate(norm_value3= ifelse(is.na(correction3),value,value * correction3)) %>% dplyr::ungroup(.)
+      dplyr::mutate(norm_value3= ifelse(is.na(correction3),I,I* correction3)) %>% dplyr::ungroup(.)
     df5 <- df3%>% 
-      dplyr::mutate(norm_value5= ifelse(is.na(correction5),value,value * correction5)) %>% dplyr::ungroup(.)
+      dplyr::mutate(norm_value5= ifelse(is.na(correction5),I,I* correction5)) %>% dplyr::ungroup(.)
     df<- df5%>% 
-      dplyr::mutate(norm_value10= ifelse(is.na(correction10),value,value * correction10)) %>% dplyr::ungroup(.)
+      dplyr::mutate(norm_value10= ifelse(is.na(correction10),I,I* correction10)) %>% dplyr::ungroup(.)
     
     
     df <- df %>% 
       dplyr::rename("uniqueID"="Accession", "C"="temperature","I3"="norm_value3","I5"="norm_value5","I10"="norm_value10")
     df<-df %>% dplyr::ungroup(.) %>% dplyr::select(-value,-correction3,-correction5,-correction10)
     
-    df<-dplyr::bind_rows(df)
-    df$sample_name<-str_replace(df$sample_name,"S","\u03A6")
-    df<-df %>% distinct(.)
+    if(isTRUE(filters)){
+      if (any(names(df)==T7)){
+        df<-df %>% dplyr::select(-T10,-T7,-T9)
+      }
+    }
     return(df)
   }else{
     
     temperatures <- sort(temperatures)
     if(any(names(df)=="uniqueID")){
-      df<-df %>% dplyr::rename("Accession"="uniqueID")
-    }
-    if(any(names(df)=="I")){
-      df<-df %>% dplyr::rename("value"="I")
+      df<-df %>% dplyr::rename("Accession"="uniqueID","value"="I")
     }
     df$Accession<-as.factor(df$Accession)
-    df$sample<-as.factor(df$sample)
-    df.jointP <- suppressWarnings(df %>%
-                                    dplyr::group_split(Accession,sample) %>% 
-                                    purrr::map(function(x) x %>% dplyr::mutate(n=dplyr::n()) %>% 
-                                                 dplyr::mutate(.,T7 = try(mean(value[temperature == temperatures[7]]/value[temperature == temperatures[1]],na.rm=TRUE)),
-                                                               T9 = try(mean(value[temperature == temperatures[9]]/value[temperature == temperatures[1]],na.rm=TRUE)),
-                                                               T10 = try(mean(value[temperature == temperatures[10]]/value[temperature == temperatures[1]],na.rm=TRUE)))))
+    df<-df %>%
+      dplyr::group_split(Accession,sample)
+    df.jointP <- suppressWarnings(purrr::map(df,function(x) x %>%  
+                                               dplyr::mutate(.,T7 = try(mean(x[x$temperature %in% temperatures[7],]$I/x[x$temperature %in% temperatures[1],]$I,na.rm=TRUE)),
+                                                             T9 = try(mean(x[x$temperature %in% temperatures[9],]$I/x[x$temperature %in% temperatures[1],]$I,na.rm=TRUE)),
+                                                             T10 = try(mean(x[x$temperature %in% temperatures[10],]$I/x[x$temperature %in% temperatures[1],]$I,na.rm=TRUE)))))
     df.jointP<- dplyr::bind_rows(df.jointP)
     if(isTRUE(filters)){
       df.jointP<-df.jointP %>% dplyr::filter(T7 >= 0.4 & T7 <= 0.6)
@@ -833,72 +767,52 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     norm.accessions <- df.normP$Accession
     
     ## calculate median for each sample group
-    
+    df<-dplyr::bind_rows(df)
     df.mynormset <- df %>% base::subset(Accession %in% norm.accessions)
     
     df.median <- df %>%
-      dplyr::group_by(sample,temperature,dataset) %>%
-      dplyr::mutate(value = median(value,na.rm=TRUE))
+      dplyr::group_by(sample,temperature) %>%
+      dplyr::mutate(value = median(I,na.rm=TRUE))
     
     
-    ## fit curves to the median data for each replicate (F1 through FN)
+    ## fit curves to the median data for each sample (F1 through FN)
     df.fit <- df.median %>%
-      dplyr::group_by(sample,dataset) %>% 
-      dplyr::mutate(fit = try(list(try(nls(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl,
-                                           start = c(Pl=0, a = 550, b = 10),
-                                           data = list(x=temperature,y=value),
-                                           na.action = na.exclude,
-                                           algorithm = "port",
-                                           lower = c(0.0,1e-5,1e-5),
-                                           upper = c(1.5,15000,300),
-                                           control = nls.control(maxiter = 50)),
-                                       silent = TRUE)))) 
+      dplyr::group_by(sample) %>% 
+      dplyr::do(fit = cetsa_fit(d = ., norm = FALSE)) %>% 
+      dplyr::rowwise(.) %>% 
+      dplyr::mutate(fitted_values = ifelse(!is.logical(fit),list(data.frame(fitted_values=predict(fit))),NA),
+                    temperature=ifelse(!is.logical(fit),list(data.frame(temperature=fit$data$t)),NA)) %>% 
+      dplyr::select(sample,fitted_values,temperature) 
     
-    df.fit<- df.fit%>% 
-      dplyr::mutate(fitted_values = ifelse(!is.logical(fit[[1]]),list(data.frame(fitted_values=predict(fit[[1]]))),NA)) %>% 
-      dplyr::select(sample,dataset,fitted_values,temperature) %>% ungroup(.)
+    
     
     ## calculate the fitted values
-    check<-data.frame(fitted_values=unique(df.fit$fitted_values[df.fit$dataset=="treated"][[1]]),dataset="treated",temperature=unique(df.fit$temperature))
-    check3<-data.frame(fitted_values=unique(df.fit$fitted_values[df.fit$dataset=="vehicle"][[1]]),dataset="vehicle",temperature=unique(df.fit$temperature))
-    check3<-rbind(check,check3)
-    check_<-df.fit %>% dplyr::select(-sample,-fitted_values) %>% unique
-    check<-check_ %>% dplyr::right_join(check3,by=c("temperature","dataset"))
+    d<-length(df.fit$fitted_values[[1]]$fitted_values)
+    #unnest fitted values from list and name value column
+    check<-df.fit %>% unnest(c(fitted_values,temperature))
     
-    col_n<-dplyr::intersect(names(df),names(check))
+    check<-check %>% unique(.) 
+    check$sample<-as.factor(check$sample)
     
-    check<-data.table(check)
-    
-    df<-data.table(df)
-    
-    setkeyv(df,cols=col_n)
-    setkeyv(check,cols=col_n)
-    
-    #right_join
-    test <- data.frame(merge(df,check, all.y=TRUE))
-    
-    
+    test<-df.median %>% dplyr::group_by(sample,temperature) %>% dplyr::right_join(check,c('sample','temperature'))
     ## calculate ratios between the fitted curves and the median values
-    df.out <- test %>% as.data.frame() %>% 
+    df.out <- test %>%
       dplyr::mutate(correction = ifelse(is.na(fitted_values / value),NA,fitted_values / value)) %>%
-      dplyr::select('sample','temperature','correction','dataset')
-    
-    
+      dplyr::select('sample','temperature','value','fitted_values','correction')
+    df.out<-df.out %>% dplyr::select(-fitted_values,-value)
     ## apply normalization factor to data
     
-    df<-df %>% dplyr::right_join(df.out,by=intersect(names(df),names(df.out)))
+    df$correction<-df.out$correction
     df <- df %>% 
-      dplyr::mutate(norm_value = ifelse(is.na(correction),value,value * correction)) %>% dplyr::ungroup(.)
-    df <- df %>% 
-      dplyr::mutate(norm_value = ifelse(is.na(correction),value,value * correction)) %>% dplyr::ungroup(.)
-    df <- df %>% 
+      dplyr::mutate(norm_value = ifelse(is.numeric(correction),as.numeric(I*correction),I))
+    
+    df <- df %>% dplyr::select(-I) %>% 
       dplyr::rename("uniqueID"="Accession", "C"="temperature","I"="norm_value")
-    df<-df %>% dplyr::ungroup(.) %>% dplyr::select(-value,-correction)
+    df<-df %>% dplyr::ungroup(.) %>% dplyr::select(-correction)
     if(isTRUE(filters)){
       df<-df %>% dplyr::select(-T10,-T7,-T9)
     }
     
-    df<-df %>% distinct(.)
     return(df)
   }
 }
