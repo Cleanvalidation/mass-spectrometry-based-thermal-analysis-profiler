@@ -501,23 +501,24 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     
     df$Accession<-as.factor(df$Accession)
     #rank by intensity at the lowest temperature channel
-    df_filt<-df %>% dplyr::filter(temp_ref=="126") %>% dplyr::mutate(rank=dplyr::ntile(desc(value),3)) %>%
-      dplyr::select(Accession,Annotated_Sequence,value,sample,dataset,Spectrum_File,sample_name,rank)
+    df_filt<-df %>% dplyr::filter(temp_ref=="126") %>% dplyr::mutate(rank=dplyr::ntile(desc(I),3)) %>%
+      dplyr::select(Accession,Annotated_Sequence,I,sample,dataset,Spectrum_File,sample_name,rank)
     df_filt$rank<-as.factor(df_filt$rank)
+    
     #select top3 top5 and top10 peptides according to rank
-    df_filt3 <- df_filt %>%dplyr::filter(!is.na(value)) %>%  
-      dplyr::arrange(desc(value)) %>% 
+    df_filt3 <- df_filt %>%dplyr::filter(!is.na(I)) %>%  
+      dplyr::arrange(desc(I)) %>% 
       group_by(rank) %>% slice(1:2000)
-    df_filt5 <- df_filt %>%dplyr::filter(!is.na(value)) %>%  
-      arrange(desc(value)) %>% 
+    df_filt5 <- df_filt %>%dplyr::filter(!is.na(I)) %>%  
+      arrange(desc(I)) %>% 
       group_by(rank) %>% slice(1:6000)
-    df_filt10 <- df_filt %>% dplyr::filter(!is.na(value)) %>%  
+    df_filt10 <- df_filt %>% dplyr::filter(!is.na(I)) %>%  
       arrange(desc(value)) %>% 
       group_by(rank) %>% slice(1:9000)
     
-    df_filt3<-df_filt3 %>% dplyr::ungroup(.) %>%  dplyr::select(-value,-rank)
-    df_filt5<-df_filt5 %>% dplyr::ungroup(.) %>%  dplyr::select(-value,-rank)
-    df_filt10<-df_filt10 %>% dplyr::ungroup(.) %>%  dplyr::select(-value,-rank)
+    df_filt3<-df_filt3 %>% dplyr::ungroup(.) %>%  dplyr::select(-I,-rank)
+    df_filt5<-df_filt5 %>% dplyr::ungroup(.) %>%  dplyr::select(-I,-rank)
+    df_filt10<-df_filt10 %>% dplyr::ungroup(.) %>%  dplyr::select(-I,-rank)
     #preserve original dataset
     df1<-df
     df<-df %>% group_by(Spectrum_File)
@@ -527,9 +528,9 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     df5<-df1 %>% dplyr::right_join(df_filt5,by=names(df_filt5))
     df10<-df1 %>% dplyr::right_join(df_filt10,by=names(df_filt10))
     #remove missing values 
-    df3<-df3[!is.na(df3$value),]
-    df5<-df5[!is.na(df5$value),]
-    df10<-df10[!is.na(df10$value),]
+    df3<-df3[!is.na(df3$I),]
+    df5<-df5[!is.na(df5$I),]
+    df10<-df10[!is.na(df10$I),]
     
     #Calculate fold changes acros temperatures 7, 9 and 10
     df3<-df3 %>%
@@ -754,7 +755,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
         df.jointP<- df.jointP %>% dplyr::filter(T10 < 0.2)%>% dplyr::select(-T10)#normalization from TPP
       }
     }
-    if(nrow(df)==0){
+    if(nrow(df[[1]])==0){
       return(warning("Please disable filters, all data was filtered out."))
     }
     
@@ -816,7 +817,6 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     return(df)
   }
 }
-
 #
 #' fit curves to CETSA data
 #'
