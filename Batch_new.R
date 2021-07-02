@@ -863,7 +863,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     
     check<-purrr::map(check,function(x) x %>% unnest(c(fitted_values)) %>% unique(.) %>% dplyr::mutate(temperature=temperatures))
     #bind_rows
-    check<-dplyr::bind_rows(check) %>% select(-dataset,-fit)%>% unique(.) 
+    check<-dplyr::bind_rows(check) %>% select(sample,fitted_values,temp_ref,temperature)%>% unique(.) 
     
     
     check$sample<-as.factor(check$sample)
@@ -876,9 +876,9 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     df.out<-df.out %>% dplyr::select(-fitted_values,-I)
     ## apply normalization factor to data
     
-    df1<-df1 %>% dplyr::right_join(df.out,by=c('sample','temperature'))
+    df1<-dplyr::bind_rows(df1) %>% dplyr::right_join(df.out,by=c('sample','temperature'))
     df <- df1 %>% 
-      dplyr::mutate(norm_value = ifelse(is.numeric(correction),as.numeric(I*correction),I))
+      dplyr::mutate(norm_value = ifelse(!is.na(correction),I*correction,NA))
     
     df <- df %>% dplyr::select(-I) %>% 
       dplyr::rename("uniqueID"="Accession", "C"="temperature","I"="norm_value")
