@@ -502,7 +502,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     df$Accession<-as.factor(df$Accession)
     #rank by intensity at the lowest temperature channel
     df_filt<-df %>% dplyr::filter(temp_ref=="126") %>% dplyr::mutate(rank=dplyr::ntile(desc(I),3)) %>%
-      dplyr::select(Accession,Annotated_Sequence,I,sample,dataset,Spectrum_File,sample_name,rank)
+      dplyr::select(Accession,Annotated_Sequence,I,sample,dataset,sample_name,rank)
     df_filt$rank<-as.factor(df_filt$rank)
     
     #select top3 top5 and top10 peptides according to rank
@@ -513,7 +513,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
       arrange(desc(I)) %>% 
       group_by(rank) %>% slice(1:6000)
     df_filt10 <- df_filt %>% dplyr::filter(!is.na(I)) %>%  
-      arrange(desc(value)) %>% 
+      arrange(desc(I)) %>% 
       group_by(rank) %>% slice(1:9000)
     
     df_filt3<-df_filt3 %>% dplyr::ungroup(.) %>%  dplyr::select(-I,-rank)
@@ -521,7 +521,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     df_filt10<-df_filt10 %>% dplyr::ungroup(.) %>%  dplyr::select(-I,-rank)
     #preserve original dataset
     df1<-df
-    df<-df %>% group_by(Spectrum_File)
+    df<-df %>% group_by(sample)
     
     #Only keep curves with the topN values
     df3<-df1 %>% dplyr::right_join(df_filt3,by=names(df_filt3))
@@ -643,37 +643,77 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     ## fit curves to the median data for each sample (F1 through FN)
     df.fit3 <- df.median3 %>%
       dplyr::group_by(sample) %>% 
-      dplyr::do(fit = cetsa_fit(d = ., norm = FALSE)) %>% 
-      dplyr::rowwise(.) %>% 
-      dplyr::mutate(fitted_values3 = ifelse(!is.logical(fit),list(data.frame(fitted_values=predict(fit))),NA),
-                    temperature=ifelse(!is.logical(fit),list(data.frame(temperature=fit$data$t)),NA)) %>% 
-      dplyr::select(sample,fitted_values,temperature) 
+      dplyr::mutate(fit = try(list(try(nls(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl,
+                                           start = c(Pl=0, a = 550, b = 10),
+                                           data = list(x=temperature,y=value),
+                                           na.action = na.exclude,
+                                           algorithm = "port",
+                                           lower = c(0.0,1e-5,1e-5),
+                                           upper = c(1.5,15000,300),
+                                           control = nls.control(maxiter = 50)),
+                                       silent = TRUE)))) 
+    df.fit3<-df.fit3 %>% dplyr::group_by(sample) %>% dplyr::group_split()
+    df.fit3<-df.fit3 %>% purrr::keep(function(x) class(x$fit[[1]])=='nls')
+    df.fit3<-dplyr::bind_rows(df.fit3)
+    df.fit3<-df.fit3%>% 
+      dplyr::mutate(fitted_values3 = ifelse(class(fit[[1]])=='nls',list(data.frame(fitted_values=predict(fit[[1]]))),NA)) %>% 
+      dplyr::select(sample,fitted_values3,temperature,dataset) %>% ungroup(.)
     
     df.fit5 <- df.median5 %>%
       dplyr::group_by(sample) %>% 
-      dplyr::do(fit = cetsa_fit(d = ., norm = FALSE)) %>% 
-      dplyr::rowwise(.) %>% 
-      dplyr::mutate(fitted_values3 = ifelse(!is.logical(fit),list(data.frame(fitted_values=predict(fit))),NA),
-                    temperature=ifelse(!is.logical(fit),list(data.frame(temperature=fit$data$t)),NA)) %>% 
-      dplyr::select(sample,fitted_values,temperature) 
+      dplyr::mutate(fit = try(list(try(nls(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl,
+                                           start = c(Pl=0, a = 550, b = 10),
+                                           data = list(x=temperature,y=value),
+                                           na.action = na.exclude,
+                                           algorithm = "port",
+                                           lower = c(0.0,1e-5,1e-5),
+                                           upper = c(1.5,15000,300),
+                                           control = nls.control(maxiter = 50)),
+                                       silent = TRUE)))) 
+    df.fit5<-df.fit5 %>% dplyr::group_by(sample) %>% dplyr::group_split()
+    df.fit5<-df.fit5 %>% purrr::keep(function(x) class(x$fit[[1]])=='nls')
+    df.fit5<-dplyr::bind_rows(df.fit5)
+    df.fit5<- df.fit5%>% 
+      dplyr::mutate(fitted_values5 = ifelse(!is.logical(fit[[1]]),list(data.frame(fitted_values=predict(fit[[1]]))),NA)) %>% 
+      dplyr::select(sample,fitted_values5,temperature,dataset) %>% ungroup(.)
     
     df.fit10 <- df.median10 %>%
       dplyr::group_by(sample) %>% 
-      dplyr::do(fit = cetsa_fit(d = ., norm = FALSE)) %>% 
-      dplyr::rowwise(.) %>% 
-      dplyr::mutate(fitted_values3 = ifelse(!is.logical(fit),list(data.frame(fitted_values=predict(fit))),NA),
-                    temperature=ifelse(!is.logical(fit),list(data.frame(temperature=fit$data$t)),NA)) %>% 
-      dplyr::select(sample,fitted_values,temperature) 
+      dplyr::mutate(fit = try(list(try(nls(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl,
+                                           start = c(Pl=0, a = 550, b = 10),
+                                           data = list(x=temperature,y=value),
+                                           na.action = na.exclude,
+                                           algorithm = "port",
+                                           lower = c(0.0,1e-5,1e-5),
+                                           upper = c(1.5,15000,300),
+                                           control = nls.control(maxiter = 50)),
+                                       silent = TRUE)))) 
+    df.fit10<-df.fit10 %>% dplyr::group_by(sample) %>% dplyr::group_split()
+    df.fit10<-df.fit10 %>% purrr::keep(function(x) class(x$fit[[1]])=='nls')
+    df.fit10<-dplyr::bind_rows(df.fit10)
     
+    df.fit10<- df.fit10%>% 
+      dplyr::mutate(fitted_values10 = ifelse(!is.logical(fit[[1]]),list(data.frame(fitted_values=predict(fit[[1]]))),NA)) %>% 
+      dplyr::select(sample,fitted_values10,temperature,dataset) %>% ungroup(.)
     ## calculate the fitted values
-    d3<-length(df.fit3$fitted_values3[[1]]$fitted_values)
-    d5<-length(df.fit5$fitted_values5[[1]]$fitted_values)
-    d10<-length(df.fit10$fitted_values10[[1]]$fitted_values)
-    #unnest fitted values from list and name value column and keep fitted values and temps
-    check3<-df.fit3 %>% unnest(c(fitted_values3,temperature))%>% unique(.)
-    check5<-df.fit5 %>% unnest(c(fitted_values5,temperature))%>% unique(.)
-    check10<-df.fit10 %>% unnest(c(fitted_values10,temperature))%>% unique(.)
+    d3<-df.fit3 %>% dplyr::group_split(sample)
+    d5<-df.fit5 %>% dplyr::group_split(sample)
+    d10<-df.fit10 %>% dplyr::group_split(sample)
     
+    
+    #unnest fitted values from list and name value column and keep fitted values and temps
+    check3 <-purrr::map(d3,function(x) x [10,])
+    check5 <-purrr::map(d5,function(x) x [10,])
+    check10 <-purrr::map(d10,function(x) x [10,])
+    
+    check3<-purrr::map(check3,function(x) x %>% unnest(c(fitted_values3)) %>% unique(.) %>% dplyr::mutate(temperature=temperatures))
+    check5<-purrr::map(check5,function(x) x %>% unnest(c(fitted_values5)) %>% unique(.) %>% dplyr::mutate(temperature=temperatures))
+    check10<-purrr::map(check10,function(x) x %>% unnest(c(fitted_values10)) %>% unique(.) %>% dplyr::mutate(temperature=temperatures))
+    
+    #bind_rows
+    check3<-dplyr::bind_rows(check3) %>% select(-dataset)
+    check5<-dplyr::bind_rows(check5) %>% select(-dataset)
+    check10<-dplyr::bind_rows(check10) %>% select(-dataset)
     
     test3<-df1 %>% dplyr::group_by(temperature) %>% dplyr::right_join(check3,c('sample','temperature'))
     test5<-df1 %>% dplyr::group_by(temperature) %>% dplyr::right_join(check5,c('sample','temperature'))
@@ -681,19 +721,19 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     
     ## calculate ratios between the fitted curves and the median values
     df.out3 <- test3 %>%
-      dplyr::mutate(correction3 = ifelse(is.na(fitted_values / value),NA,fitted_values / value)) %>%
-      dplyr::select('sample','temperature','value','fitted_values','correction3')
-    df.out3<-df.out3 %>% dplyr::select(-fitted_values,-value,-sample)
+      dplyr::mutate(correction3 = ifelse(is.na(fitted_values /I),NA,fitted_values / I)) %>%
+      dplyr::select('sample','temperature','I','fitted_values','correction3')
+    df.out3<-df.out3 %>% dplyr::select(-fitted_values,-I,-sample)
     
     df.out5 <- test5 %>%
-      dplyr::mutate(correction5 = ifelse(is.na(fitted_values / value),NA,fitted_values / value)) %>%
-      dplyr::select('sample','temperature','value','fitted_values','correction5')
-    df.out5<-df.out5 %>% dplyr::select(-fitted_values,-value,-sample)
+      dplyr::mutate(correction5 = ifelse(is.na(fitted_values / I),NA,fitted_values / I)) %>%
+      dplyr::select('sample','temperature','I','fitted_values','correction5')
+    df.out5<-df.out5 %>% dplyr::select(-fitted_values,-I,-sample)
     
     df.out10 <- test10 %>%
-      dplyr::mutate(correction10 = ifelse(is.na(fitted_values / value),NA,fitted_values / value)) %>%
-      dplyr::select('sample','temperature','value','fitted_values','correction10')
-    df.out10<-df.out10 %>% dplyr::select(-fitted_values,-value,-sample)
+      dplyr::mutate(correction10 = ifelse(is.na(fitted_values /I),NA,fitted_values /I)) %>%
+      dplyr::select('sample','temperature','I','fitted_values','correction10')
+    df.out10<-df.out10 %>% dplyr::select(-fitted_values,-I,-sample)
     ## join correction factor to data
     df1$temperature<-as.factor(df1$temperature)
     df1<-df1 %>% dplyr::group_split(temperature)
@@ -726,7 +766,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     
     df <- df %>% 
       dplyr::rename("uniqueID"="Accession", "C"="temperature","I3"="norm_value3","I5"="norm_value5","I10"="norm_value10")
-    df<-df %>% dplyr::ungroup(.) %>% dplyr::select(-value,-correction3,-correction5,-correction10)
+    df<-df %>% dplyr::ungroup(.) %>% dplyr::select(-I,-correction3,-correction5,-correction10)
     
     if(isTRUE(filters)){
       if (any(names(df)==T7)){
@@ -735,7 +775,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     }
     return(df)
   }else{
-    
+    df1<-df
     temperatures <- sort(temperatures)
     if(any(names(df)=="uniqueID")){
       df<-df %>% dplyr::rename("Accession"="uniqueID","value"="I")
@@ -779,32 +819,45 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     ## fit curves to the median data for each sample (F1 through FN)
     df.fit <- df.median %>%
       dplyr::group_by(sample) %>% 
-      dplyr::do(fit = cetsa_fit(d = ., norm = FALSE)) %>% 
-      dplyr::rowwise(.) %>% 
-      dplyr::mutate(fitted_values = ifelse(!is.logical(fit),list(data.frame(fitted_values=predict(fit))),NA),
-                    temperature=ifelse(!is.logical(fit),list(data.frame(temperature=fit$data$t)),NA)) %>% 
-      dplyr::select(sample,fitted_values,temperature) 
+      dplyr::mutate(fit = try(list(try(nls(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl,
+                                           start = c(Pl=0, a = 550, b = 10),
+                                           data = list(x=temperature,y=value),
+                                           na.action = na.exclude,
+                                           algorithm = "port",
+                                           lower = c(0.0,1e-5,1e-5),
+                                           upper = c(1.5,15000,300),
+                                           control = nls.control(maxiter = 50)),
+                                       silent = TRUE)))) 
+    
+    df.fit<-df.fit %>% dplyr::group_by(sample) %>% dplyr::group_split()
+    df.fit<-df.fit %>% purrr::keep(function(x) class(x$fit[[1]])=='nls')
+    df.fit<-dplyr::bind_rows(df.fit)
+    df.fit<-df.fit %>% 
+      dplyr::mutate(fitted_values = ifelse(class(fit[[1]])=='nls',list(data.frame(fitted_values=predict(fit[[1]]))),NA)) 
+    
+    d<-df.fit %>% dplyr::group_split(sample)
     
     
+    #unnest fitted values from list and name value column and keep fitted values and temps
+    check <-purrr::map(d,function(x) x [10,])
     
-    ## calculate the fitted values
-    d<-length(df.fit$fitted_values[[1]]$fitted_values)
-    #unnest fitted values from list and name value column
-    check<-df.fit %>% unnest(c(fitted_values,temperature))
+    check<-purrr::map(check,function(x) x %>% unnest(c(fitted_values)) %>% unique(.) %>% dplyr::mutate(temperature=temperatures))
+    #bind_rows
+    check<-dplyr::bind_rows(check) %>% select(-dataset)%>% unique(.) 
     
-    check<-check %>% unique(.) 
+    
     check$sample<-as.factor(check$sample)
     
-    test<-df.median %>% dplyr::group_by(sample,temperature) %>% dplyr::right_join(check,c('sample','temperature'))
+    test<-df1 %>% dplyr::group_by(sample,temperature) %>% dplyr::right_join(check,c('sample','temperature'))
     ## calculate ratios between the fitted curves and the median values
     df.out <- test %>%
-      dplyr::mutate(correction = ifelse(is.na(fitted_values / value),NA,fitted_values / value)) %>%
-      dplyr::select('sample','temperature','value','fitted_values','correction')
-    df.out<-df.out %>% dplyr::select(-fitted_values,-value)
+      dplyr::mutate(correction = ifelse(is.na(fitted_values /I),NA,fitted_values /I)) %>%
+      dplyr::select('sample','temperature','I','fitted_values','correction')
+    df.out<-df.out %>% dplyr::select(-fitted_values,-I)
     ## apply normalization factor to data
     
     df$correction<-df.out$correction
-    df <- df %>% 
+    df <- df1 %>% 
       dplyr::mutate(norm_value = ifelse(is.numeric(correction),as.numeric(I*correction),I))
     
     df <- df %>% dplyr::select(-I) %>% 
@@ -817,7 +870,6 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     return(df)
   }
 }
-#
 #' fit curves to CETSA data
 #'
 #' fit curves to normalized or non-normalized CETSA data
@@ -3574,8 +3626,7 @@ spf<-function(spresults,DFN,filters = TRUE){
   }
   spresults<-spresults %>% dplyr::group_split(uniqueID)
   
-  if(!isTRUE(filters))
-  {
+  if(!isTRUE(filters)){
     sl<-purrr::map(seq_len(length(spresults)),function(x) as.numeric({paste(x)})) 
     sp<-purrr::map2(spresults,sl,~.x %>% dplyr::mutate(id = as.numeric(.y)))  
     sp<-dplyr::bind_rows(sp)  
@@ -3585,12 +3636,12 @@ spf<-function(spresults,DFN,filters = TRUE){
     df2$I<-as.numeric(as.vector(df2$I))  
     if(any(names(sp) %in% c("missing.x","LineRegion","N"))){
       names<-intersect(names(df2),names(sp))
-      df2$id<-as.numeric(df2$id)
+      sp$id<-as.numeric(sp$id)
       df2<-sp %>% left_join(df2, by = names) 
       
     }else{
       names<-intersect(names(df2),names(sp))
-      df2$id<-as.numeric(df2$id)
+      sp$id<-as.numeric(sp$id)
       df2<-sp %>% left_join(df2, by = names) 
     }
     Df1<-spresults
@@ -5314,7 +5365,7 @@ f<- list.files(pattern='*Proteins.xlsx')
 # f<-"C:/Users/figue/OneDrive - Northeastern University/CETSA R/CP_Exploris_20200811_DMSOvsMEKi_carrier_FAIMS_PhiSDM_PEPTIDES.xlsx"
 #df_raw <- read_cetsa("~/Files/Scripts/Files/PSM_validator","~/Files/Scripts/Files/PSM_validator","_Proteins",Peptide=FALSE,Batch=FALSE,CFS=TRUE,solvent="DMSO")     
 #df_raw <- read_cetsa("~/Files/Scripts/Files/Covid","~/Files/Scripts/Files/Covid","_Proteins",Peptide=FALSE,CFS=FALSE,Batch=FALSE)                                                              
-df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS","~/Files/Scripts/Files/CONSENSUS","_Proteins",Peptide=TRUE,Batch=FALSE)                                                              
+df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS","~/Files/Scripts/Files/CONSENSUS","_Proteins",Peptide=FALSE,Batch=FALSE)                                                              
 #saveRDS(df_raw,"df_raw.RDS")
 
 #filter Peptides
@@ -5499,7 +5550,7 @@ df.s <- function(data_path,n,rep_,bio_,vehicle_name,treated_name,Batch=FALSE,PSM
 df.samples<-df.s(f,dplyr::bind_rows(df_raw),3,2,"DMSO","TREATED",Batch=TRUE,PSM=TRUE)
 #Peptides
 df_raw<-df_raw %>% group_split(sample_name)
-df_clean <- furrr::future_map(df_raw1,function(x) clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=TRUE,solvent="DMSO",CFS=TRUE,CARRIER=TRUE))#assgns temperature and replicate values
+df_clean <- furrr::future_map(df_raw,function(x) clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=FALSE,solvent="DMSO",CFS=TRUE,CARRIER=TRUE))#assgns temperature and replicate values
 
 #Covid data
 #df_clean<-purrr::map(seq_along(df_clean),function(x) rbind(df_clean[[1]],x))
@@ -5507,7 +5558,7 @@ df_clean <- furrr::future_map(df_raw1,function(x) clean_cetsa(x, temperatures = 
 #df_clean<-dplyr::bind_rows(df_clean) %>% dplyr::group_split(sample_name)
 
 #normalize data
-df_norm <- furrr::future_map(df_clean,function(x) normalize_cetsa(x, df.temps$temperature,Peptide=TRUE,filters=FALSE)) #normalizes according to Franken et. al. without R-squared filter
+df_norm <- furrr::future_map(df_clean,function(x) normalize_cetsa(x, df.temps$temperature,Peptide=FALSE,filters=FALSE)) #normalizes according to Franken et. al. without R-squared filter
 
 
 # rm(df_raw,df_clean)
