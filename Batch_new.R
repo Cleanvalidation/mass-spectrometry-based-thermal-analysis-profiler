@@ -5108,9 +5108,10 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
   
 }
 volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FALSE,fT=FALSE){
+  f<-data.frame(f)
   if(isTRUE(fT)){
     if(isTRUE(Peptide) & any(names(f)=="rank_l")){
-      f<-data.frame(f)
+      
       f<-f %>% 
         dplyr::select(uniqueID,sample,sample_name,Tm,AUC,rsq,fStatistic,pValue,pAdj,dataset,Fvals)
       f$sample_name<-str_replace(f$sample_name,"S","\u03A6")
@@ -5125,15 +5126,16 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
       f$diffexpressed[f$Fvals > f$fStatistic & f$pAdj > 0.05] <- "NA"
       f$delabel <- NA
       others<-as.character(f$uniqueID[which(f$Fvals>20)])
-      f$delabel[f$uniqueID %in%c("P36507","Q02750",others)] <- as.character(f$uniqueID[f$uniqueID %in%c("P36507","Q02750",others)])
+      f$delabel[f$uniqueID %in%c("P36507","Q02750",others,"P60033")] <- as.character(f$uniqueID[f$uniqueID %in%c("P36507","Q02750",others,"P60033")])
       
       f<-data.frame(f)
       check<-ggplot(data=f,mapping=aes(x=Fvals,y=pAdj,color=diffexpressed))+geom_point()+
         geom_hline(yintercept=0.05, col="red")+ scale_color_manual("Stabilization",values=c("blue","red","orange"),labels = c("Shifted", "Not shifted"))+
         labs(y="P-value",x="F-values")+
         #geom_text(mapping=aes(Fvals, pAdj, label = delabel), data = f,color="black")+
-        geom_text_repel(f,mapping=aes(Fvals, pAdj,label=delabel),color="black")+ggtitle(f$sample_name[1])+
-        theme(legend.position="bottom", legend.box = "horizontal")
+        geom_text_repel(f,mapping=aes(Fvals, pAdj,label=delabel),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 30))+ggtitle(f$sample_name[1])+
+        theme(legend.position="bottom", legend.box = "horizontal")+
+        geom_point(aes(x=f$dTm[f$uniqueID %in%c("P36507","Q02750","P60033")],y=-log10(f$p_dTm[f$uniqueID %in%c("P36507","Q02750","P60033")]),color="black"))
       
       return(check)
       
@@ -5153,7 +5155,7 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
       f$diffexpressed[f$Fvals > f$fStatistic] <- "NA"
       f$delabel <- NA
       others<-as.character(f$uniqueID[which(f$Fvals>20)])
-      f$delabel[f$uniqueID %in%c("P36507","Q02750",others)] <- as.character(f$uniqueID[f$uniqueID %in%c("P36507","Q02750",others)])
+      f$delabel[f$uniqueID %in%c("P36507","Q02750",others,"P60033")] <- as.character(f$uniqueID[f$uniqueID %in%c("P36507","Q02750",others,"P60033")])
       
       f<-data.frame(f)
       check<-ggplot(data=f,mapping=aes(x=Fvals,y=pAdj,color=diffexpressed))+geom_point()+
@@ -5292,13 +5294,13 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
     # if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"
     df_$diffexpressed[df_$dTm < -1 & df_$p_dTm < 0.05] <- "Destabilized"
     df_$delabel <- NA
-    df_$delabel[df_$uniqueID %in%c("P36507","Q02750")] <- as.character(df_$uniqueID[df_$uniqueID %in%c("P36507","Q02750")])
+    df_$delabel[df_$uniqueID %in%c("P36507","Q02750","P60033")] <- as.character(df_$uniqueID[df_$uniqueID %in%c("P36507","Q02750","P60033")])
     
-    check<-ggplot(data=df_,mapping=aes(x=dTm,y=-log10(p_dTm),color=diffexpressed))+geom_point()+ geom_vline(xintercept=c(-1, 1), col="red") +
+    check<-ggplot(data=df_,mapping=aes(x=dTm,y=-log10(p_dTm),color=diffexpressed))+geom_point()+ geom_vline(xintercept=c(-2, 2), col="red") +
       geom_hline(yintercept=-log10(0.05), col="red")+ scale_color_manual("Stabilization",values=c("blue", "black", "red"))+
       labs(y=expression(-log["10"]*(P-value)),x=expression(Delta*T["m"]))+
       #geom_text(aes(dTm, -log10(p_dTm), label = delabel), data = df_)+
-      geom_text_repel(aes(dTm, -log10(p_dTm),label=delabel),color="black")+ggtitle(df_$sample_name[1])+
+      geom_text_repel(df_,mapping=aes(Fvals, pAdj,label=delabel),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 30))+ggtitle(df_$sample_name[1])+
       theme(legend.position="bottom", legend.box = "horizontal")
     
   }else if(isTRUE(Splines)){
@@ -5327,16 +5329,18 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
     # if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"
     df_$diffexpressed[df_$dTm < -1 & df_$p_dTm < 0.05] <- "Destabilized"
     df_$delabel <- NA
-    df_$delabel[df_$uniqueID %in%c("P36507","Q02750")] <- as.character(df_$uniqueID[df_$uniqueID %in%c("P36507","Q02750")])
+    df_$delabel[df_$uniqueID %in%c("P36507","Q02750","P60033")] <- as.character(df_$uniqueID[df_$uniqueID %in%c("P36507","Q02750","P60033")])
     
-    check<-ggplot(data=df_,mapping=aes(x=dTm,y=-log10(p_dTm),color=diffexpressed))+geom_point()+ geom_vline(xintercept=c(-1, 1), col="red") +
+    check<-ggplot(data=df_,mapping=aes(x=dTm,y=-log10(p_dTm),color=diffexpressed))+geom_point()+ geom_vline(xintercept=c(-2, 2), col="red") +
       geom_hline(yintercept=-log10(0.05), col="red")+ scale_color_manual("Stabilization",values=c("blue", "black", "red"))+
       labs(y=expression(-log["10"]*(P-value)),x=expression(Delta*T["m"]))+
       #geom_text(aes(dTm, -log10(p_dTm), label = delabel), data = df_,color="black")+
-      geom_text_repel(aes(dTm, -log10(p_dTm),label=delabel),color="black")+ggtitle(df_$sample_name[1])+
+      geom_text_repel(df_,mapping=aes(Fvals, pAdj,label=delabel),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 30))+
+      ggtitle(df_$sample_name[1])+
       theme(legend.position="bottom", legend.box = "horizontal")+
       geom_text(aes(x=min(dTm,na.rm=TRUE),y=40),label=paste0("Stabilized targets = ",nrow(df_[df_$diffexpressed=="Stabilized"],color="red")))+
-      geom_text(aes(x=min(dTm,na.rm=TRUE),y=38),label=paste0("Destabilized targets = ",nrow(df_[df_$diffexpressed=="Destabilized"],color="blue")))
+      geom_text(aes(x=min(dTm,na.rm=TRUE),y=38),label=paste0("Destabilized targets = ",nrow(df_[df_$diffexpressed=="Destabilized"],color="blue")))+
+      geom_point(aes(x=df_$dTm[df_$uniqueID %in%c("P36507","Q02750","P60033")],y=-log10(df_$p_dTm[df_$uniqueID %in%c("P36507","Q02750","P60033")]),color="black"))
     
   }
   
