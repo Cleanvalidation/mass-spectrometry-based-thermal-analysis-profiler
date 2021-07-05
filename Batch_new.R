@@ -780,9 +780,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     if(any(names(df)=="uniqueID")){
       df<-df %>% dplyr::rename("Accession"="uniqueID","value"="I")
     }
-    
     df$Accession<-as.factor(df$Accession)
-    df1<-df
     df<-df %>%
       dplyr::group_split(Accession,sample)
     df.jointP <- suppressWarnings(purrr::map(df,function(x) x %>%  
@@ -790,32 +788,14 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
                                                              T9 = try(mean(x[x$temperature %in% temperatures[9],]$I/x[x$temperature %in% temperatures[1],]$I,na.rm=TRUE)),
                                                              T10 = try(mean(x[x$temperature %in% temperatures[10],]$I/x[x$temperature %in% temperatures[1],]$I,na.rm=TRUE)))))
     df.jointP<- dplyr::bind_rows(df.jointP)
-    
     if(isTRUE(filters)){
-      #top
-      df.jointP<-df.jointP3 %>% dplyr::filter(T7 >= 0.4, T7 <= 0.6)
+      df.jointP<-df.jointP %>% dplyr::filter(T7 >= 0.4 & T7 <= 0.6)
       df.jointP<-df.jointP %>% dplyr::filter(T9 < 0.3)%>% dplyr::select(-T7,-T9,-n)
-      if(any(names(df.jointP)=="T10" & all(!is.na(df.jointP$T10)))){
-        df.jointP<- df.jointP %>% subset(T10 < 0.2)%>% dplyr::select(-T10)#normalization from TPP
-      }
-      
-      #also filter original data
-      df1<-dplyr::bind_rows(df1)
-      df1 <- suppressWarnings(df1 %>% dplyr::group_split(Accession,sample) %>% 
-                                purrr::map(function(x) x %>% dplyr::mutate(n=dplyr::n()) %>% 
-                                             dplyr::mutate(.,T7 = try(mean(x[x$temperature %in% temperatures[7],]$I/x[x$temperature %in% temperatures[1],]$I,na.rm=TRUE)),
-                                                           T9 = try(mean(x[x$temperature %in% temperatures[9],]$I/x[x$temperature %in% temperatures[1],]$I,na.rm=TRUE)),
-                                                           T10 = try(mean(x[x$temperature %in% temperatures[10],]$I/x[x$temperature %in% temperatures[1],]$I,na.rm=TRUE)))))
-      
-      
-      df1<-dplyr::bind_rows(df1)
-      df1<-df1 %>% dplyr::filter(T7 >= 0.4 & T7 <= 0.6)
-      df1<-df1 %>% dplyr::filter(T9 < 0.3)%>% dplyr::select(-T7,-T9,-n)
-      if(any(names(df1)=="T10") & all(!is.na(df1$T10))){
-        df1<- df1 %>% dplyr::filter(T10 < 0.2)%>% dplyr::select(-T10)#normalization from TPP
+      if(any(names(df.jointP)=="T10")){
+        df.jointP<- df.jointP %>% dplyr::filter(T10 < 0.2)%>% dplyr::select(-T10)#normalization from TPP
       }
     }
-    if(nrow(df1)==0){
+    if(nrow(df[[1]])==0){
       return(warning("Please disable filters, all data was filtered out."))
     }
     
@@ -833,7 +813,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     
     df.median <- df %>%
       dplyr::group_by(sample,temperature) %>%
-      dplyr::mutate(value = median(I,na.rm=TRUE)) %>% ungroup(.)
+      dplyr::mutate(value = median(I,na.rm=TRUE))
     
     
     ## fit curves to the median data for each sample (F1 through FN)
@@ -852,10 +832,10 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     df.fit<-df.fit %>% dplyr::group_by(sample) %>% dplyr::group_split()
     df.fit<-df.fit %>% purrr::keep(function(x) class(x$fit[[1]])=='nls')
     df.fit<-dplyr::bind_rows(df.fit)
-    df.fit<-df.fit %>% 
-      dplyr::mutate(fitted_values = ifelse(class(fit[[1]])=='nls',list(data.frame(fitted_values=predict(fit[[1]]))),NA)) 
-    
-    d<-df.fit %>% dplyr::group_split(sample)
+    df.fit<-df.fit%>% 
+      dplyr::mutate(fitted_values = ifelse(class(fit[[1]])=='nls',list(data.frame(fitted_values=predict(fit[[1]]))),NA)) %>% 
+      
+      d<-df.fit %>% dplyr::group_split(sample)
     
     
     #unnest fitted values from list and name value column and keep fitted values and temps
@@ -863,22 +843,22 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     
     check<-purrr::map(check,function(x) x %>% unnest(c(fitted_values)) %>% unique(.) %>% dplyr::mutate(temperature=temperatures))
     #bind_rows
-    check<-dplyr::bind_rows(check) %>% select(sample,fitted_values,temp_ref,temperature)%>% unique(.) 
+    check<-dplyr::bind_rows(check) %>% select(-dataset)%>% unique(.) 
     
     
     check$sample<-as.factor(check$sample)
-    name<-dplyr::intersect(names(check),names(df.jointP))
-    test<-df.jointP %>% dplyr::right_join(check,name)
+    
+    test<-df.median %>% dplyr::group_by(sample,temperature) %>% dplyr::right_join(check,c('sample','temperature'))
     ## calculate ratios between the fitted curves and the median values
     df.out <- test %>%
-      dplyr::mutate(correction = ifelse(is.na(fitted_values/I),NA,fitted_values /I)) %>%
+      dplyr::mutate(correction = ifelse(is.na(fitted_values /I),NA,fitted_values /I)) %>%
       dplyr::select('sample','temperature','I','fitted_values','correction')
     df.out<-df.out %>% dplyr::select(-fitted_values,-I)
     ## apply normalization factor to data
     
-    df1<-dplyr::bind_rows(df1) %>% dplyr::right_join(df.out,by=c('sample','temperature'))
-    df <- df1 %>% 
-      dplyr::mutate(norm_value = ifelse(!is.na(correction),I*correction,NA))
+    df$correction<-df.out$correction
+    df <- df %>% 
+      dplyr::mutate(norm_value = ifelse(is.numeric(correction),as.numeric(I*correction),I))
     
     df <- df %>% dplyr::select(-I) %>% 
       dplyr::rename("uniqueID"="Accession", "C"="temperature","I"="norm_value")
@@ -2958,9 +2938,9 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs,CARRIER=
     Pred2<-dplyr::bind_rows(Pred2) %>% unique(.)
     
     Pred1<-Pred1 %>% dplyr::group_split(uniqueID,C)
-    Pred1<-lapply(Pred1,function(x) x %>% dplyr::mutate(replicate=row.names(.)))
+    Pred1<-purrr::map2(Pred1,seq(Pred1),function(x,y) x %>% dplyr::mutate(replicate=y))
     Pred2<-Pred2 %>% dplyr::group_split(uniqueID,C)
-    Pred2<-lapply(Pred2,function(x) x %>% dplyr::mutate(replicate=row.names(.)))
+    Pred2<-purrr::map2(Pred2,seq(Pred2),function(x,y) x %>% dplyr::mutate(replicate=y))
     
     Pred1<-dplyr::bind_rows(Pred1)
     Pred2<-dplyr::bind_rows(Pred2)
@@ -3975,8 +3955,10 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
       BSVar$PeptideGroup<-BSVar$replicate
       BSVar1$PeptideGroup<-BSVar1$replicate
       if(any(names(BSVar)=="rank_l")){
-        BSVar$Stroke<-ifelse(BSVar$rank_l==TRUE,1,0)
-        BSVar1$Stroke<-ifelse(BSVar1$rank_l==TRUE,1,0)
+        BSVar$Stroke<-0
+        BSVar1$Stroke<-0
+        # BSVar$Stroke<-ifelse(BSVar$rank_l==TRUE,1,0)
+        # BSVar1$Stroke<-ifelse(BSVar1$rank_l==TRUE,1,0)
       }else{
         BSVar$Stroke<-0
         BSVar1$Stroke<-0
@@ -4079,8 +4061,10 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
       BSVar$PeptideGroup<-BSVar$replicate
       BSVar1$PeptideGroup<-BSVar1$replicate
       if(any(names(BSVar)=="rank_l")){
-        BSVar$Stroke<-ifelse(BSVar$rank_l==TRUE,1,0)
-        BSVar1$Stroke<-ifelse(BSVar1$rank_l==TRUE,1,0)
+        BSVar$Stroke<-0
+        BSVar1$Stroke<-0
+        # BSVar$Stroke<-ifelse(BSVar$rank_l==TRUE,1,0)
+        # BSVar1$Stroke<-ifelse(BSVar1$rank_l==TRUE,1,0)
       }else{
         BSVar$Stroke<-0
         BSVar1$Stroke<-0
@@ -4753,7 +4737,7 @@ MSStats_converter<-function(df_raw,solvent){
 
 
 #TPP TR Reader
-TPPbenchmark<-function(f,volcano=TRUE){
+TPPbenchmark<-function(f,overlaps=NA,volcano=TRUE){
   f<-"~/Files/Scripts/Files/TPP_results"
   f<-list.files(f)
   #read data
@@ -4800,11 +4784,17 @@ TPPbenchmark<-function(f,volcano=TRUE){
     df_TPP2$diffexpressed[df_TPP2$dTm < -1 & df_TPP2$p_dTm < 0.05] <- "Destabilized"
     df_TPP2$delabel <- NA
     df_TPP2$delabel[df_TPP2$Protein_ID %in%c("P36507","Q02750")] <- as.character(df_TPP2$Protein_ID[df_TPP2$Protein_ID %in%c("P36507","Q02750")])
+    #get overlaps in data
+    #df_TPP2$Stroke <- NA
+    #df_TPP2$Stroke<-ifelse(df_TPP2$diffexpressed=="Stabilized" | df_TPP2$diffexpressed=="Destabilized",ifelse(df_TPP2$Protein_ID %in% overlaps,TRUE,FALSE),FALSE)
+    
+    
+    
     df_TPP2<-dplyr::bind_rows(df_TPP2) %>% dplyr::group_split(sample_name,Protein_ID)
     df_TPP2<-purrr::map(df_TPP2,function(x) x[1,])
     df_TPP2<-dplyr::bind_rows(df_TPP2) %>% dplyr::group_split(sample_name)
     df_TPP2<-purrr::map(df_TPP2,function(x)
-      ggplot(data=x,mapping=aes(x=dTm,y=-log10(p_dTm),color=diffexpressed))+geom_point()+ geom_vline(xintercept=c(-1, 1), col="red") +
+      ggplot(data=x,mapping=aes(x=dTm,y=-log10(p_dTm),color=diffexpressed))+geom_point()+ geom_vline(xintercept=c(-2, 2), col="red") +
         geom_hline(yintercept=-log10(0.05), col="red")+ scale_color_manual("Stabilization",values=c("blue", "black", "red"))+
         labs(y=expression(-log["10"]*(P-value)),x=expression(Delta*T["m"]))+
         xlim(-20,20)+
@@ -4812,7 +4802,10 @@ TPPbenchmark<-function(f,volcano=TRUE){
         geom_label(aes(16,y=40),label=paste0("S = ",nrow(x[x$diffexpressed=="Stabilized",])),show.legend=FALSE)+
         geom_label(aes(-16,y=40),label=paste0("DS = ",nrow(x[x$diffexpressed=="Destabilized",])),show.legend=FALSE)+
         #geom_text(aes(dTm, -log10(p_dTm), label = delabel), data = df_,color="black")+
-        geom_text_repel(aes(dTm, -log10(p_dTm),label=delabel),color="black")+ggtitle(x$sample_name[1])+ylim(-0.1,55))
+        geom_text_repel(aes(dTm, -log10(p_dTm),label=delabel),color="black")+ggtitle(x$sample_name[1])+ylim(-0.1,55))#+
+    #geom_point(data=df_TPP2[df_TPP2$Stroke==1,],
+    #pch=21, fill=NA, size=4, colour="black", stroke=1)
+    
     
     
     return(df_TPP2)
@@ -5113,31 +5106,47 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
     if(isTRUE(Peptide) & any(names(f)=="rank_l")){
       
       f<-f %>% 
-        dplyr::select(uniqueID,sample,sample_name,Tm,AUC,rsq,fStatistic,pValue,pAdj,dataset,Fvals)
+        dplyr::select(uniqueID,sample,sample_name,dTm,AUC,rsq,fStatistic,pValue,pAdj,dataset,Fvals)
       f$sample_name<-str_replace(f$sample_name,"S","\u03A6")
       f<-f %>% dplyr::group_split(uniqueID)
       
       f<-dplyr::bind_rows(f)
       f$diffexpressed <- "No"
       # if log2Foldchange > 0.6 and pvalue < 0.05, set as "UP" 
-      f$diffexpressed[f$Fvals < f$fStatistic & f$pAdj < 0.05] <- "Shifted"
+      f$diffexpressed[f$Fvals < f$fStatistic & f$pAdj < 0.05 & f$dTm > 0] <- "Stabilized Shift"
+      f$diffexpressed[f$Fvals < f$fStatistic & f$pAdj < 0.05 & f$dTm < 0] <- "Destabilized Shift"
       #if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"
       f$diffexpressed[f$Fvals < f$fStatistic & f$pAdj > 0.05] <- "Not shifted"
       f$diffexpressed[f$Fvals > f$fStatistic & f$pAdj > 0.05] <- "NA"
       f$delabel <- NA
       others<-as.character(f$uniqueID[which(f$Fvals>20)])
-      f$delabel[f$uniqueID %in%c("P36507","Q02750",others,"P60033")] <- as.character(f$uniqueID[f$uniqueID %in%c("P36507","Q02750",others,"P60033")])
+      f$delabel[f$uniqueID %in%c(others,"P60033")] <- as.character(f$uniqueID[f$uniqueID %in%c(others,"P60033")])
+      f$targets <- NA
+      f$targets[f$uniqueID %in%c("P36507","Q02750")] <- as.character(f$uniqueID[f$uniqueID %in%c("P36507","Q02750")])
       
       f<-data.frame(f)
       check<-ggplot(data=f,mapping=aes(x=Fvals,y=pAdj,color=diffexpressed))+geom_point()+
-        geom_hline(yintercept=0.05, col="red")+ scale_color_manual("Stabilization",values=c("blue","red","orange"),labels = c("Shifted", "Not shifted"))+
+        geom_hline(yintercept=0.05, col="red")+ 
         labs(y="P-value",x="F-values")+
         #geom_text(mapping=aes(Fvals, pAdj, label = delabel), data = f,color="black")+
-        geom_text_repel(f,mapping=aes(Fvals, pAdj,label=delabel),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 30))+ggtitle(f$sample_name[1])+
+        # geom_text_repel(f,mapping=aes(Fvals, pAdj,label=delabel),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 30),
+        #                 nudge_x = 1,
+        #                 force = 3,
+        #                 box.padding = 2,
+        #                 segment.alpha = .5)+
+        ggtitle(f$sample_name[1])+
         theme(legend.position="bottom", legend.box = "horizontal")+
-        geom_point(aes(x=f$dTm[f$uniqueID %in%c("P36507","Q02750","P60033")],y=-log10(f$p_dTm[f$uniqueID %in%c("P36507","Q02750","P60033")]),color="black"))
-      
+        # geom_label(aes(x=40,y=1),label=paste0("S = ",nrow(f[f$diffexpressed=="Stabilized Shift",])),show.legend = FALSE)+
+        # geom_label(aes(x=40,y=0.9),label=paste0("DS = ",nrow(f[f$diffexpressed=="Destabilized Shift",])),show.legend = FALSE)+
+        geom_point(aes(x=dTm[uniqueID %in%c("P36507","Q02750","P60033")],y=-log10(pAdj[uniqueID %in%c("P36507","Q02750","P60033")]),color="black"))+
+        scale_color_manual("Stabilization",values=c("#67a9cf","#ef8a62","black","#ffffbf"),labels = c("Stabilized Shift","Destabilized Shift", "Not shifted","NA"))+
+        geom_label_repel(f,mapping=aes(Fvals, pAdj,label=targets),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 30),
+                         nudge_x = 1,
+                         force = 1,
+                         box.padding = 1,
+                         segment.alpha = .5) 
       return(check)
+      
       
     }else if(!isTRUE(Peptide)){
       f<-data.frame(f)
@@ -5171,34 +5180,22 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
     if(isTRUE(Peptide) & any(names(f)=="rank_l")){
       f<-f %>% 
         dplyr::group_split(uniqueID,dataset,sample)
-      
-      addTm<-function(x){
-        f<-dplyr::bind_rows(x) %>%
-          dplyr::group_by(uniqueID,dataset,sample) %>% # group individual curve data to calculate individual Tm
-          dplyr::mutate(sample_name=as.factor(sample_name),
-                        dataset=as.factor(dataset),
-                        Tm=try(with(.,stats::approx(I,C, xout=min(I,na.rm=TRUE)+(0.5*(max(I, na.rm=TRUE)-min(I, na.rm=TRUE))))$y))) %>% 
-          dplyr::select(-rank,-C,-I,-temp_ref,-CV_pct,-missing_pct) %>% dplyr::ungroup(.)
-      }
-      f<-mclapply(f,addTm,mc.cores=availableCores())
-      #remove data where TM cannot be calculated
-      
-      f<-f %>% purrr::keep(function(x) !is.null(x))
+      f<-purrr::map(f,function(x) x %>% dplyr::mutate(Tm=try(stats::approx(.$I,.$C, xout=(min(.$I,na.rm=TRUE)+(0.5*(max(.$I, na.rm=TRUE)-min(.$I, na.rm=TRUE)))),n=100)$y)))
       f<-dplyr::bind_rows(f)
       f<-f %>% dplyr::group_split(uniqueID)
       f<-f %>% purrr::keep(function(x) any(x$dataset %in% c("vehicle")) & any(x$dataset%in% c("treated")))
-      FC<-function(x){ x %>% dplyr::ungroup(.) %>% dplyr::group_by(uniqueID) %>% 
-          dplyr::mutate(v_Tm=mean(x$Tm[x$dataset == "vehicle"],na.rm=TRUE),
-                        t_Tm=mean(x$Tm[x$dataset == "treated"],na.rm=TRUE),
-                        dTm=try(mean(Tm[dataset == "treated"],na.rm=TRUE)-mean(Tm[dataset == "vehicle"],na.rm=TRUE)),
-                        FC=log2(v_Tm/t_Tm),
-                        variance_equal_vt = var.test(x$Tm ~ x$dataset)$p.value,
-                        p_dTm= try(ifelse(all(x$variance_equal_vt < 0.05),
-                                          t.test(x$Tm ~ x$dataset, data = x,
-                                                 var.equal = ifelse(all(x$variance_equal_vt<0.05),FALSE,TRUE))$p.value,NA)))
-      }
       
-      f<-mclapply(f,FC,mc.cores=availableCores())
+      
+      f<-purrr::map(f,function(x) x %>% dplyr::mutate(
+        # v_Tm=mean(x$Tm[x$dataset == "vehicle"],na.rm=TRUE),
+        #             t_Tm=mean(x$Tm[x$dataset == "treated"],na.rm=TRUE),
+        dTm=mean(x$Tm[x$dataset == "treated"],na.rm=TRUE)-mean(x$Tm[x$dataset == "vehicle"],na.rm=TRUE),
+        #FC=log2(v_Tm/t_Tm),
+        variance_equal_vt = var.test(x$Tm ~ x$dataset)$p.value,
+        p_dTm= try(ifelse(all(variance_equal_vt < 0.05),
+                          t.test(Tm ~ dataset, data = x,
+                                 var.equal = ifelse(all(variance_equal_vt<0.05),FALSE,TRUE))$p.value[1],NA))))
+      
       ######
       f<-f %>% dplyr::group_split(uniqueID,sample_name)
       f<-purrr::map(f,function(x) x[1,])
@@ -5217,32 +5214,28 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
                       ungroup(.) %>% distinct(.))
       
     }else if(!isTRUE(Peptide)){
-      f<-f %>% 
+      f<-data.frame(f)
+      f$sample_name<-as.factor(f$sample_name)
+      f$sample<-as.factor(f$sample)
+      f<-f %>%
         dplyr::group_split(uniqueID,dataset,sample)
-      addTm<-function(x){
-        f<-x %>%
-          dplyr::group_by(uniqueID,dataset,sample) %>% # group individual curve data to calculate individual Tm
-          dplyr::mutate(sample_name=as.factor(sample_name),
-                        dataset=as.factor(dataset),
-                        Tm=with(.,stats::approx(I,C, xout=min(I,na.rm=TRUE)+(0.5*(max(I, na.rm=TRUE)-min(I, na.rm=TRUE))))$y)) %>% 
-          dplyr::select(-rank,-C,-I,-CV_pct,-missing_pct) %>% dplyr::ungroup(.)
-      }
-      f<-mclapply(f,addTm,mc.cores=availableCores())
+      f<-f %>% purrr::keep(function(x) nrow(x)>0)
+      
+      
+      f<-purrr::map(f,function(x) x %>% dplyr::mutate(Tm=try(stats::approx(.$I,.$C, xout=(min(.$I,na.rm=TRUE)+(0.5*(max(.$I, na.rm=TRUE)-min(.$I, na.rm=TRUE)))),n=100)$y)))
       f<-dplyr::bind_rows(f)
       f<-f %>% dplyr::group_split(uniqueID)
       f<-f %>% purrr::keep(function(x) any(x$dataset %in% c("vehicle")) & any(x$dataset%in% c("treated")))
-      FC<-function(x){ x %>% dplyr::ungroup(.) %>% dplyr::group_by(uniqueID) %>% 
-          dplyr::mutate(v_Tm=mean(x$Tm[x$dataset == "vehicle"],na.rm=TRUE),
-                        t_Tm=mean(x$Tm[x$dataset == "treated"],na.rm=TRUE),
-                        dTm=try(mean(Tm[dataset == "treated"],na.rm=TRUE)-mean(Tm[dataset == "vehicle"],na.rm=TRUE)),
-                        FC=log2(v_Tm/t_Tm),
-                        variance_equal_vt = var.test(x$Tm ~ x$dataset)$p.value,
-                        p_dTm= try(ifelse(all(x$variance_equal_vt < 0.05),
-                                          t.test(x$Tm ~ x$dataset, data = x,
-                                                 var.equal = ifelse(all(x$variance_equal_vt<0.05),FALSE,TRUE))$p.value[1],NA)))
-      }
       
-      f<-mclapply(f,FC,mc.cores=availableCores())
+      f<-purrr::map(f,function(x) x %>% dplyr::mutate(
+        # v_Tm=mean(x$Tm[x$dataset == "vehicle"],na.rm=TRUE),
+        #             t_Tm=mean(x$Tm[x$dataset == "treated"],na.rm=TRUE),
+        dTm=mean(x$Tm[x$dataset == "treated"],na.rm=TRUE)-mean(x$Tm[x$dataset == "vehicle"],na.rm=TRUE),
+        #FC=log2(v_Tm/t_Tm),
+        variance_equal_vt = var.test(x$Tm ~ x$dataset)$p.value,
+        p_dTm= try(ifelse(all(variance_equal_vt < 0.05),
+                          t.test(Tm ~ dataset, data = x,
+                                 var.equal = ifelse(all(variance_equal_vt<0.05),FALSE,TRUE))$p.value[1],NA))))
       
     }else if (isTRUE(Trilinear)){#if this is a trilinear result
       #f<-f %>% dplyr::group_split(uniqueID,dataset)
@@ -5256,18 +5249,16 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
         dplyr::select(-rsq,-CI,-data) %>% dplyr::ungroup(.)
       f<-f %>% 
         dplyr::group_split(uniqueID)
-      FC<-function(x){ x %>% dplyr::ungroup(.) %>% dplyr::group_by(uniqueID) %>% 
-          dplyr::mutate(v_Tm=mean(x$Tm[x$dataset == "vehicle"],na.rm=TRUE),
-                        t_Tm=mean(x$Tm[x$dataset == "treated"],na.rm=TRUE),
-                        dTm=mean(Tm[dataset == "treated"],na.rm=TRUE)-mean(Tm[dataset == "vehicle"],na.rm=TRUE),
-                        FC=log2(v_Tm/t_Tm),
-                        variance_equal_vt = var.test(x$Tm ~ x$dataset)$p.value,
-                        p_dTm= ifelse(all(x$variance_equal_vt < 0.05),
-                                      t.test(x$Tm ~ x$dataset, data = x,
-                                             var.equal = ifelse(all(x$variance_equal_vt<0.05),FALSE,TRUE))$p.value,NA))
-      }
       
-      f<-mclapply(f,FC,mc.cores=availableCores())
+      f<-purrr::map(f,function(x) x %>% dplyr::mutate(
+        # v_Tm=mean(x$Tm[x$dataset == "vehicle"],na.rm=TRUE),
+        #             t_Tm=mean(x$Tm[x$dataset == "treated"],na.rm=TRUE),
+        dTm=mean(x$Tm[x$dataset == "treated"],na.rm=TRUE)-mean(x$Tm[x$dataset == "vehicle"],na.rm=TRUE),
+        #FC=log2(v_Tm/t_Tm),
+        variance_equal_vt = var.test(x$Tm ~ x$dataset)$p.value,
+        p_dTm= try(ifelse(all(variance_equal_vt < 0.05),
+                          t.test(Tm ~ dataset, data = x,
+                                 var.equal = ifelse(all(variance_equal_vt<0.05),FALSE,TRUE))$p.value[1],NA))))
     }
   }
   if(isTRUE(Trilinear)){
@@ -5305,7 +5296,7 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
     
   }else if(isTRUE(Splines)){
     f<-f %>% purrr::keep(function(x) !class(x$p_dTm)=='try-error')
-    f<-dplyr::bind_rows(f) %>% dplyr::select(-sample,-variance_equal_vt,-v_Tm,-t_Tm,-k_,-CC) %>% 
+    f<-dplyr::bind_rows(f) %>% dplyr::select(-sample,-variance_equal_vt) %>% 
       distinct(.) %>% dplyr::group_split(uniqueID,sample_name)
     f<-f %>% purrr::keep(function(x) any(class(x$M1[[1]])=="gam"))
     
@@ -5321,33 +5312,44 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
     
     
     df_<-dplyr::bind_rows(f) %>% 
-      select(uniqueID,FC,p_dTm,sample_name,dTm,Tm,rss,AUC,rsq,rsq_greater_than_0.8,model_converged,stabilized) %>% 
+      select(uniqueID,p_dTm,sample_name,dTm,Tm,rss,AUC,rsq,rsq_greater_than_0.8,model_converged,stabilized) %>% 
       distinct(.)
     df_$diffexpressed <- "No"
     # if log2Foldchange > 0.6 and pvalue < 0.05, set as "UP" 
-    df_$diffexpressed[df_$dTm > 1 & df_$p_dTm < 0.05] <- "Stabilized"
+    df_$diffexpressed[df_$dTm > 2 & df_$p_dTm < 0.05] <- "Stabilized"
     # if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"
-    df_$diffexpressed[df_$dTm < -1 & df_$p_dTm < 0.05] <- "Destabilized"
+    df_$diffexpressed[df_$dTm < -2 & df_$p_dTm < 0.05] <- "Destabilized"
     df_$delabel <- NA
-    df_$delabel[df_$uniqueID %in%c("P36507","Q02750","P60033")] <- as.character(df_$uniqueID[df_$uniqueID %in%c("P36507","Q02750","P60033")])
+    Names<-df_$uniqueID[df_$p_dTm<0.01]
+    df_$targets<-NA
+    df_$delabel[df_$uniqueID %in%c("P60033",Names)] <- as.character(df_$uniqueID[df_$uniqueID %in%c("P60033",Names)])
+    df_$targets[df_$uniqueID %in%c("P36507","Q02750")] <- as.character(df_$uniqueID[df_$uniqueID %in%c("P36507","Q02750")])
     
     check<-ggplot(data=df_,mapping=aes(x=dTm,y=-log10(p_dTm),color=diffexpressed))+geom_point()+ geom_vline(xintercept=c(-2, 2), col="red") +
       geom_hline(yintercept=-log10(0.05), col="red")+ scale_color_manual("Stabilization",values=c("blue", "black", "red"))+
       labs(y=expression(-log["10"]*(P-value)),x=expression(Delta*T["m"]))+
       #geom_text(aes(dTm, -log10(p_dTm), label = delabel), data = df_,color="black")+
-      geom_text_repel(df_,mapping=aes(Fvals, pAdj,label=delabel),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 30))+
+      geom_text_repel(df_,mapping=aes(dTm, p_dTm,label=delabel),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 30),
+                      nudge_x = 1,
+                      force = 2,
+                      box.padding = 2,
+                      segment.alpha = .5)+
       ggtitle(df_$sample_name[1])+
       theme(legend.position="bottom", legend.box = "horizontal")+
-      geom_text(aes(x=min(dTm,na.rm=TRUE),y=40),label=paste0("Stabilized targets = ",nrow(df_[df_$diffexpressed=="Stabilized"],color="red")))+
-      geom_text(aes(x=min(dTm,na.rm=TRUE),y=38),label=paste0("Destabilized targets = ",nrow(df_[df_$diffexpressed=="Destabilized"],color="blue")))+
-      geom_point(aes(x=df_$dTm[df_$uniqueID %in%c("P36507","Q02750","P60033")],y=-log10(df_$p_dTm[df_$uniqueID %in%c("P36507","Q02750","P60033")]),color="black"))
+      geom_text(aes(x=-10,y=40),label=paste0("S = ",nrow(df_[df_$diffexpressed=="Stabilized",])))+
+      geom_text(aes(x=10,y=40),label=paste0("DS = ",nrow(df_[df_$diffexpressed=="Destabilized",])))+
+      xlim(-15,15)+
+      geom_label_repel(df_,mapping=aes(dTm, p_dTm,label=targets),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 30),
+                       nudge_x = 1,
+                       force = 1,
+                       box.padding = 1,
+                       segment.alpha = .5) 
     
   }
   
   return(check)
   
 }
-
 ###############################
 memory.limit(175921900000)#set for 16 GB RAM
 plan(multicore,workers=availableCores())
@@ -5389,7 +5391,7 @@ f<- list.files(pattern='*Proteins.xlsx')
 # f<-"C:/Users/figue/OneDrive - Northeastern University/CETSA R/CP_Exploris_20200811_DMSOvsMEKi_carrier_FAIMS_PhiSDM_PEPTIDES.xlsx"
 #df_raw <- read_cetsa("~/Files/Scripts/Files/PSM_validator","~/Files/Scripts/Files/PSM_validator","_Proteins",Peptide=FALSE,Batch=FALSE,CFS=TRUE,solvent="DMSO")     
 #df_raw <- read_cetsa("~/Files/Scripts/Files/Covid","~/Files/Scripts/Files/Covid","_Proteins",Peptide=FALSE,CFS=FALSE,Batch=FALSE)                                                              
-df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS","~/Files/Scripts/Files/CONSENSUS","_Proteins",Peptide=FALSE,Batch=FALSE)                                                              
+df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS","~/Files/Scripts/Files/CONSENSUS","_Proteins",Peptide=TRUE,Batch=FALSE)                                                              
 #saveRDS(df_raw,"df_raw.RDS")
 
 #filter Peptides
@@ -5574,7 +5576,7 @@ df.s <- function(data_path,n,rep_,bio_,vehicle_name,treated_name,Batch=FALSE,PSM
 df.samples<-df.s(f,dplyr::bind_rows(df_raw),3,2,"DMSO","TREATED",Batch=TRUE,PSM=TRUE)
 #Peptides
 df_raw<-df_raw %>% group_split(sample_name)
-df_clean <- furrr::future_map(df_raw,function(x) clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=FALSE,solvent="DMSO",CFS=TRUE,CARRIER=TRUE))#assgns temperature and replicate values
+df_clean <- furrr::future_map(df_raw1,function(x) clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=TRUE,solvent="DMSO",CFS=TRUE,CARRIER=TRUE))#assgns temperature and replicate values
 
 #Covid data
 #df_clean<-purrr::map(seq_along(df_clean),function(x) rbind(df_clean[[1]],x))
@@ -5582,7 +5584,7 @@ df_clean <- furrr::future_map(df_raw,function(x) clean_cetsa(x, temperatures = d
 #df_clean<-dplyr::bind_rows(df_clean) %>% dplyr::group_split(sample_name)
 
 #normalize data
-df_norm <- furrr::future_map(df_clean,function(x) normalize_cetsa(x, df.temps$temperature,Peptide=FALSE,filters=FALSE)) #normalizes according to Franken et. al. without R-squared filter
+df_norm <- furrr::future_map(df_clean,function(x) normalize_cetsa(x, df.temps$temperature,Peptide=TRUE,filters=FALSE)) #normalizes according to Franken et. al. without R-squared filter
 
 
 # rm(df_raw,df_clean)
@@ -5607,7 +5609,7 @@ Int_plot<-function(df_norm,Peptide=FALSE){
       theme(legend.position="bottom")+labs(colour = "Temperature (\u00B0C)")
   }
 }
-plot_I<-purrr::map(df_norm1,function(x) Int_plot(x,Peptide=FALSE))
+plot_I<-purrr::map(df_norm1,function(x) Int_plot(x,Peptide=TRUE))
 check<-ggplot2::ggplot_build(plot_I[[2]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plot_I,function(x) x$labels$title))
@@ -5736,7 +5738,7 @@ PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,Peptide=FALSE,show_resul
   return(plotTL1)
 }
 
-plot<-purrr::map(df_norm,function(x) try(PlotTrilinear(x,"P36507",df.temps,Ft=FALSE,filt=FALSE,Peptide=FALSE,show_results=FALSE)))
+plot<-purrr::map(df_norm,function(x) try(PlotTrilinear(x,"P36507",df.temps,Ft=FALSE,filt=FALSE,Peptide=TRUE,show_results=FALSE)))
 
 check<-ggplot2::ggplot_build(plot[[1]])
 y<-get_legend(check$plot)
@@ -5744,7 +5746,7 @@ data<-order(unlist(lapply(plot,function(x) x$labels$title)))
 plot<-plot[data]
 P1<-ggarrange(plotlist=plot,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-plot2<-purrr::map(df_norm,function(x) try(PlotTrilinear(x,"Q02750",df.temps,Ft=FALSE,filt=FALSE,Peptide=TRUE)))
+plot2<-purrr::map(df_norm,function(x) try(PlotTrilinear(x,"Q02750",df.temps,Ft=FALSE,filt=FALSE,Peptide=TRUE,show_results=FALSE)))
 check<-ggplot2::ggplot_build(plot2[[1]])
 y<-get_legend(check$plot)
 data<-order(unlist(lapply(plot,function(x) x$labels$title)))
@@ -5753,7 +5755,7 @@ P2<-ggarrange(plotlist=plot2,ncol=4,nrow=2,font.label = list(size = 14, color = 
 
 #saveIDs filtered
 
-pdf("Target_curves_trilinear_unfilt_unshared.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
+pdf("Target_curves_trilinear_filt_unshared.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
 P1
 P2
 dev.off()
@@ -5853,14 +5855,14 @@ P3<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = 
 # check<-dplyr::bind_rows(df_norm) %>% dplyr::group_split(time_point)
 # plotS2 <- purrr::map(check,function(x) try(plot_Splines(x,"P0DTC2",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
 # 
-plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
+plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=TRUE,Peptide=TRUE)))
 check<-ggplot2::ggplot_build(plotS2[[1]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plotS2,function(x) x$labels$title))
 plotS2<-plotS2[order(data)]
 P2<-ggarrange(plotlist=plotS2,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-plotS <- furrr::future_map(df_norm,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
+plotS <- furrr::future_map(df_norm1,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=TRUE,Peptide=TRUE)))
 check<-ggplot2::ggplot_build(plotS[[1]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plotS,function(x) x$labels$title))
@@ -5868,7 +5870,7 @@ plotS<-plotS[order(data)]
 P1<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
 
-pdf("Protein_Target_curves_MD_PD_HR_Settings_unfilt_unshared.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
+pdf("Peptide_Target_curves_MD_PD_HR_Settings_filt_unshared.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
 P1
 P2
 
@@ -5883,12 +5885,12 @@ pdf("volcano_splines_Protein_panels.pdf",encoding="CP1253.enc",compress=TRUE,wid
 P1
 dev.off()
 #plot volcano for gof filtered data (F statistic)
-check<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,fT=TRUE)))
+check<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,fT=FALSE)))
 check1<-ggplot2::ggplot_build(check[[1]])
 y<-get_legend(check1$plot)
 P1<-ggarrange(plotlist=check,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-pdf("volcano_splines_Protein_gof_panels.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+pdf("volcano_splines_Peptide_gof_panels.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 P1
 dev.off()
 
