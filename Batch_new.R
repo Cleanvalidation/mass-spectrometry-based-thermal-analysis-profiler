@@ -5102,8 +5102,11 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
 }
 volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FALSE,fT=FALSE){
   f<-data.frame(f)
+  if(any(names(f)=="I3")){
+    f<-f %>% dplyr::rename("I"="I3")
+  }
   if(isTRUE(fT)){
-    if(isTRUE(Peptide) & any(names(f)=="rank_l")){
+    if(isTRUE(Peptide)){
       
       f<-f %>% 
         dplyr::select(uniqueID,sample,sample_name,dTm,AUC,rsq,fStatistic,pValue,pAdj,dataset,Fvals)
@@ -5170,14 +5173,14 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
       check<-ggplot(data=f,mapping=aes(x=Fvals,y=pAdj,color=diffexpressed))+geom_point()+
         geom_hline(yintercept=0.05, col="red")+ scale_color_manual("Stabilization",values=c("blue","red","orange"))+
         labs(y="P-value",x="F-values")+
-        #geom_text(mapping=aes(Fvals, pAdj, label = delabel), data = f,color="black")+
+        #geom_text(mapping=aes(Fvals, pAdj, label = delabel), data = f,color="black",show.legend=FALSE)+
         geom_text_repel(f,mapping=aes(Fvals, pAdj,label=delabel),color="black")+ggtitle(f$sample_name[1])+
         theme(legend.position="bottom", legend.box = "horizontal")
       
       return(check)
     }
   }else{
-    if(isTRUE(Peptide) & any(names(f)=="rank_l")){
+    if(isTRUE(Peptide)){
       f<-f %>% 
         dplyr::group_split(uniqueID,dataset,sample)
       f<-purrr::map(f,function(x) x %>% dplyr::mutate(Tm=try(stats::approx(.$I,.$C, xout=(min(.$I,na.rm=TRUE)+(0.5*(max(.$I, na.rm=TRUE)-min(.$I, na.rm=TRUE)))),n=100)$y)))
@@ -5192,26 +5195,16 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
         dTm=mean(x$Tm[x$dataset == "treated"],na.rm=TRUE)-mean(x$Tm[x$dataset == "vehicle"],na.rm=TRUE),
         #FC=log2(v_Tm/t_Tm),
         variance_equal_vt = var.test(x$Tm ~ x$dataset)$p.value,
-        p_dTm= try(ifelse(all(variance_equal_vt < 0.05),
+        p_dTm= try(ifelse(all(x$variance_equal_vt < 0.05),
                           t.test(Tm ~ dataset, data = x,
                                  var.equal = ifelse(all(variance_equal_vt<0.05),FALSE,TRUE))$p.value[1],NA))))
+      f<-f %>% purrr::keep(function(x) !class(x$p_dTm)=='try-error')
       
       ######
-      f<-f %>% dplyr::group_split(uniqueID,sample_name)
+      f<-dplyr::bind_rows(f) %>% dplyr::group_split(uniqueID,sample_name)
       f<-purrr::map(f,function(x) x[1,])
       f<-dplyr::bind_rows(f) %>% dplyr::group_split(uniqueID)
-      f<-purrr::map(f,function(x) x %>% dplyr::ungroup(.) %>% group_by(sample,dataset) %>% 
-                      dplyr::mutate(uniqueID=uniqueID,
-                                    dataset=dataset,
-                                    sample_name=sample_name,
-                                    M1=M1,
-                                    sample=sample,
-                                    Tm=mean(Tm,na.rm=TRUE),#for peptide groups, caculate averages for parameters
-                                    rss=mean(rss,na.rm=TRUE),
-                                    rsq=mean(rsq,na.rm=TRUE),
-                                    AUC=mean(AUC,na.rm=TRUE)
-                      ) %>% 
-                      ungroup(.) %>% distinct(.))
+      
       
     }else if(!isTRUE(Peptide)){
       f<-data.frame(f)
@@ -5259,10 +5252,13 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
         p_dTm= try(ifelse(all(variance_equal_vt < 0.05),
                           t.test(Tm ~ dataset, data = x,
                                  var.equal = ifelse(all(variance_equal_vt<0.05),FALSE,TRUE))$p.value[1],NA))))
+      
+      f<-f %>% purrr::keep(function(x) !class(x$p_dTm)=='try-error')
+      
     }
   }
   if(isTRUE(Trilinear)){
-    f<-f %>% purrr::keep(function(x) !class(x$p_dTm)=='try-error')
+    
     f<-dplyr::bind_rows(f) %>% dplyr::group_split(uniqueID,sample_name)
     f<-f %>% purrr::keep(function(x) any(class(x$M1[[1]])=="lm"))
     
@@ -5295,7 +5291,7 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
       theme(legend.position="bottom", legend.box = "horizontal")
     
   }else if(isTRUE(Splines)){
-    f<-f %>% purrr::keep(function(x) !class(x$p_dTm)=='try-error')
+    
     f<-dplyr::bind_rows(f) %>% dplyr::select(-sample,-variance_equal_vt) %>% 
       distinct(.) %>% dplyr::group_split(uniqueID,sample_name)
     f<-f %>% purrr::keep(function(x) any(class(x$M1[[1]])=="gam"))
@@ -5336,13 +5332,13 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
                       segment.alpha = .5)+
       ggtitle(df_$sample_name[1])+
       theme(legend.position="bottom", legend.box = "horizontal")+
-      geom_text(aes(x=-10,y=40),label=paste0("S = ",nrow(df_[df_$diffexpressed=="Stabilized",])))+
-      geom_text(aes(x=10,y=40),label=paste0("DS = ",nrow(df_[df_$diffexpressed=="Destabilized",])))+
+      geom_text(aes(x=10,y=300),label=paste0("S = ",nrow(df_[df_$diffexpressed=="Stabilized",])),show.legend=FALSE)+
+      geom_text(aes(x=-10,y=300),label=paste0("DS = ",nrow(df_[df_$diffexpressed=="Destabilized",])),show.legend=FALSE)+
       xlim(-15,15)+
       geom_label_repel(df_,mapping=aes(dTm, p_dTm,label=targets),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 30),
                        nudge_x = 1,
-                       force = 1,
-                       box.padding = 1,
+                       force = 3,
+                       box.padding = 3,
                        segment.alpha = .5) 
     
   }
@@ -5490,7 +5486,7 @@ filter_Peptides<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm,
   
 }
 df_raw1<-df_raw %>% dplyr::group_split(sample_name)
-df_raw1<-furrr::future_map(df_raw1,function(x) try(filter_Peptides(x,20,0.01,2.3,30,2,1,7,5,filter_rank=FALSE,shared_proteins=TRUE,CFS=TRUE)))
+df_raw1<-furrr::future_map(df_raw1,function(x) try(filter_Peptides(x,20,0.2,1,30,4,1,7,15,filter_rank=FALSE,shared_proteins=TRUE,CFS=TRUE)))
 df_raw1<-dplyr::bind_rows(df_raw1)%>% dplyr::group_split(sample_name)
 df_raw1<-df_raw1 %>% purrr::keep(function(x) !nrow(x)==0)
 
@@ -5590,7 +5586,11 @@ df_norm <- furrr::future_map(df_clean,function(x) normalize_cetsa(x, df.temps$te
 # rm(df_raw,df_clean)
 
 Int_plot<-function(df_norm,Peptide=FALSE){
-  df_norm$sample_name<-f$sample_name<-str_replace(df_norm$sample_name,"S","\u03A6")
+  df_norm<-data.frame(df_norm)
+  df_norm$sample_name<-str_replace(df_norm$sample_name,"S","\u03A6")
+  if(any(names(df_norm)=="I3")){
+    df_norm<-df_norm %>% dplyr::rename("I"="I3")
+  }
   if(!isTRUE(Peptide)){
     list<-ggplot2::ggplot(df_norm,mapping=aes(x=C,y=I))+
       geom_jitter(position=position_jitter(2),alpha=0.5)+
@@ -5600,7 +5600,7 @@ Int_plot<-function(df_norm,Peptide=FALSE){
       ylim(-0.1,10)+
       theme(legend.position="bottom")+ labs(colour = "Temperature (\u00B0C)")
   }else{
-    list<-ggplot2::ggplot(df_norm,mapping=aes(x=C,y=I3))+
+    list<-ggplot2::ggplot(df_norm,mapping=aes(x=C,y=I))+
       geom_jitter(position=position_jitter(2),alpha=0.5)+
       geom_boxplot(mapping=aes(color=as.factor(C)))+xlab('Temperature (\u00B0C)')+
       ylab("Normalized intensity (top 25%)")+
@@ -5615,7 +5615,7 @@ y<-get_legend(check$plot)
 data<-unlist(lapply(plot_I,function(x) x$labels$title))
 plot_I<-plot_I[order(data)]
 P<-ggarrange(plotlist=plot_I,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
-pdf("Intensity_values_Peptide_filt.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+pdf("Intensity_values_Peptide_unfilt.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 P
 dev.off()
 ##Generate upset plots for missing value data###
@@ -5876,12 +5876,12 @@ P2
 
 dev.off()
 #plot volcano for unfiltered data
-check<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,fT=FALSE)))
+check<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=TRUE,fT=FALSE)))
 check1<-ggplot2::ggplot_build(check[[1]])
 y<-get_legend(check1$plot)
 P1<-ggarrange(plotlist=check,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-pdf("volcano_splines_Protein_panels.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+pdf("volcano_splines_Peptide_unfiltered_panels.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 P1
 dev.off()
 #plot volcano for gof filtered data (F statistic)
