@@ -501,20 +501,20 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     
     df$Accession<-as.factor(df$Accession)
     #rank by intensity at the lowest temperature channel
-    df_filt<-df %>% dplyr::filter(temp_ref=="126") %>% dplyr::mutate(rank=dplyr::ntile(desc(I),3)) %>%
+    df_filt<-df %>% dplyr::filter(temp_ref=="126") %>% dplyr::mutate(rank=dplyr::ntile(dplyr::desc(I),3)) %>%
       dplyr::select(Accession,Annotated_Sequence,I,sample,dataset,sample_name,rank)
     df_filt$rank<-as.factor(df_filt$rank)
     
     #select top3 top5 and top10 peptides according to rank
     df_filt3 <- df_filt %>%dplyr::filter(!is.na(I)) %>%  
-      dplyr::arrange(desc(I)) %>% 
-      group_by(rank) %>% slice(1:2000)
+      dplyr::arrange(dplyr::desc(I)) %>% 
+      group_by(rank) %>% dplyr::slice(1:2000)
     df_filt5 <- df_filt %>%dplyr::filter(!is.na(I)) %>%  
-      arrange(desc(I)) %>% 
-      group_by(rank) %>% slice(1:6000)
+      arrange(dplyr::desc(I)) %>% 
+      group_by(rank) %>% dplyr::slice(1:6000)
     df_filt10 <- df_filt %>% dplyr::filter(!is.na(I)) %>%  
-      arrange(desc(I)) %>% 
-      group_by(rank) %>% slice(1:9000)
+      arrange(dplyr::desc(I)) %>% 
+      group_by(rank) %>% dplyr::slice(1:9000)
     
     df_filt3<-df_filt3 %>% dplyr::ungroup(.) %>%  dplyr::select(-I,-rank)
     df_filt5<-df_filt5 %>% dplyr::ungroup(.) %>%  dplyr::select(-I,-rank)
@@ -709,11 +709,11 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     check3<-purrr::map(check3,function(x) x %>% unnest(c(fitted_values3)) %>% unique(.) %>% dplyr::mutate(temperature=temperatures))
     check5<-purrr::map(check5,function(x) x %>% unnest(c(fitted_values5)) %>% unique(.) %>% dplyr::mutate(temperature=temperatures))
     check10<-purrr::map(check10,function(x) x %>% unnest(c(fitted_values10)) %>% unique(.) %>% dplyr::mutate(temperature=temperatures))
-    
+    # 
     #bind_rows
-    check3<-dplyr::bind_rows(check3) %>% select(-dataset)
-    check5<-dplyr::bind_rows(check5) %>% select(-dataset)
-    check10<-dplyr::bind_rows(check10) %>% select(-dataset)
+    check3<-dplyr::bind_rows(check3)
+    check5<-dplyr::bind_rows(check5)
+    check10<-dplyr::bind_rows(check10)
     
     test3<-df1 %>% dplyr::group_by(temperature) %>% dplyr::right_join(check3,c('sample','temperature'))
     test5<-df1 %>% dplyr::group_by(temperature) %>% dplyr::right_join(check5,c('sample','temperature'))
@@ -4169,7 +4169,133 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
 }
 
 
-
+spSim<-function(df1,df2,Df1){#df1 vehicle df2 treated Df1 null
+  
+  
+  
+  #set C and I as numeric
+  df2$C<-as.numeric(as.vector(df2$C))
+  df2$I<-as.numeric(as.vector(df2$I))
+  df2<-df2  %>%  mutate_if(is.logical,as.numeric) 
+  df2$uniqueID<-as.character(df2$uniqueID)
+  
+  
+  #get original data
+  ###########################################
+  df1<-df1$uniqueID
+  DF1<-df2[which(df2$uniqueID %in% df1),]
+  Df1<-dplyr::bind_rows(Df1)
+  
+  
+  ###########################################
+  #get confidence intervals for all conditions
+  ###########################################
+  
+  #return fit and confidence intervals
+  
+  BSVarN<-NA
+  BSVar<-NA
+  BSVar1<-NA
+  BSvarN<-NA
+  BSvar<-NA
+  BSvar1<-NA
+  BSvarN<-df2 %>% subset(uniqueID %in% df1 ) 
+  BSvar1 <-df2 %>% subset(uniqueID %in% df1 & dataset== "treated")
+  BSvar <-df2 %>% subset(uniqueID %in% df1 & dataset== "vehicle")
+  BSVarN<-df2 %>% subset(uniqueID %in% df1 ) %>%dplyr::group_by(C)# %>%  dplyr::mutate(I=mean(I))
+  BSVar <-df2 %>% subset(uniqueID %in% df1 & dataset== "vehicle")%>%dplyr::group_by(C)# %>% dplyr::mutate(I=mean(I))
+  BSVar1 <-df2 %>% subset(uniqueID %in% df1 & dataset== "treated")%>%dplyr::group_by(C)# %>% dplyr::mutate(I=mean(I))
+  
+  
+  BSVarN<-BSVarN %>% dplyr::mutate(dataset="null") 
+  BSVar<-BSVar %>% dplyr::mutate(dataset="vehicle")
+  BSVar1<-BSVar1 %>% dplyr::mutate(dataset="treated")
+  BSVarN$dataset<-as.factor(BSVarN$dataset)
+  BSVar$dataset<-as.factor(BSVar$dataset)
+  BSVar1$dataset<-as.factor(BSVar1$dataset)
+  
+  BSVar<-BSVar[!is.na(BSVar$I),]
+  BSVar1<-BSVar1[!is.na(BSVar1$I),]
+  BSVarN<-BSVarN[!is.na(BSVarN$I),]
+  
+  
+  
+  library(STRINGdb)
+  library(UniProt.ws)
+  library('org.Hs.eg.db')
+  #load stringdb data
+  string_db <- STRINGdb$new( version="10", species=9606,score_threshold=200, input_directory="")
+  MEK1<-string_db$mp("MAP2K1")
+  MEK2<-string_db$mp("MAP2K2")
+  #CD81<-string_db$mp("CD81")
+  #string_db$get_neighbors( c(MEK1, MEK2,CD81) ) [1:10]
+  proteins<-string_db$get_proteins()
+  
+  #get interactors and ensembl ids
+  Interactors<-string_db$get_interactions( c(MEK1, MEK2) )
+  TP<-c(MEK1,MEK2,string_db$get_neighbors( c(MEK1, MEK2) ) [1:5000])
+  
+  #get protein data for interactors
+  xx<-proteins[proteins$protein_external_id %in% TP,c('protein_external_id','preferred_name','annotation')]
+  symbols <- xx$preferred_name
+  #get uniprotID
+  ss <- as.character(mapIds(org.Hs.eg.db, symbols, 'UNIPROT', 'SYMBOL'))
+  ss<-ss[!is.na(ss)]#remove missing values
+  
+  BSVar_<-BSVar %>% dplyr::filter(uniqueID %in% ss) %>%  dplyr::ungroup(.) %>% dplyr::group_split(uniqueID,sample_name)
+  BSVar1_<-BSVar1 %>% dplyr::filter(uniqueID %in% ss) %>% dplyr::ungroup(.) %>% dplyr::group_split(uniqueID,sample_name)
+  BSVarN_<-BSVarN %>% dplyr::filter(uniqueID %in% ss) %>% dplyr::ungroup(.) %>% dplyr::group_split(uniqueID,sample_name)
+  #add some noise to the original data
+  y_data <- purrr::map(BSVar_,function(x) x %>% dplyr::mutate(I=x$I + rnorm(length(x$C), 0, 0.05)))
+  y_data1 <- purrr::map(BSVar1_,function(x) x %>% dplyr::mutate(I=x$I + rnorm(length(x$C), 0, 0.05)))
+  y_dataN<-purrr::map(BSVarN_,function(x) x %>% dplyr::mutate(I=x$I + rnorm(length(x$C), 0, 0.05)))
+  #show simulation results with TP
+  fT<-TRUE
+  show_results<-TRUE
+  #show results with some noise
+  spresults<-spstat(y_dataN,y_data,y_data1,Ftest=fT,norm=FALSE,show_results=show_results,filters=Filters)
+  TP<-spresults %>% dplyr::mutate(outcome="TP")
+  #set false positives by overlaying vehicle curves
+  spresults<-spstat(y_dataN,y_data,y_data,Ftest=fT,norm=FALSE,show_results=show_results,filters=Filters)
+  FP<-spresults %>% dplyr::mutate(outcome="FP")
+  test<-rbind(TP,FP)
+  
+  # 
+  # roc4 <- roc(test$outcome,
+  #             test$Fvals, percent=TRUE,
+  #             # arguments for ci
+  #             ci=TRUE, boot.n=100, ci.alpha=0.9, stratified=FALSE,
+  #             # arguments for plot
+  #             plot=TRUE,
+  #             print.auc=TRUE, show.thres=TRUE)+title(test$sample_name[1])
+  # 
+  rocs <- roc(outcome ~Fvals + rssDiff + dTm+AUC,data = test)
+  ROC<- ggroc(rocs)+ggtitle(paste0(str_replace(test$sample_name[1],"S",paste0("\u03A6"))," real data"))+
+    scale_color_colorblind("Parameters",labels=c("F-stat",
+                                                 expression(Delta*RSS),
+                                                 expression(Delta*Tm),
+                                                 expression(Delta*AUC)))+
+    theme(legend.position="bottom", legend.box = "horizontal")
+  
+  #show results without
+  spresults<-spstat(BSVarN_,BSVar_,BSVar1_,Ftest=fT,norm=FALSE,show_results=show_results,filters=Filters)
+  TP<-spresults %>% dplyr::mutate(outcome="TP")
+  #set false positives by overlaying vehicle curves
+  spresults<-spstat(BSVarN_,BSVar_,BSVar_,Ftest=fT,norm=FALSE,show_results=show_results,filters=Filters)
+  FP<-spresults %>% dplyr::mutate(outcome="FP")
+  test<-rbind(TP,FP)
+  
+  rocs1<- roc(outcome ~Fvals + rssDiff + dTm+AUC,data = test)
+  ROC1<- ggroc(rocs1)+ggtitle(paste0(str_replace(test$sample_name[1],"S",paste0("\u03A6"))," real data"))+
+    scale_color_colorblind("Parameters",labels=c("F-stat",
+                                                 expression(Delta*RSS),
+                                                 expression(Delta*Tm),
+                                                 expression(Delta*AUC)))+
+    theme(legend.position="bottom", legend.box = "horizontal")
+  
+  ROC_list<-list(ROC,ROC1)
+  
+}
 ##################################################
 #Sigmoidal function with confidence intervals
 ###################################################
@@ -5486,7 +5612,7 @@ filter_Peptides<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm,
   
 }
 df_raw1<-df_raw %>% dplyr::group_split(sample_name)
-df_raw1<-furrr::future_map(df_raw1,function(x) try(filter_Peptides(x,20,0.2,1,30,4,1,7,15,filter_rank=FALSE,shared_proteins=TRUE,CFS=TRUE)))
+df_raw1<-furrr::future_map(df_raw1,function(x) try(filter_Peptides(x,20,0.01,2.3,30,2,1,7,5,filter_rank=FALSE,shared_proteins=FALSE,CFS=TRUE)))
 df_raw1<-dplyr::bind_rows(df_raw1)%>% dplyr::group_split(sample_name)
 df_raw1<-df_raw1 %>% purrr::keep(function(x) !nrow(x)==0)
 
@@ -5639,7 +5765,7 @@ df_norm1<-df_norm
 
 # df_norm<-dplyr::bind_rows(df_norm) %>% dplyr::group_split(uniqueID)
 # df_norm<-df_norm %>% purrr::keep(function(x) nrow(x)>1)
-df_norm<-purrr::map(df_norm1,function(x)x %>% dplyr::filter(uniqueID %in% c("P36507","Q02750")))
+df_norm<-purrr::map(df_norm1,function(x)x %>% dplyr::filter(uniqueID %in% c("P36507","Q02750","P60033")))
 
 
 PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,Peptide=FALSE,show_results=FALSE){
@@ -5769,7 +5895,7 @@ dev.off()
 #df2<-original data in order  
 #Df1 <- ordered spline results 
 ###############################
-plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE){
+plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE,simulations=FALSE){
   Filters=Filters
   fT=fT
   MD=MD
@@ -5803,7 +5929,7 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=FALSE,fT=FALSE,show_r
     spresults<-list()
     spresults_PI<-list()
     
-    spresults<-spstat(DFN,df_,df_1,Ftest=fT,norm=FALSE,show_results=TRUE,filters=Filters)
+    spresults<-spstat(DFN,df_,df_1,Ftest=fT,norm=FALSE,show_results=show_results,filters=Filters)
     if(isTRUE(show_results)){
       return(spresults)
     }
@@ -5812,6 +5938,12 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=FALSE,fT=FALSE,show_r
     }else{
       res_sp<-spf(spresults,DFN,filters=FALSE)
     }
+    
+    if(isTRUE(simulations)){
+      ROCs<-spSim(res_sp[[1]],res_sp[[2]],res_sp[[3]])
+      return(ROCs)
+    }
+    
     #saveIDs filtered
     i<-which(res_sp[[1]]$uniqueID %in% Protein)
     #generate 95%CI for splines
@@ -5826,7 +5958,7 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=FALSE,fT=FALSE,show_r
     spresults<-list()
     spresults_PI<-list()
     
-    spresults<-spstat(DFN,df_,df_1,Ftest=fT,norm=FALSE,show_results=TRUE,filters=Filters)
+    spresults<-spstat(DFN,df_,df_1,Ftest=fT,norm=FALSE,show_results=show_results,filters=Filters)
     if(isTRUE(show_results)){
       return(spresults)
     }
@@ -5835,6 +5967,10 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=FALSE,fT=FALSE,show_r
       res_sp<-spf(spresults[[1]],DFN,filters=Filters)
     }else{
       res_sp<-spf(spresults,DFN,filters=Filters)
+    }
+    if(isTRUE(simulations)){
+      ROCs<-spSim(res_sp[[1]],res_sp[[2]],res_sp[[3]])
+      return(ROCs)
     }
     #saveIDs filtered
     i<-which(res_sp[[1]]$uniqueID %in% Protein)
@@ -5855,25 +5991,31 @@ P3<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = 
 # check<-dplyr::bind_rows(df_norm) %>% dplyr::group_split(time_point)
 # plotS2 <- purrr::map(check,function(x) try(plot_Splines(x,"P0DTC2",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
 # 
-plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=TRUE,Peptide=TRUE)))
+plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=TRUE,simulations=TRUE)))
 check<-ggplot2::ggplot_build(plotS2[[1]])
 y<-get_legend(check$plot)
-data<-unlist(lapply(plotS2,function(x) x$labels$title))
-plotS2<-plotS2[order(data)]
+# data<-unlist(lapply(plotS2,function(x) x$labels$title))
+# plotS2<-plotS2[order(data)]
 P2<-ggarrange(plotlist=plotS2,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-plotS <- furrr::future_map(df_norm1,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=TRUE,Peptide=TRUE)))
+plotS <- furrr::future_map(df_norm,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=TRUE,simulations=TRUE)))
 check<-ggplot2::ggplot_build(plotS[[1]])
 y<-get_legend(check$plot)
-data<-unlist(lapply(plotS,function(x) x$labels$title))
-plotS<-plotS[order(data)]
+# data<-unlist(lapply(plotS,function(x) x$labels$title))
+# plotS<-plotS[order(data)]
 P1<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
+plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"P60033",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=TRUE,simulations=TRUE)))
+check<-ggplot2::ggplot_build(plotS2[[1]])
+y<-get_legend(check$plot)
+# data<-unlist(lapply(plotS2,function(x) x$labels$title))
+# plotS2<-plotS2[order(data)]
+P3<-ggarrange(plotlist=plotS2,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
 pdf("Peptide_Target_curves_MD_PD_HR_Settings_filt_unshared.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
 P1
 P2
-
+P3
 dev.off()
 #plot volcano for unfiltered data
 check<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=TRUE,fT=FALSE)))
