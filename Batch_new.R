@@ -819,23 +819,23 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     ## fit curves to the median data for each sample (F1 through FN)
     df.fit <- df.median %>%
       dplyr::group_by(sample) %>% 
-      dplyr::mutate(fit = try(list(try(nls(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl,
-                                           start = c(Pl=0, a = 550, b = 10),
-                                           data = list(x=temperature,y=value),
-                                           na.action = na.exclude,
-                                           algorithm = "port",
-                                           lower = c(0.0,1e-5,1e-5),
-                                           upper = c(1.5,15000,300),
-                                           control = nls.control(maxiter = 50)),
-                                       silent = TRUE)))) 
+      dplyr::mutate(fit = list(try(nls(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl,
+                                       start = c(Pl=0, a = 550, b = 10),
+                                       data = list(x=temperature,y=value),
+                                       na.action = na.exclude,
+                                       algorithm = "port",
+                                       lower = c(0.0,1e-5,1e-5),
+                                       upper = c(1.5,15000,300),
+                                       control = nls.control(maxiter = 50)),
+                                   silent = TRUE)))
     
     df.fit<-df.fit %>% dplyr::group_by(sample) %>% dplyr::group_split()
     df.fit<-df.fit %>% purrr::keep(function(x) class(x$fit[[1]])=='nls')
     df.fit<-dplyr::bind_rows(df.fit)
     df.fit<-df.fit%>% 
-      dplyr::mutate(fitted_values = ifelse(class(fit[[1]])=='nls',list(data.frame(fitted_values=predict(fit[[1]]))),NA)) %>% 
-      
-      d<-df.fit %>% dplyr::group_split(sample)
+      dplyr::mutate(fitted_values = ifelse(class(fit[[1]])=='nls',list(data.frame(fitted_values=predict(fit[[1]]))),NA))
+    
+    d<-df.fit %>% dplyr::group_split(sample)
     
     
     #unnest fitted values from list and name value column and keep fitted values and temps
@@ -843,15 +843,15 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     
     check<-purrr::map(check,function(x) x %>% unnest(c(fitted_values)) %>% unique(.) %>% dplyr::mutate(temperature=temperatures))
     #bind_rows
-    check<-dplyr::bind_rows(check) %>% select(-dataset)%>% unique(.) 
+    check<-dplyr::bind_rows(check) %>% select(-dataset,-I,-missing,-missing_pct,-rank,-CC,-value,-temp_ref,-Coverage,-id,-Accession,-MW_kDa,-Cell_Component,-Bio_Process,-fit)%>% unique(.) 
     
     
     check$sample<-as.factor(check$sample)
-    
-    test<-df.median %>% dplyr::group_by(sample,temperature) %>% dplyr::right_join(check,c('sample','temperature'))
+    names<-dplyr::intersect(names(check),names(df.median))
+    test<-df.median %>% dplyr::group_by(sample,temperature) %>% dplyr::right_join(check,names)
     ## calculate ratios between the fitted curves and the median values
     df.out <- test %>%
-      dplyr::mutate(correction = ifelse(is.na(fitted_values /I),NA,fitted_values /I)) %>%
+      dplyr::mutate(correction = ifelse(is.na(fitted_values/I),NA,fitted_values/I)) %>%
       dplyr::select('sample','temperature','I','fitted_values','correction')
     df.out<-df.out %>% dplyr::select(-fitted_values,-I)
     ## apply normalization factor to data
@@ -2138,7 +2138,7 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE,show_results=FAL
                                        uniqueID=x$uniqueID[1],
                                        n=ifelse(class(M1)=="lm",1,0)))
     
-    mean1<-purrr::map(mean1,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values[(which(abs(x$M1[[1]]$fitted.values-0.5)==min(abs(x$M1[[1]]$fitted.values-0.5)))-1):(which(abs(x$M1[[1]]$fitted.values-0.5)==min(abs(x$M1[[1]]$fitted.values-0.5)))+1)])))
+    mean1<-purrr::map(mean1,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values)))
     
     
     #define linear models with outputs
@@ -2161,8 +2161,7 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE,show_results=FAL
     
     
     
-    mean1_1<-purrr::map(mean1_1,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values[(which(abs(x$M1[[1]]$fitted.values-0.5)==min(abs(x$M1[[1]]$fitted.values-0.5)))-1):(which(abs(x$M1[[1]]$fitted.values-0.5)==min(abs(x$M1[[1]]$fitted.values-0.5)))+1)])))
-    
+    mean1_1<-purrr::map(mean1_1,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values)))
     # null hypothesis
     #null
     mean3<-list()
@@ -2183,7 +2182,7 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE,show_results=FAL
                                        n=ifelse(class(M1)=="lm",1,0)))
     
     
-    mean3<-purrr::map(mean3,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values[which(abs(x$M1[[1]]$fitted.values-0.5)==min(abs(x$M1[[1]]$fitted.values-0.5)))-1:which(abs(x$M1[[1]]$fitted.values-0.5)==min(abs(x$M1[[1]]$fitted.values-0.5)))+1])))
+    mean3<-purrr::map(mean3,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values)))
     if(isTRUE(show_results)){
       results<-dplyr::bind_rows(mean1,mean1_1,mean3) %>% dplyr::group_split(sample_name)
       return(results)
@@ -2334,7 +2333,7 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE,show_results=FAL
                                        n=ifelse(class(M1)=="lm",1,0)))
     
     
-    mean1<-purrr::map(mean1,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values[(which(abs(x$M1[[1]]$fitted.values-0.5)==min(abs(x$M1[[1]]$fitted.values-0.5)))-1):(which(abs(x$M1[[1]]$fitted.values-0.5)==min(abs(x$M1[[1]]$fitted.values-0.5)))+1)])))
+    mean1<-purrr::map(mean1,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values)))
     
     #define linear models with outputs
     
@@ -2355,7 +2354,7 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE,show_results=FAL
                                          n=ifelse(class(M1)=="lm",1,0)))
     
     
-    mean1_1<-purrr::map(mean1_1,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values[(which(abs(x$M1[[1]]$fitted.values-0.5)==min(abs(x$M1[[1]]$fitted.values-0.5)))-1):(which(abs(x$M1[[1]]$fitted.values-0.5)==min(abs(x$M1[[1]]$fitted.values-0.5)))+1)])))
+    mean1_1<-purrr::map(mean1_1,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values)))
     
     
     
@@ -2379,7 +2378,7 @@ tlstat<-function(DF,df,df1,norm=FALSE,Filters=FALSE,Ftest=FALSE,show_results=FAL
                                        n=ifelse(class(M1)=="lm",1,0)))
     
     
-    mean3<-purrr::map(mean3,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values[(which(abs(x$M1[[1]]$fitted.values-0.5)==min(abs(x$M1[[1]]$fitted.values-0.5)))-1):(which(abs(x$M1[[1]]$fitted.values-0.5)==min(abs(x$M1[[1]]$fitted.values-0.5)))+1)])))
+    mean3<-purrr::map(mean3,function(x) x %>% dplyr::mutate(AUC = pracma::trapz(x$M1[[1]]$fitted.values)))
     #convert to df and split by uniqueID 
     mean1<-dplyr::bind_rows(mean1)
     mean1_1<-dplyr::bind_rows(mean1_1)
@@ -2878,8 +2877,8 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs,CARRIER=
   rownames(Pred2)<-as.vector(1:nrow(Pred2))
   #Area under the curve using trapezoid rule
   
-  P1_AUC <- pracma::trapz(Pred1$I[(which(abs(Pred1$I-0.5)==min(abs(Pred1$I-0.5)))-1):(which(abs(Pred1$I-0.5)==min(abs(Pred1$I-0.5)))+1)])
-  P2_AUC <- pracma::trapz(Pred2$I[(which(abs(Pred2$I-0.5)==min(abs(Pred2$I-0.5)))-1):(which(abs(Pred2$I-0.5)==min(abs(Pred2$I-0.5)))+1)])
+  P1_AUC <- pracma::trapz(Pred1$I)
+  P2_AUC <- pracma::trapz(Pred2$I)
   #Residuals
   rn<-data.frame(residuals(null$M1[[1]]))
   
@@ -4202,9 +4201,9 @@ spSim<-function(df1,df2,Df1){#df1 vehicle df2 treated Df1 null
   BSvarN<-df2 %>% subset(uniqueID %in% df1 ) 
   BSvar1 <-df2 %>% subset(uniqueID %in% df1 & dataset== "treated")
   BSvar <-df2 %>% subset(uniqueID %in% df1 & dataset== "vehicle")
-  BSVarN<-df2 %>% subset(uniqueID %in% df1 ) %>%dplyr::group_by(C)# %>%  dplyr::mutate(I=mean(I))
-  BSVar <-df2 %>% subset(uniqueID %in% df1 & dataset== "vehicle")%>%dplyr::group_by(C)# %>% dplyr::mutate(I=mean(I))
-  BSVar1 <-df2 %>% subset(uniqueID %in% df1 & dataset== "treated")%>%dplyr::group_by(C)# %>% dplyr::mutate(I=mean(I))
+  BSVarN<-df2 %>% subset(uniqueID %in% df1 ) # %>%  dplyr::mutate(I=mean(I))
+  BSVar <-df2 %>% subset(uniqueID %in% df1 & dataset== "vehicle")# %>% dplyr::mutate(I=mean(I))
+  BSVar1 <-df2 %>% subset(uniqueID %in% df1 & dataset== "treated")# %>% dplyr::mutate(I=mean(I))
   
   
   BSVarN<-BSVarN %>% dplyr::mutate(dataset="null") 
@@ -5513,7 +5512,7 @@ f<- list.files(pattern='*Proteins.xlsx')
 # f<-"C:/Users/figue/OneDrive - Northeastern University/CETSA R/CP_Exploris_20200811_DMSOvsMEKi_carrier_FAIMS_PhiSDM_PEPTIDES.xlsx"
 #df_raw <- read_cetsa("~/Files/Scripts/Files/PSM_validator","~/Files/Scripts/Files/PSM_validator","_Proteins",Peptide=FALSE,Batch=FALSE,CFS=TRUE,solvent="DMSO")     
 #df_raw <- read_cetsa("~/Files/Scripts/Files/Covid","~/Files/Scripts/Files/Covid","_Proteins",Peptide=FALSE,CFS=FALSE,Batch=FALSE)                                                              
-df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS","~/Files/Scripts/Files/CONSENSUS","_Proteins",Peptide=TRUE,Batch=FALSE)                                                              
+df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS","~/Files/Scripts/Files/CONSENSUS","_Proteins",Peptide=FALSE,Batch=FALSE)                                                              
 #saveRDS(df_raw,"df_raw.RDS")
 
 #filter Peptides
@@ -5698,7 +5697,7 @@ df.s <- function(data_path,n,rep_,bio_,vehicle_name,treated_name,Batch=FALSE,PSM
 df.samples<-df.s(f,dplyr::bind_rows(df_raw),3,2,"DMSO","TREATED",Batch=TRUE,PSM=TRUE)
 #Peptides
 df_raw<-df_raw %>% group_split(sample_name)
-df_clean <- furrr::future_map(df_raw1,function(x) clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=TRUE,solvent="DMSO",CFS=TRUE,CARRIER=TRUE))#assgns temperature and replicate values
+df_clean <- furrr::future_map(df_raw,function(x) clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=FALSE,solvent="DMSO",CFS=TRUE,CARRIER=TRUE))#assgns temperature and replicate values
 
 #Covid data
 #df_clean<-purrr::map(seq_along(df_clean),function(x) rbind(df_clean[[1]],x))
@@ -5706,7 +5705,7 @@ df_clean <- furrr::future_map(df_raw1,function(x) clean_cetsa(x, temperatures = 
 #df_clean<-dplyr::bind_rows(df_clean) %>% dplyr::group_split(sample_name)
 
 #normalize data
-df_norm <- furrr::future_map(df_clean,function(x) normalize_cetsa(x, df.temps$temperature,Peptide=TRUE,filters=FALSE)) #normalizes according to Franken et. al. without R-squared filter
+df_norm <- furrr::future_map(df_clean,function(x) normalize_cetsa(x, df.temps$temperature,Peptide=FALSE,filters=FALSE)) #normalizes according to Franken et. al. without R-squared filter
 
 
 # rm(df_raw,df_clean)
@@ -5991,7 +5990,7 @@ P3<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = 
 # check<-dplyr::bind_rows(df_norm) %>% dplyr::group_split(time_point)
 # plotS2 <- purrr::map(check,function(x) try(plot_Splines(x,"P0DTC2",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
 # 
-plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=TRUE,simulations=TRUE)))
+plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE,simulations=TRUE)))
 check<-ggplot2::ggplot_build(plotS2[[1]])
 y<-get_legend(check$plot)
 # data<-unlist(lapply(plotS2,function(x) x$labels$title))
@@ -6016,6 +6015,22 @@ pdf("Peptide_Target_curves_MD_PD_HR_Settings_filt_unshared.pdf",encoding="CP1253
 P1
 P2
 P3
+dev.off()
+
+plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=TRUE,simulations=TRUE)))
+check<-ggplot2::ggplot_build(plotS2[[1]][[1]])
+y<-get_legend(check$plot)
+
+real<-purrr::map(plotS2,function(x) x[[1]])
+sim<-purrr::map(plotS2,function(x) x[[2]])
+# data<-unlist(lapply(plotS2,function(x) x$labels$title))
+# plotS2<-plotS2[order(data)]
+P2<-ggarrange(plotlist=real,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
+P1<-ggarrange(plotlist=sim,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
+
+pdf("Peptide_ROC_curves_MD_PD_HR_Settings_filt_unshared.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
+P1
+P2
 dev.off()
 #plot volcano for unfiltered data
 check<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=TRUE,fT=FALSE)))
