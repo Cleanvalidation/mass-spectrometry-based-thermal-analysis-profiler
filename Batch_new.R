@@ -3304,7 +3304,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs,CARRIER=
 
 
 #Spline
-spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE){
+spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=FALSE){
   if(any(class(df)=="list")){
     df<-df %>% purrr::keep(function(x) is.data.frame(x))
     df1<-df1 %>% purrr::keep(function(x) is.data.frame(x))
@@ -3412,6 +3412,8 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE){
   m<-dplyr::bind_rows(m)
   m1<-dplyr::bind_rows(m1)
   mn<-dplyr::bind_rows(mn)
+  
+  
   #filter
   m <-m %>% dplyr::filter(uniqueID %in% CID)
   m1<-m1%>% dplyr::filter(uniqueID %in% CID)
@@ -3515,14 +3517,29 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE){
     # rss1<-purrr::map2(rss1,mean1,function(x,y) x %>% dplyr::mutate(fit_v=list(ifelse(class(try(mgcv::predict.gam(y$M1[[1]],newdata=data.frame(C=y$newdata[[1]]),family="link",
     #                                                                                                              se.fit=TRUE,newdata.guaranteed = TRUE)))=='try-error',NA,
     #                                                                                  mgcv::predict.gam(y$M1[[1]],newdata=data.frame(C=y$newdata[[1]]),family="link",se.fit=TRUE,newdata.guaranteed = TRUE)))))
+    int<-dplyr::intersect(names(mean3[[1]]),names(rss0[[1]]))
+    int1<-dplyr::intersect(names(mean1[[1]]),names(rss1[[1]]))
+    
+    mean3<-purrr::map(mean3,function(x)x %>% dplyr::select(-all_of(int)))
+    mean1<-purrr::map(mean1,function(x) x %>% dplyr::select(-all_of(int1)))
     
     #bind predicted values to main data frame
     mean3<-purrr::map2(mean3,rss0,function(x,y)cbind(x,y))
     mean1<-purrr::map2(mean1,rss1,function(x,y)cbind(x,y))
+    
+    
     #mean1_1<-purrr::map2(mean1_1,rss1,function(x,y)cbind(x,y))
     #params for null and alternative models
     f0<-lapply(mean3,function(x) data.frame(np=length(x$M1[[1]]$fitted.values)))#number of measurements
     f1<-purrr::map2(mean1,mean1_1,function(x,y) data.frame(nA=sum(nrow(x),nrow(y))))#number of measurements alternative
+    
+    int<-dplyr::intersect(names(mean3[[1]]),names(f0[[1]]))
+    int1<-dplyr::intersect(names(mean1[[1]]),names(f1[[1]]))
+    
+    
+    mean3<-purrr::map(mean3,function(x)x %>% dplyr::select(-all_of(int)))
+    mean1<-purrr::map(mean1,function(x) x %>% dplyr::select(-all_of(int1)))
+    
     #bind data frames
     mean3<-purrr::map2(mean3,f0,function(x,y) cbind(x,y))
     mean1<-purrr::map2(mean1,f1,function(x,y) cbind(x,y))
@@ -3535,10 +3552,11 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE){
     d2<-purrr::map(pA,function(x)data.frame(d2=x$nA-x$pA))
     
     #delta RSS
-    rssDiff<-purrr::map2(rss0,rss1,function(x,y) data.frame(dRSS=x$RSS0-y$RSS,dTm=y$Tm[1]))
+    rssDiff<-purrr::map2(rss0,rss1,function(x,y) data.frame(dRSS=x$RSS0-y$RSS,dTm=y$Tm[1],rss1=y$RSS[1]))
     
     d2<-lapply(d2,function(x) x$d2[1])
     d1<-lapply(d1,function(x) x$d1[1])
+    
     #RSS1 numerator
     Fvals<-purrr::map2(rssDiff,d1,function(x,y) data.frame(fNum=x$dRSS/y[1]))
     #Rss denominator
@@ -3547,18 +3565,21 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE){
     Fvals<-purrr::map2(Fvals,Fd,function(x,y) data.frame(fStatistic=x$fNum/y$fDen))
     Fvals<-purrr::map2(Fvals,d1,function(x,y) x %>% dplyr::mutate(df1=y[1]))
     Fvals<-purrr::map2(Fvals,d2,function(x,y) x %>% dplyr::mutate(df2=y[1]))
+    
     Fvals<-purrr::map2(Fvals,rssDiff,function(x,y) cbind(x,y))
+    Fvals<-purrr::map(Fvals,function(x) x %>% dplyr::mutate(Fvals=(x$dRSS/x$rss1)*(x$df2/x$df1)))
     #add p-vals
     Fvals<-purrr::map(Fvals,function(x) x %>% dplyr::mutate(pValue = 1 - pf(fStatistic, df1 = x$df1, df2 = x$df2),
                                                             pAdj = p.adjust(pValue,"BH")))
     Fvals<-purrr::map2(Fvals,mean1,function(x,y) x %>% dplyr::mutate(uniqueID=y$uniqueID[1]))
     
+    
     mean1<-purrr::map(mean1,function(x) data.frame(x)%>% dplyr::select(-temp_ref,-C,-I,-M1,-sum) )
     
     mean1<-purrr::map(mean1,function(x) x %>% distinct(.) )
-    
+    names1<-dplyr::intersect(names(mean1),names(Fvals))
     #convert results to list
-    testResults<-purrr::map2(mean1,Fvals,function(x,y)x%>% dplyr::right_join(y,by=c("uniqueID")))
+    testResults<-purrr::map2(mean1,Fvals,function(x,y)x%>% dplyr::right_join(y,by=names1))
     testResults<-purrr::map(testResults,function(x) x[1,])
     testResults<-dplyr::bind_rows(testResults)
     mean1<-dplyr::bind_rows(mean1)
@@ -3602,7 +3623,7 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE){
     # print(TestScaled)
     #Define checked as filtered protein IDs
     check<-testScaled$uniqueID
-    test<-testScaled %>% dplyr::filter(.$pValue<0.01)
+    test<-testScaled 
     test$d1<-MASS::fitdistr(x=test$dRSS, densfun = "chi-squared", start = list(df=1))[["estimate"]]
     test$d2<-MASS::fitdistr(x=test$RSS, densfun = "chi-squared", start = list(df=1))[["estimate"]]
     
@@ -3621,11 +3642,14 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE){
     mean3<-dplyr::bind_rows(mean3)
     mean3<-mean3 %>% dplyr::filter(mean3$uniqueID %in% test$uniqueID)
     
-    results<-dplyr::bind_rows(mean1,mean1_1,mean3) %>% dplyr::group_split(uniqueID)
+    results<-dplyr::bind_rows(mean1,mean1_1,mean3) 
     if(isTRUE(show_results)){
-      return(testScaled)
+      return(testResults)
+      if(isTRUE(scaled_dof)){
+        return(testScaled)
+      }
     }else{
-      return(list(results,testS,Unscaled))
+      return(results)
     }
   }
   
@@ -3649,6 +3673,7 @@ spf<-function(spresults,DFN,filters = TRUE){
     if(any(names(sp) %in% c("missing.x","LineRegion","N"))){
       
       df2<-df2 %>% dplyr::select(-id)
+      
       names<-intersect(names(df2),names(sp))
       df2<-sp %>% left_join(df2, by = names) 
       
@@ -4187,8 +4212,6 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
 
 spSim<-function(df1,df2,Df1){#df1 vehicle df2 treated Df1 null
   
-  
-  
   #set C and I as numeric
   df2$C<-as.numeric(as.vector(df2$C))
   df2$I<-as.numeric(as.vector(df2$I))
@@ -4198,7 +4221,7 @@ spSim<-function(df1,df2,Df1){#df1 vehicle df2 treated Df1 null
   
   #get original data
   ###########################################
-  df1<-df1$uniqueID
+  df1<-as.character(df1$uniqueID)
   DF1<-df2[which(df2$uniqueID %in% df1),]
   Df1<-dplyr::bind_rows(Df1)
   
@@ -4215,12 +4238,11 @@ spSim<-function(df1,df2,Df1){#df1 vehicle df2 treated Df1 null
   BSvarN<-NA
   BSvar<-NA
   BSvar1<-NA
-  BSvarN<-df2 %>% subset(uniqueID %in% df1 ) 
-  BSvar1 <-df2 %>% subset(uniqueID %in% df1 & dataset== "treated")
-  BSvar <-df2 %>% subset(uniqueID %in% df1 & dataset== "vehicle")
-  BSVarN<-df2 %>% subset(uniqueID %in% df1 ) # %>%  dplyr::mutate(I=mean(I))
-  BSVar <-df2 %>% subset(uniqueID %in% df1 & dataset== "vehicle")# %>% dplyr::mutate(I=mean(I))
-  BSVar1 <-df2 %>% subset(uniqueID %in% df1 & dataset== "treated")# %>% dplyr::mutate(I=mean(I))
+  
+  BSVarN<-df2[df2$uniqueID %in% df1,]
+  BSVar1 <-df2[df2$uniqueID %in% df1 & df2$dataset== "treated",]
+  BSVar <-df2[df2$uniqueID %in% df1 & df2$dataset== "vehicle",]
+  
   
   
   BSVarN<-BSVarN %>% dplyr::mutate(dataset="null") 
@@ -4265,13 +4287,16 @@ spSim<-function(df1,df2,Df1){#df1 vehicle df2 treated Df1 null
   fT<-TRUE
   show_results<-TRUE
   #show results with some noise
-  spresults<-spstat(y_dataN,y_data,y_data1,Ftest=TRUE,show_results=FALSE,filters=FALSE)
+  spresults<-spstat(y_dataN,y_data,y_data1,Ftest=fT,show_results=show_results,filters=FALSE,scaled_dof=FALSE)
   TP<-spresults %>% dplyr::mutate(outcome="TP")
   #set false positives by overlaying vehicle curves
-  spresults<-spstat(y_dataN,y_data,y_data,Ftest=TRUE,show_results=FALSE,filters=FALSE)
+  spresults<-spstat(y_dataN,y_data,y_data,Ftest=fT,show_results=show_results,filters=FALSE,scaled_dof=FALSE)
   FP<-spresults %>% dplyr::mutate(outcome="FP")
   test<-rbind(TP,FP)
   
+  if(any(names(test)=="dRSS")){
+    test<-test %>% dplyr::rename("rssDiff"='dRSS')
+  }
   # 
   # roc4 <- roc(test$outcome,
   #             test$Fvals, percent=TRUE,
@@ -4282,7 +4307,7 @@ spSim<-function(df1,df2,Df1){#df1 vehicle df2 treated Df1 null
   #             print.auc=TRUE, show.thres=TRUE)+title(test$sample_name[1])
   # 
   rocs <- pROC::roc(outcome ~Fvals + rssDiff + dTm+AUC,data = test)
-  ROC<- ggroc(rocs)+ggtitle(paste0(str_replace(test$sample_name[1],"S",paste0("\u03A6"))," real data"))+
+  ROC<- ggroc(rocs)+ggtitle(paste0(str_replace(test$sample_name[1],"S",paste0("\u03A6"))," simulated data"))+
     scale_color_colorblind("Parameters",labels=c("F-stat",
                                                  expression(Delta*RSS),
                                                  expression(Delta*Tm),
@@ -4290,14 +4315,17 @@ spSim<-function(df1,df2,Df1){#df1 vehicle df2 treated Df1 null
     theme(legend.position="bottom", legend.box = "horizontal")
   
   #show results without
-  spresults<-spstat(BSVarN_,BSVar_,BSVar1_,Ftest=TRUE,show_results=FALSE,filters=FALSE)
+  spresults<-spstat(BSVarN_,BSVar_,BSVar1_,Ftest=fT,show_results=show_results,filters=FALSE,scaled_dof=FALSE)
   TP<-spresults %>% dplyr::mutate(outcome="TP")
   #set false positives by overlaying vehicle curves
-  spresults<-spstat(BSVarN_,BSVar_,BSVar_,Ftest=TRUE,show_results=FALSE,filters=FALSE)
+  spresults<-spstat(BSVarN_,BSVar_,BSVar_,Ftest=fT,show_results=show_results,filters=FALSE,scaled_dof=FALSE)
   FP<-spresults %>% dplyr::mutate(outcome="FP")
   test<-rbind(TP,FP)
+  if(any(names(test)=="dRSS")){
+    test<-test %>% dplyr::rename("rssDiff"='dRSS')
+  }
   
-  rocs1<- pROC::roc(outcome ~Fvals + rssDiff + dTm+AUC,data = test)
+  rocs1<- roc(outcome ~Fvals + rssDiff + dTm+AUC,data = test)
   ROC1<- ggroc(rocs1)+ggtitle(paste0(str_replace(test$sample_name[1],"S",paste0("\u03A6"))," real data"))+
     scale_color_colorblind("Parameters",labels=c("F-stat",
                                                  expression(Delta*RSS),
@@ -5942,7 +5970,7 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=FALSE,fT=FALSE,show_r
       spresults<-list()
       spresults_PI<-list()
       
-      spresults<-spstat(DFN,df_,df_1,Ftest=fT,show_results=show_results,filters=Filters)
+      spresults<-spstat(DFN,df_,df_1,Ftest=fT,show_results=show_results,filters=Filters,scaled_dof=FALSE)
       if(isTRUE(show_results)){
         return(spresults)
       }
@@ -5975,13 +6003,16 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=FALSE,fT=FALSE,show_r
       spresults<-list()
       spresults_PI<-list()
       
-      spresults<-spstat(DFN,df_,df_1,Ftest=fT,show_results=show_results,filters=Filters)
+      spresults<-spstat(DFN,df_,df_1,Ftest=fT,show_results=show_results,filters=Filters,scaled_dof=FALSE)
       if(isTRUE(show_results)){
         return(spresults)
       }
       if(any(class(spresults)=="list")){
-        res_sp<-spf(spresults[[1]],DFN,filters=FALSE)
+        spresults<-dplyr::bind_rows(spresults)
+        spresults<-spresults[!is.na(spresults$C),]
+        res_sp<-spf(spresults,DFN,filters=Filters)
       }else{
+        spresults<-spresults[!is.na(spresults$C),]
         res_sp<-spf(spresults,DFN,filters=FALSE)
       }
       
@@ -6005,13 +6036,14 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=FALSE,fT=FALSE,show_r
     spresults<-list()
     spresults_PI<-list()
     
-    spresults<-spstat(DFN,df_,df_1,Ftest=fT,show_results=show_results,filters=Filters)
+    spresults<-spstat(DFN,df_,df_1,Ftest=fT,show_results=show_results,filters=Filters,scaled_dof=FALSE)
     if(isTRUE(show_results)){
       return(spresults)
     }
     
     if(class(spresults)=="list"){
-      res_sp<-spf(spresults[[1]],DFN,filters=Filters)
+      spresults<-dplyr::bind_rows(spresults)
+      res_sp<-spf(spresults,DFN,filters=Filters)
     }else{
       res_sp<-spf(spresults,DFN,filters=Filters)
     }
@@ -6050,7 +6082,6 @@ check<-ggplot2::ggplot_build(plotS[[1]])
 y<-get_legend(check$plot)
 # data<-unlist(lapply(plotS,function(x) x$labels$title))
 # plotS<-plotS[order(data)]
-P1<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
 plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"P60033",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=TRUE,simulations=TRUE)))
 check<-ggplot2::ggplot_build(plotS2[[1]])
