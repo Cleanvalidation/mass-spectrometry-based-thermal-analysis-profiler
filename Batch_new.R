@@ -4958,9 +4958,9 @@ sigC<-function(df_,Protein,Peptide=FALSE){
   
   
   if(isTRUE(Peptide)){
-    df_<-df_ %>% dplyr::rename("value"="I3")
-    df_1<-df_1 %>% dplyr::rename("value"="I3")
-    DFN<-DFN %>% dplyr::rename("value"="I3")
+    df_<-df_ %>% dplyr::rename("value"="I3","temperature"="C")
+    df_1<-df_1 %>% dplyr::rename("value"="I3","temperature"="C")
+    DFN<-DFN %>% dplyr::rename("value"="I3","temperature"="C")
   }else{
     df_<-df_ %>% dplyr::rename("value"="I","temperature"="C")
     df_1<-df_1 %>% dplyr::rename("value"="I","temperature"="C")
@@ -5044,7 +5044,7 @@ sigfit<-function(SigF,Peptide=FALSE){
     Pred1<-Pred1 %>% tidyr::unnest(cols=c(CP,IP,LOW,HI))
     Pred$AUC<-round(pracma::trapz(Pred$IP),2)
     Pred1$AUC<-round(pracma::trapz(Pred1$IP),2)
-    Pred1$dAUC<-abs(as.double(round(Pred1$IP[(which(abs(Pred1$IP-0.5)==min(abs(Pred1$IP-0.5)))-1):(which(abs(Pred1$IP-0.5)==min(abs(Pred1$IP-0.5)))+1)])-pracma::trapz(Pred$IP[(which(abs(Pred$IP-0.5)==min(abs(Pred$IP-0.5)))-1):(which(abs(Pred$IP-0.5)==min(abs(Pred1$IP-0.5)))+1)],2)))
+    Pred1$dAUC<-abs(Pred1$AUC[1]-Pred$AUC[1])
     P<-ggplot2::ggplot(Pred1, ggplot2::aes(x=C,y=IP,color=dataset))+
       ggplot2::geom_point(Pred1,mapping=ggplot2::aes(x=C,y=I,color = dataset))+
       ggplot2::geom_line(Pred1,mapping=ggplot2::aes(x=CP,y=IP),alpha = 0.2 ) +
@@ -5103,7 +5103,7 @@ sigfit<-function(SigF,Peptide=FALSE){
     
     Pred$AUC<-round(pracma::trapz(Pred$IP),2)
     Pred1$AUC<-round(pracma::trapz(Pred1$IP),2)
-    Pred1$dAUC<-as.double(round(Pred1$AUC[1]-Pred$AUC[1],2))
+    Pred1$dAUC<-abs(Pred1$AUC[1]-Pred$AUC[1])
     #Check sigmoidal fit
     P<-ggplot2::ggplot(Pred1, ggplot2::aes(x=C,y=IP,color=dataset))+
       ggplot2::geom_point(Pred1,mapping=ggplot2::aes(x=C,y=I,color = dataset))+
@@ -6585,13 +6585,11 @@ dev.off()
 
 df_<-df_norm
 
-plot_Sigmoidal<-function(df_,Protein,Peptide){
+plot_Sigmoidal<-function(df_,Protein,Peptide=FALSE){
   #remove duplicated intensity values
   df_<-df_ %>% distinct(.)
   df_$sample_name<-str_replace(df_$sample_name,"S","\u03A6")
-  if(isTRUE(Peptide)){
-    df_<-df_ %>% dplyr::rename(I=I3)
-  }
+  
   PlSig<-try(sigC(df_,Protein,Peptide=Peptide))
   
   ID<-unique(PlSig$uniqueID)
@@ -6600,7 +6598,7 @@ plot_Sigmoidal<-function(df_,Protein,Peptide){
   return(sig)
 }
 plotS2<-ggplot()
-plotS2<-purrr::map(df_,function(x) try(plot_Sigmoidal(x,"P36507",Peptide=FALSE)))
+plotS2<-purrr::map(df_,function(x) try(plot_Sigmoidal(x,"P36507",Peptide=TRUE)))
 check<-ggplot2::ggplot_build(plotS2[[7]])
 y<-get_legend(check$plot)
 # data<-unlist(lapply(plotS2,function(x) x$labels$title))
@@ -6608,14 +6606,14 @@ y<-get_legend(check$plot)
 P2<-ggarrange(plotlist=plotS2,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
 plotS2<-ggplot()
-plotS2<-purrr::map(df_,function(x) try(plot_Sigmoidal(x,"Q02750",Peptide=FALSE)))
+plotS2<-purrr::map(df_,function(x) try(plot_Sigmoidal(x,"Q02750",Peptide=TRUE)))
 check<-ggplot2::ggplot_build(plotS2[[3]])
 y<-get_legend(check$plot)
 # data<-unlist(lapply(plotS2,function(x) x$labels$title))
 # plotS2<-plotS2[order(data)]
 P1<-ggarrange(plotlist=plotS2,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-pdf("Sigmoidal_curves_Protein_MD_PD_HR_Settings_unfilt.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
+pdf("Sigmoidal_curves_Peptide_MD_PD_HR_Settings_unfilt.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
 P2
 P1
 
