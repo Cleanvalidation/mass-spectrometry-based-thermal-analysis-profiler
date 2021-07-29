@@ -6066,6 +6066,7 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
 ###############################
 memory.limit(175921900000)#set for 16 GB RAM
 plan(multicore,workers=availableCores())
+options(future.globals.maxSize = 8000 * 1024^2)
 ##################################
 
 # #prepare a list of proteins
