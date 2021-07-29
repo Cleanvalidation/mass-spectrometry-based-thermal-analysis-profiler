@@ -483,7 +483,11 @@ clean_cetsa <- function(df, temperatures = NULL, samples = NULL,Peptide=FALSE,so
 #' @import tidyr
 #' @import nls2
 #' @export
-normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE) {
+normalize_cetsa<-function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER=NA) {
+  if(!is.na(CARRIER)){
+    df<-df %>% dplyr::filter(!temp_ref==CARRIER)
+    df<-df %>% dplyr::filter(!temp_ref==tail(df$temp_ref,1))
+  }
   if(isTRUE(Peptide)){
     temperatures <- sort(temperatures)
     if(any(names(df)=="uniqueID")){
@@ -530,21 +534,21 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE) {
     
     #Calculate fold changes acros temperatures 7, 9 and 10
     df.jointP3 <- suppressWarnings(df3 %>%
-                                     dplyr::group_split(Accession,sample) %>% 
+                                     dplyr::group_split(Accession,sample_name,sample) %>% 
                                      purrr::map(function(x) x %>% dplyr::mutate(n=dplyr::n()) %>% 
                                                   dplyr::mutate(.,T7 = try(mean(value[temperature == temperatures[7]]/value[temperature == temperatures[1]],na.rm=TRUE)),
                                                                 T9 = try(mean(value[temperature == temperatures[9]]/value[temperature == temperatures[1]],na.rm=TRUE)),
                                                                 T10 = try(mean(value[temperature == temperatures[10]]/value[temperature == temperatures[1]],na.rm=TRUE)))))
     
     df.jointP5 <- suppressWarnings(df5 %>%
-                                     dplyr::group_split(Accession,sample) %>% 
+                                     dplyr::group_split(Accession,sample_name,sample) %>% 
                                      purrr::map(function(x) x %>% dplyr::mutate(n=dplyr::n()) %>% 
                                                   dplyr::mutate(T7 = try(mean(x$value[temperature == temperatures[7]]/value[temperature == temperatures[1]],na.rm=TRUE)),
                                                                 T9 = try(mean(x$value[temperature == temperatures[9]]/value[temperature == temperatures[1]],na.rm=TRUE)),
                                                                 T10 = try(mean(x$value[temperature == temperatures[10]]/value[temperature == temperatures[1]],na.rm=TRUE)))))
     
     df.jointP10 <- suppressWarnings(df10 %>%
-                                      dplyr::group_split(Accession,sample) %>% 
+                                      dplyr::group_split(Accession,sample_name,sample) %>% 
                                       purrr::map(function(x) x %>% dplyr::mutate(n=dplyr::n()) %>% 
                                                    dplyr::mutate(.,T7 = try(mean(value[temperature == temperatures[7]]/value[temperature == temperatures[1]],na.rm=TRUE)),
                                                                  T9 = try(mean(value[temperature == temperatures[9]]/value[temperature == temperatures[1]],na.rm=TRUE)),
@@ -745,6 +749,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE) {
     if(any(names(df)=="I")){
       df<-df %>% dplyr::rename("value"="I")
     }
+    
     df$Accession<-as.factor(df$Accession)
     df$sample<-as.factor(df$sample)
     df.jointP <- suppressWarnings(df %>%
@@ -764,7 +769,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE) {
     if(nrow(df)==0){
       return(warning("Please disable filters, all data was filtered out."))
     }
-    
+    df.jointP<-dplyr::bind_rows(df.jointP)
     ## split[[i]] by sample group and filter
     l.bytype <- split.data.frame(df.jointP, df.jointP$sample)
     
@@ -810,8 +815,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE) {
     df<-df %>% dplyr::right_join(df.out,by=intersect(names(df),names(df.out)))
     df <- df %>% 
       dplyr::mutate(norm_value = ifelse(is.na(correction),value,value * correction)) %>% dplyr::ungroup(.)
-    df <- df %>% 
-      dplyr::mutate(norm_value = ifelse(is.na(correction),value,value * correction)) %>% dplyr::ungroup(.)
+    
     df <- df %>% 
       dplyr::rename("uniqueID"="Accession", "C"="temperature","I"="norm_value")
     df<-df %>% dplyr::ungroup(.) %>% dplyr::select(-value,-correction)
@@ -845,6 +849,33 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE) {
 #'
 #' @export
 
+cetsa_fit<-function(d, norm = FALSE) {
+  if (sum(!is.na(d$value)) < 2 | sum(!is.na(d$temperature)) < 2) return(NA)
+  result = tryCatch({
+    if (!norm) {
+      myData <- list(t = d$temperature, y = d$value)
+    } else {
+      myData <- list(t = d$temperature, y = d$norm_value)
+    }
+    #c(Pl=0, a = 550, b = 10
+    fine_start <- expand.grid(p=c(0,0.5),k=seq(0,1000,by=100),m=seq(5,45,by=10))
+    new_start <- nls2::nls2(y ~ fit.cetsa(p, k, m, t),
+                            data = myData,
+                            start = fine_start,
+                            algorithm = "grid-search",#note: check other ones
+                            control = nls.control(warnOnly=T,maxiter=5000))
+    nls2::nls2(y ~ fit.cetsa(p, k, m, t),
+               data = myData,
+               start = new_start,
+               control = nls.control(warnOnly=F),
+               algorithm = "grid-search",
+               lower = c(0, 1, 10),
+               upper = c(0.4, 100000, 100))
+  }, error = function(err) {
+    return(NA)
+  })
+  return(result)
+}
 
 
 #' calculate CETSA statistics
@@ -2523,6 +2554,11 @@ tlf<-function(tlresults,DFN,APfilt=TRUE,PF=TRUE){
   }
   Nsum<-list()
   Nsum[[1]]<-data.frame(RSS=0,Tm=0)
+  
+  tlresults<-purrr::map(tlresults,function(x) x %>% dplyr::mutate(sample_name=data[[1]]$sample_name[1]))
+  if(any(class(tlresults)=="data.frame")){
+    tlresults<-tlresults %>% dplyr::group_split(sample_name)
+  }
   #get the summed rss values for null
   Nsum<-purrr::map(tlresults, function(x) x %>% subset(stringr::str_detect(tolower(dataset), pattern = "null")) %>% 
                      dplyr::rowwise(.) %>%  dplyr::mutate(RSS=sum(unlist(.$rss)))%>% dplyr::select(RSS,Tm,dataset,uniqueID)%>% head(.,1))
@@ -2543,7 +2579,7 @@ tlf<-function(tlresults,DFN,APfilt=TRUE,PF=TRUE){
   Rssv<-Rssv %>% purrr::keep(function(x) isTRUE(x$uniqueID %in% CID)) 
   Rsst<-Rsst %>% purrr::keep(function(x) isTRUE(x$uniqueID %in% CID))
   Nsum<-Nsum %>% purrr::keep(function(x) isTRUE(x$uniqueID %in% CID))                           
-  K1<-data.frame(dplyr::bind_rows(purrr::map2(Rsst,Rssv,function(x,y) data.frame(RSSd = x$RSS-y$RSS, Tma = x$Tm[1]$Tm - y$Tm[1]$Tm)))) 
+  K1<-data.frame(dplyr::bind_rows(purrr::map2(Rsst,Rssv,function(x,y) data.frame(RSSd = x$RSS-y$RSS, Tma = x$Tm[1] - y$Tm[1])))) 
   K2<-data.frame(uniqueID = dplyr::bind_rows(Rssv)$uniqueID)
   Dsum<-data.frame(K1,K2)
   
@@ -3543,7 +3579,7 @@ spf<-function(spresults,DFN,filters = TRUE){
       
     }else{
       names<-intersect(names(df2),names(sp))
-      df2$id<-as.numeric(df2$id)
+      
       df2<-sp %>% left_join(df2, by = names) 
     }
     Df1<-spresults
@@ -4895,32 +4931,32 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
                #   )
                # )#,
                
-               annotations =list(
-                 'Stabilized Percentage'=list(
-                   aes=aes(x=intersection, fill=as.factor(df_$stabilized)),
-                   geom=list(
-                     geom_bar(stat='count', position='fill', na.rm=TRUE),
-                     geom_text(
-                       aes(
-                         label=!!aes_percentage(relative_to='group'),
-                         group=df_$stabilized
-                       ),
-                       stat='count',
-                       position=position_fill(vjust = .5)
-                     ),
-                     scale_y_continuous(labels=scales::percent_format()),
-                     rating_scale
-                   )
-                 )
-                 # ,
-                 # 'Tm'=(
-                 #   # note that aes(x=intersection) is supplied by default and can be skipped
-                 #   ggplot(mapping=aes(y=log10(df_$dTm)))+
-                 #     # checkout ggbeeswarm::geom_quasirandom for better results!
-                 #     geom_jitter(aes(color=log2(df_$dTm), na.rm=TRUE))+
-                 #     geom_violin(alpha=0.5, na.rm=TRUE)
-                 # )
-               ),
+               # annotations =list(
+               #   'Stabilized Percentage'=list(
+               #     aes=aes(x=intersection, fill=as.factor(df_$stabilized)),
+               #     geom=list(
+               #       geom_bar(stat='count', position='fill', na.rm=TRUE),
+               #       geom_text(
+               #         aes(
+               #           label=!!aes_percentage(relative_to='group'),
+               #           group=df_$stabilized
+               #         ),
+               #         stat='count',
+               #         position=position_fill(vjust = .5)
+               #       ),
+               #       scale_y_continuous(labels=scales::percent_format()),
+               #       rating_scale
+               #     )
+               #   )
+               # ,
+               # 'Tm'=(
+               #   # note that aes(x=intersection) is supplied by default and can be skipped
+               #   ggplot(mapping=aes(y=log10(df_$dTm)))+
+               #     # checkout ggbeeswarm::geom_quasirandom for better results!
+               #     geom_jitter(aes(color=log2(df_$dTm), na.rm=TRUE))+
+               #     geom_violin(alpha=0.5, na.rm=TRUE)
+               # )
+               #),
                width_ratio=0.1,
                height_ratio=0.8,
                themes=upset_default_themes(text=element_text(size=15,colour="black"))
@@ -4972,7 +5008,7 @@ f<- list.files(pattern='*Proteins.xlsx')
 # f<-"C:/Users/figue/OneDrive - Northeastern University/CETSA R/CP_Exploris_20200811_DMSOvsMEKi_carrier_FAIMS_PhiSDM_PEPTIDES.xlsx"
 #df_raw <- read_cetsa("~/Files/Scripts/Files/PSM_validator","~/Files/Scripts/Files/PSM_validator","_Proteins",Peptide=FALSE,Batch=FALSE,CFS=TRUE,solvent="DMSO")     
 #df_raw <- read_cetsa("~/Files/Scripts/Files/Covid","~/Files/Scripts/Files/Covid","_Proteins",Peptide=FALSE,CFS=FALSE,Batch=FALSE)                                                              
-df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS","~/Files/Scripts/Files/CONSENSUS","_Proteins",Peptide=FALSE,Batch=FALSE)                                                              
+df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS","~/Files/Scripts/Files/CONSENSUS","_Proteins",Peptide=TRUE,Batch=FALSE)                                                              
 #saveRDS(df_raw,"df_raw.RDS")
 
 #filter Peptides
@@ -5157,7 +5193,7 @@ df.s <- function(data_path,n,rep_,bio_,vehicle_name,treated_name,Batch=FALSE,PSM
 df.samples<-df.s(f,dplyr::bind_rows(df_raw),3,2,"DMSO","TREATED",Batch=TRUE,PSM=TRUE)
 #Peptides
 df_raw<-df_raw %>% group_split(sample_name)
-df_clean <- furrr::future_map(df_raw,function(x) clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=FALSE,solvent="DMSO",CFS=TRUE))#assgns temperature and replicate values
+df_clean <- furrr::future_map(df_raw1,function(x) clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=TRUE,solvent="DMSO",CFS=TRUE))#assgns temperature and replicate values
 
 #Covid data
 #df_clean<-purrr::map(seq_along(df_clean),function(x) rbind(df_clean[[1]],x))
@@ -5165,17 +5201,18 @@ df_clean <- furrr::future_map(df_raw,function(x) clean_cetsa(x, temperatures = d
 #df_clean<-dplyr::bind_rows(df_clean) %>% dplyr::group_split(sample_name)
 
 #normalize data
-df_norm <- furrr::future_map(df_clean,function(x) normalize_cetsa(x, df.temps$temperature,Peptide=FALSE,filters=FALSE)) #normalizes according to Franken et. al. without R-squared filter
+df_norm <- furrr::future_map(df_clean,function(x) normalize_cetsa(x, df.temps$temperature,Peptide=TRUE,filters=FALSE)) #normalizes according to Franken et. al. without R-squared filter
 
 
 # rm(df_raw,df_clean)
 
 Int_plot<-function(df_norm){
+  df_norm<-dplyr::bind_rows(df_norm)
   list<-ggplot2::ggplot(dplyr::bind_rows(df_norm),mapping=aes(x=C,y=I3,color=sample_name))+
     geom_jitter(position=position_jitter(2),alpha=0.5)+
-    geom_boxplot(mapping=aes(color="black"))+xlab('Temperature (\u00B0C)')+ylab("Normalized Intensity (Top2000)")
+    geom_boxplot(color="black")+xlab('Temperature (\u00B0C)')+ylab("Normalized Intensity (Top2000)")
 }
-plot_I<-purrr::map(df_norm,function(x) Int_plot(x))
+plot_I<-Int_plot(df_norm)
 check<-ggplot2::ggplot_build(plot_I[[2]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plot_I,function(x) x$labels$title))
@@ -5218,7 +5255,7 @@ PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,Peptide=FALSE,show_resul
     }
     
   }
-  if(isTRUE(Peptide)){
+  if(any(names(df_norm)=="I3")){
     df_norm<-df_norm %>% dplyr::mutate(I=I3)%>% dplyr::select(-I3,-I5,-I10)
   }
   ##SCRIPT STARTS HERE
@@ -5265,6 +5302,8 @@ PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,Peptide=FALSE,show_resul
   df_<-suppressWarnings(purrr::map2(results,d_,function(x,y) CP(x,y,PSM=Peptide)))
   df_1<-suppressWarnings(purrr::map2(results_t,d_1,function(x,y) CP(x,y,PSM=Peptide)))
   DFN<-suppressWarnings(purrr::map2(results_n,DF,function(x,y) CP(x,y,PSM=Peptide)))
+  
+  
   #remove results to save space 
   rm(results,results_t,results_n,d_,d_1,DF)#10
   df_<-dplyr::bind_rows(df_) %>% dplyr::group_split(uniqueID)
@@ -5288,7 +5327,7 @@ PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,Peptide=FALSE,show_resul
   DFN<-dplyr::bind_rows(DFN)
   #confidence intervals
   
-  tlresults<-tlstat(DFN,df_,df_1,norm=TRUE,Filters=filt,Ftest=Ft,show_results=TRUE)
+  tlresults<-tlstat(DFN,df_,df_1,norm=FALSE,Filters=filt,Ftest=Ft,show_results=show_results)
   if(isTRUE(show_results)){
     
     return(tlresults)
@@ -5302,7 +5341,7 @@ PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,Peptide=FALSE,show_resul
   return(plotTL1)
 }
 
-plot<-purrr::map(df_norm1,function(x) try(PlotTrilinear(x,"P36507",df.temps,Ft=TRUE,filt=FALSE,Peptide=FALSE,show_results=TRUE)))
+plot<-purrr::map(df_norm,function(x) try(PlotTrilinear(x,"P36507",df.temps,Ft=FALSE,filt=FALSE,Peptide=TRUE,show_results=FALSE)))
 check<-ggplot2::ggplot_build(plot[[1]])
 y<-get_legend(check$plot)
 data<-order(unlist(lapply(plot,function(x) x$labels$title)))
@@ -5366,7 +5405,7 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=FALSE,fT=FALSE,show_r
     spresults<-list()
     spresults_PI<-list()
     
-    spresults<-spstat(DFN,df_,df_1,Ftest=fT,norm=FALSE,show_results=TRUE,filters=Filters)
+    spresults<-spstat(DFN,df_,df_1,Ftest=fT,norm=FALSE,show_results=show_results,filters=Filters)
     if(isTRUE(show_results)){
       return(spresults)
     }
@@ -5408,7 +5447,7 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=FALSE,fT=FALSE,show_r
   
 }
 
-plotS <- furrr::future_map(df_norm1,function(x) try(plot_Splines(x,"P36507; Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
+plotS <- furrr::future_map(df_norm,function(x) try(plot_Splines(x,"P36507; Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=TRUE)))
 check<-ggplot2::ggplot_build(plotS[[1]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plotS,function(x) x$labels$title))
@@ -5418,7 +5457,7 @@ P3<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = 
 # check<-dplyr::bind_rows(df_norm) %>% dplyr::group_split(time_point)
 # plotS2 <- purrr::map(check,function(x) try(plot_Splines(x,"P0DTC2",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
 # 
-plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=TRUE,Peptide=FALSE)))
+plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=TRUE)))
 check<-ggplot2::ggplot_build(plotS2[[1]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plotS2,function(x) x$labels$title))
