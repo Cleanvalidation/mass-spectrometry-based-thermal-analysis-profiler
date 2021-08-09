@@ -5817,7 +5817,7 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
       mutate(focus = ifelse(sample_name == "C_F_E", 0.2, 0)) %>%
       ggplot() +
       ggforce::geom_arc_bar(aes(x0 = 0, y0 = 0, r0 = 0.7, r = 1, amount = n, fill = sample_name, explode = focus), alpha = 0.3, stat = "pie") +
-      theme_no_axes()+
+      ggforce::ggtheme_no_axes()+
       xlim(-1.1,1.25)+
       geom_label(mapping=aes(x=c(1.2,1.2,1.2,1.2,1.2,1.2,1.2,1.2),y=c(0.57,0.42,0.27,0.12,-0.03,-0.18,-0.33,-0.48),label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
       ggtitle("Number of fitted curves")
@@ -5825,12 +5825,12 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
     
     
     df_<-dplyr::bind_rows(df_1) %>% dplyr::select(uniqueID,sample_name,Tm,p_dTm) %>% 
-      pivot_wider(names_from=sample_name,values_from=c(p_dTm)) %>% distinct(.)
+      pivot_wider(names_from=sample_name,values_from=c(Tm)) %>% distinct(.)
     
     
     
     
-    df_<-df_ %>% dplyr::mutate(uniqueID=as.character(uniqueID),stabilized=as.character(stabilized))
+    df_<-df_ %>% dplyr::mutate(uniqueID=as.character(uniqueID))
     df_ <- df_ %>%
       mutate_if(sapply(df_, is.factor), as.numeric)
     
@@ -5935,10 +5935,9 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
     return(list(check,check1,df_))
   }else{
     
-    f<-dplyr::bind_rows(f) %>% dplyr::filter(!is.na(Coverage))%>% dplyr::select(-sample) %>% 
+    f<-dplyr::bind_rows(f) %>% dplyr::select(-sample) %>% 
       distinct(.) %>% dplyr::group_split(uniqueID,sample_name)
     
-    f<-purrr::map(f,function(x) x %>% dplyr::mutate(stabilized=ifelse(x$Tm>0 & p_dTm<0.01,"Stabilized","Destabilized")))
     
     f<-purrr::map(f,function(x) x[1,])
     
@@ -5946,18 +5945,18 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
     f$sample_name<-str_replace(f$sample_name,"S","\u03A6")
     
     df_TPP<-dplyr::bind_rows(f) %>%
-      dplyr::select(uniqueID,sample_name,Tm,rss,AUC,p_dTm,stabilized,Annotated_Sequence) %>% 
+      dplyr::select(uniqueID,sample_name,rss,AUC,p_dTm,Tm) %>% 
       distinct(.)
     
-    df_1<-df_TPP %>% dplyr::select(p_dTm,uniqueID,sample_name,Tm,Annotated_Sequence) %>% distinct(.)
+    df_1<-df_TPP %>% dplyr::select(p_dTm,uniqueID,sample_name,Tm) %>% distinct(.)
     
     df_1<-dplyr::bind_rows(df_1)
-    df_1<-df_1[!duplicated(df_),]
+    #df_1<-df_1[!duplicated(df_),]
     check1<-df_1 %>% count(sample_name) %>%
       mutate(focus = ifelse(sample_name == "C_F_E", 0.2, 0)) %>%
       ggplot() +
       ggforce::geom_arc_bar(aes(x0 = 0, y0 = 0, r0 = 0.7, r = 1, amount = n, fill = sample_name, explode = focus), alpha = 0.3, stat = "pie") +
-      theme_no_axes()+
+      ggforce::theme_no_axes()+
       xlim(-1.1,1.25)+
       geom_label(mapping=aes(x=c(1.2,1.2,1.2,1.2,1.2,1.2,1.2,1.2),y=c(0.57,0.42,0.27,0.12,-0.03,-0.18,-0.33,-0.48),label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
       ggtitle("Number of fitted curves")
@@ -5966,13 +5965,13 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
     # check1
     # dev.off()
     
-    df_<-dplyr::bind_rows(df_1) %>% dplyr::select(uniqueID,sample_name,Tm,p_dTm,stabilized) %>% 
-      pivot_wider(names_from=sample_name,values_from=c(p_dTm)) %>% distinct(.)
+    df_<-dplyr::bind_rows(df_1) %>% dplyr::select(uniqueID,sample_name,Tm) %>% 
+      pivot_wider(names_from=sample_name,values_from=c(Tm)) %>% distinct(.)
     
     
     
     
-    df_<-df_ %>% dplyr::mutate(uniqueID=as.character(uniqueID),stabilized=as.character(stabilized))
+    df_<-df_ %>% dplyr::mutate(uniqueID=as.character(uniqueID))
     df_ <- df_ %>%
       mutate_if(sapply(df_, is.factor), as.numeric)
     
@@ -5997,7 +5996,7 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
                                      values=c("Stabilized" ='#fee6ce', "Destabilized" ='#fdae6b', "NA"  = '#e6550d'))
     
     check<-list()
-    check<-upset(df_,colnames(df_)[!colnames(df_) %in% c("sample_name","stabilized","uniqueID")],
+    check<-upset(df_,colnames(df_)[!colnames(df_) %in% c("sample_name","stabilized","uniqueID","Tm","NA")],
                  #min_degree=6,
                  set_sizes=FALSE,
                  n_intersections=10,
@@ -6200,7 +6199,7 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
       }else{
         check<-ggplot(data=f,mapping=aes(x=dTm,y=p_dTm,color=diffexpressed))+geom_point()+
           geom_hline(yintercept=0.01, col="red")+ 
-          labs(y="P-value",x=(Delta*T["m"]))+
+          labs(y="P-value",x=expression(Delta*T["m"]))+
           #geom_text(mapping=aes(Fvals, pAdj, label = delabel), data = f,color="black")+
           # geom_text_repel(f,mapping=aes(Fvals, pAdj,label=delabel),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 30),
           #                 nudge_x = 1,
@@ -6335,11 +6334,11 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
     df_$diffexpressed<-as.factor(df_$diffexpressed)
     flevels<-data.frame(colors=c("blue","black","red"))
     df_<-df_ %>% dplyr::select(-Tm,-rss,-AUC,-rsq,-stabilized)
-    df_<-df_[!duplicated(df_),]
+    #df_<-df_[!duplicated(df_),]
     check<-ggplot(data=df_,mapping=aes(x=dTm,y=-log10(p_dTm),color=diffexpressed))+geom_point()+ geom_vline(xintercept=c(-2, 2), col="red") +
       geom_hline(yintercept=-log10(0.01), col="red")+
       scale_color_manual("Stabilization",values=flevels$colors[1:length(unique(df_$diffexpressed))],labels = unique(df_$diffexpressed))+
-      labs(y=expression(-log["10"]*(p["adj"]-value)),x=expression(DeltaTm))+
+      labs(y=expression(-log["10"]*(p["adj"]-value)),x=expression(Delta*T["m"]))+
       
       # geom_text_repel(df_,mapping=aes(dTm, -log10(p_dTm),label=targets),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 30),
       #                 nudge_x = 1,
@@ -6908,10 +6907,13 @@ P2
 dev.off()
 
 #plot Number of curves
-Check<-UpSet_curves(plot,Trilinear=TRUE,Splines=FALSE,Sigmoidal=FALSE,Peptide=FALSE,filter=TRUE)
-pdf("Number_of_curves_upset_trilinear_peptide.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
-Check
+Check<-UpSet_curves(overlaps,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,filter=FALSE)
+pdf("Number_of_curves_upset_splines_Protein.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
+Check[[1]]
+Check[[2]]
 dev.off()
+
+saveRDS(plotS2,"Protein_overlaps.RDS")
 #df1 <- only IDs in order desc(stability)
 #df2<-original data in order  
 #Df1 <- ordered spline results 
@@ -7060,7 +7062,7 @@ check<-ggplot2::ggplot_build(plotS2[[2]])
 y<-get_legend(check$plot)
 # data<-unlist(lapply(plotS2,function(x) x$labels$title))
 # plotS2<-plotS2[order(data)]
-P2<-ggarrange(plotlist=plotS2,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
+P2<-ggarrange(plotlist=plotS2,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = c("I","J","K","L","M","N","O","P"),legend.grob = y)
 
 plotS <- furrr::future_map(df_norm,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE,simulations=FALSE)))
 check<-ggplot2::ggplot_build(plotS[[1]])
@@ -7076,8 +7078,8 @@ y<-get_legend(check$plot)
 # plotS2<-plotS2[order(data)]
 P3<-ggarrange(plotlist=plotS2,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-pdf("Protein_Target_curves_MD_PD_HR_Settings_filt_unshared.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
-P1
+pdf("Panels_I_X.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
+
 P2
 P3
 dev.off()
@@ -7098,12 +7100,12 @@ P1
 P2
 dev.off()
 #plot volcano for unfiltered data
-check<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,fT=TRUE,NPARC=FALSE)))
+check<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,fT=FALSE,NPARC=FALSE)))
 check1<-ggplot2::ggplot_build(check[[1]])
 y<-get_legend(check1$plot)
 P1<-ggarrange(plotlist=check,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-pdf("volcano_splines_gof_Peptide_filtered_no_R2_filter_panels.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+pdf("volcano_splines_Protein_no_R2_filter_panels.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 P1
 dev.off()
 #plot volcano for gof filtered data (F statistic)
