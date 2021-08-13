@@ -37,7 +37,7 @@ library(pROC)
 library(STRINGdb)
 library(UniProt.ws)
 library('org.Hs.eg.db')
-library(VGA)
+library(VGAM)
 requireNamespace("plyr")
 set.seed(123)
 
@@ -76,21 +76,21 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
     readxl::read_xlsx(x,trim_ws=TRUE,.name_repair = function(x) gsub("[[:punct:][:blank:]]+",".",x))
   }
   #read_PSMS and proteins
-  Proteins<-mclapply(f,read_xl,mc.cores = availableCores())
-  PSMs<-mclapply(h,read_xl,mc.cores = availableCores())
+  Proteins<-parallel::mclapply(f,read_xl,mc.cores = availableCores())
+  PSMs<-parallel::mclapply(h,read_xl,mc.cores = availableCores())
   
   if (isTRUE(Peptide)){ #if this is a PSM of peptide group file
     if(length(list.files(peptide_path,pattern="PeptideGroups.xlsx"))>0){
       f<-list.files(peptide_path,pattern="PeptideGroups.xlsx")
     }
     #first get Peptide file read
-    df.raw<-mclapply(f, read_xl, mc.cores = availableCores())
+    df.raw<-parallel::mclapply(f, read_xl, mc.cores = availableCores())
     #get row number for peptide groups in case of batch files present
-    df.raw<-purrr::map2(df.raw,seq(df.raw),function(x,y) x %>% dplyr::mutate(n=y))
+    df.raw1<-purrr::map2(df.raw,seq(df.raw),function(x,y) x %>% dplyr::mutate(n=y))
     PSMs<-purrr::map2(PSMs,seq(PSMs),function(x,y) x %>% dplyr::mutate(n=y))
     #names<-purrr::map2(df.raw,f,function(x,y) ifelse(length(names(x))<45,warning(paste0("Please check the columns on file names",y)),print("All files have all necessary columns")))
     
-    df.raw<-dplyr::bind_rows(df.raw)
+    df.raw<-dplyr::bind_rows(df.raw1)
     PSMs<-dplyr::bind_rows(PSMs)
     
     read_PD<-function(x) {#rename data
@@ -121,14 +121,15 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
       df2$XCorr<-df2$XCorr.by.Search.Engine.Sequest.HT
       df2$MissedCleavages<-df2$.Missed.Cleavages
       df2$Annotated_Sequence<-df2$Annotated.Sequence
-      df2<-df2 %>% dplyr::rename("Accession"="Master.Protein.Accessions")
-      
+      if (any(names(df2)=="Master.Protein.Accessions")){
+        df2<-df2 %>% dplyr::rename("Accession"="Master.Protein.Accessions")
+      }
     }
     df.raw<-read_PD(df.raw)
     PSMs<-read_PD(PSMs)
     
     
-    
+    df2<-dplyr::bind_rows(df.raw)
     if(any(names(df.raw)=="Spectrum.File")){
       df2<-dplyr::bind_rows(df.raw)
       df2<-df2 %>% dplyr::mutate(Spectrum_File=str_replace(df2$Spectrum.File,"[:punct:][[:digit:]]+.raw",paste0(Prot_Pattern,".xlsx")))
@@ -197,7 +198,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
                                                sample_id= unlist(str_extract(x$id,"F[[:digit:]]+"))) %>% 
           dplyr::select(-id)
       }
-      df3<-mclapply(df3,cols_PD,mc.cores=availableCores())
+      df3<-parallel::mclapply(df3,cols_PD,mc.cores=availableCores())
       
       if(isTRUE(Batch)){
         df2<-purrr::map2(df3,f,function(x,y)x %>% dplyr::mutate(sample_name=str_remove(y,"[[:digit:]]+[:punct:]PeptideGroups.xlsx")))
@@ -223,7 +224,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
           warning(paste0("please check sample file ",x$sample_name," for Abundance columns")) 
         }
       }
-      ch<-mclapply(df2,check_PD,mc.cores=availableCores())
+      ch<-parallel::mclapply(df2,check_PD,mc.cores=availableCores())
     }
     
     #return(df2)
@@ -3867,8 +3868,8 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
   m1<-m1%>% dplyr::filter(uniqueID %in% CID)
   mn<-mn%>% dplyr::filter(uniqueID %in% CID)
   
-  CID<-dplyr::intersect(unique(m$uniqueID),unique(m1$uniqueID))
   
+  CID<-dplyr::intersect(unique(m$uniqueID),unique(m1$uniqueID))
   m <-m %>% dplyr::filter(uniqueID %in% CID)
   m1<-m1%>% dplyr::filter(uniqueID %in% CID)
   mn<-mn%>% dplyr::filter(uniqueID %in% CID)
@@ -3928,12 +3929,16 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
   if(!isTRUE(Peptide)){
     results_<-results %>% dplyr::select(uniqueID,sample_name,Tm,sample,dataset) %>% distinct(.) %>% dplyr::group_split(uniqueID,sample_name,dataset)
     results_<-purrr::map(results_,function(x)x %>% dplyr::mutate(replicate=row.names(.)))
+    results_<-dplyr::bind_rows(results_) %>% dplyr::group_split(uniqueID,sample_name,replicate)
+    results_<-results_ %>% purrr::keep(function(x) nrow(x)==2)
   }else{
-    results_<-results %>% dplyr::group_split(uniqueID,sample_name,dataset)
-    results_<-purrr::map(results_,function(x)x %>% distinct(.) %>% dplyr::mutate(replicate=row.names(.)))
+    results_<-dplyr::bind_rows(results) %>% dplyr::group_split(dataset)
+    data<-data.frame(sample=unique(results_[[1]]$sample))
+    data$replicate<-row.names(data)
+    results_<-purrr::map(results_,function(x)x %>% distinct(.) %>% dplyr::right_join(data,by="sample"))
   }
-  results_<-dplyr::bind_rows(results_) %>% dplyr::group_split(uniqueID,sample_name,replicate)
-  results_<-results_ %>% purrr::keep(function(x) nrow(x)==2)
+  results_<-dplyr::bind_rows(results_) %>% dplyr::group_split(uniqueID)
+  results_1<-results_ %>% purrr::keep(function(x) length(unique(x$dataset))==2)
   results_<-purrr::map(results_,function(x) x %>% dplyr::mutate(
     dTm=try(x$Tm[x$dataset %in% "treated"]-x$Tm[x$dataset %in% "vehicle"])))
   
@@ -6516,7 +6521,9 @@ f<- list.files(pattern='*Proteins.xlsx')
 # f<-"C:/Users/figue/OneDrive - Northeastern University/CETSA R/CP_Exploris_20200811_DMSOvsMEKi_carrier_FAIMS_PhiSDM_PEPTIDES.xlsx"
 #df_raw <- read_cetsa("~/Files/Scripts/Files/Zebra","~/Files/Scripts/Files/Zebra","_Proteins",Peptide=FALSE,Batch=FALSE,CFS=FALSE,solvent="Control")     
 #df_raw <- read_cetsa("~/Files/Scripts/Files/Covid","~/Files/Scripts/Files/Covid","_Proteins",Peptide=FALSE,CFS=FALSE,Batch=FALSE)                                                              
-df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS","~/Files/Scripts/Files/CONSENSUS","_Proteins",Peptide=TRUE,Batch=FALSE,solvent="DMSO")                                                              
+#df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS","~/Files/Scripts/Files/CONSENSUS","_Proteins",Peptide=TRUE,Batch=FALSE,solvent="DMSO")                                                              
+df_raw <- read_cetsa("~/CONSENSUS11","~/CONSENSUS11","_Proteins",Peptide=TRUE,Batch=FALSE,solvent="DMSO")                                                              
+
 #saveRDS(df_raw,"df_raw.RDS")
 
 #filter Peptides
@@ -6629,7 +6636,7 @@ Sum_Ab<-function(x){
   x<-x %>% distinct(.)
   return(x)
 }
-df_raw1<-mclapply(df_raw1,Sum_Ab,mc.cores=availableCores())
+df_raw1<-parallel::mclapply(df_raw1,Sum_Ab,mc.cores=availableCores())
 
 df_raw1<-df_raw1 %>% purrr::keep(function(x) !length(x)==0)
 #new for PSMs
@@ -6988,7 +6995,10 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=FALSE,fT=FALSE,show_r
       spresults<-list()
       spresults_PI<-list()
       
-      spresults<-spstat(DFN,df_,df_1,Ftest=fT,show_results=show_results,filters=Filters,scaled_dof=FALSE,Peptide=Peptide)
+      spresults<-try(spstat(DFN,df_,df_1,Ftest=fT,show_results=show_results,filters=Filters,scaled_dof=FALSE,Peptide=Peptide))
+      if(class(spresults)=="try-error"){
+        return(warning("Error with t-test function, please recheck the data"))
+      }
       if(isTRUE(show_results)){
         return(spresults)
       }
@@ -7071,7 +7081,7 @@ y<-get_legend(check$plot)
 # plotS<-plotS[order(data)]
 P1<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"P48506",df.temps,MD=FALSE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=TRUE,simulations=FALSE)))
+plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=TRUE,show_results=TRUE,Peptide=TRUE,simulations=FALSE)))
 check<-ggplot2::ggplot_build(plotS2[[7]])
 y<-get_legend(check$plot)
 # data<-unlist(lapply(plotS2,function(x) x$labels$title))
