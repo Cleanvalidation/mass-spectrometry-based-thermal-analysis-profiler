@@ -38,6 +38,7 @@ library(STRINGdb)
 library(UniProt.ws)
 library('org.Hs.eg.db')
 library(VGAM)
+library(RColorBrewer)
 requireNamespace("plyr")
 set.seed(123)
 
@@ -3906,9 +3907,9 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
   if(isTRUE(filters)){
     check<-intersect(mean1$uniqueID,mean1_1$uniqueID)
     
-    mean1<-mean1 %>% dplyr::filter(uniqueID %in% check,rsq>0.8)
-    mean1_1<- mean1_1 %>% dplyr::filter(uniqueID %in% check,rsq>0.8)
-    mean3<-mean3 %>% dplyr::filter(uniqueID %in% check,rsq>0.8)
+    mean1<-mean1 %>% dplyr::filter(uniqueID %in% check,rsq>0.7)
+    mean1_1<- mean1_1 %>% dplyr::filter(uniqueID %in% check,rsq>0.7)
+    mean3<-mean3 %>% dplyr::filter(uniqueID %in% check,rsq>0.7)
     
     
     mean1<-mean1 %>% dplyr::filter(uniqueID %in% check)
@@ -3935,15 +3936,29 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
     results_<-dplyr::bind_rows(results) %>% dplyr::group_split(dataset)
     data<-data.frame(sample=unique(results_[[1]]$sample))
     data$replicate<-row.names(data)
+    data2<-data.frame(sample=unique(results_[[2]]$sample))
+    data2$replicate<-row.names(data2)
+    data<-rbind(data,data2)
     results_<-purrr::map(results_,function(x)x %>% distinct(.) %>% dplyr::right_join(data,by="sample"))
   }
+  #only keep data with vehicle and treated values
+  
   results_<-dplyr::bind_rows(results_) %>% dplyr::group_split(uniqueID)
   results_1<-results_ %>% purrr::keep(function(x) length(unique(x$dataset))==2)
-  results_<-purrr::map(results_,function(x) x %>% dplyr::mutate(
-    dTm=try(x$Tm[x$dataset %in% "treated"]-x$Tm[x$dataset %in% "vehicle"])))
+  results_2<-dplyr::bind_rows(results_1) %>% dplyr::group_split(uniqueID,dataset)
+  #nest the columns that dont involve Tm t-test calculation 
+  nesting<-names(results_2[[1]])[!names(results_2[[1]]) %in% c("uniqueID","sample","dataset","Tm","replicate","sample_name")]
   
-  results_<-purrr::map(results_,function(x) x %>% dplyr::filter(!class(dTm)=="try-error"))
-  results_<-dplyr::bind_rows(results_) %>% dplyr::group_split(sample_name)
+  results_2<-purrr::map(results_2,function(x) x %>% tidyr::nest(data=nesting))
+  #only keep replicates with Tm values
+  results_2<-dplyr::bind_rows(results_2) %>% dplyr::group_split(uniqueID)
+  results_2<-purrr::map(results_2,function(x) x %>% dplyr::filter(replicate %in% unique(x$replicate[duplicated(x$replicate)])))
+  
+  results_3<-dplyr::bind_rows(results_2) %>%  dplyr::group_split(uniqueID,replicate)
+  results_3<-purrr::map(results_3,function(x) x %>% dplyr::mutate(
+    dTm=x$Tm[x$dataset %in% "treated"]-x$Tm[x$dataset %in% "vehicle"])%>% dplyr::ungroup(.)) 
+  
+  results_<-dplyr::bind_rows(results_3) %>% dplyr::group_split(sample_name)
   
   results_<-purrr::map(results_,function(x) x %>% 
                          dplyr::mutate(p_dTm= try(p.adjust(t.test(Tm ~ dataset, data = x,
@@ -3951,12 +3966,14 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
   
   
   results1<-results_ %>% purrr::keep(function(x) !class(x$p_dTm)=='try-error')
-  results<-dplyr::bind_rows(results1)
+  results<-dplyr::bind_rows(results1) %>% tidyr::unnest(data)
+  
   
   #results<-results %>%  dplyr::mutate(p_dTm=calcP(uniqueID,Tm,dTm,30000))
   
   
-  results2<-dplyr::bind_rows(results1)$uniqueID
+  results2<-dplyr::bind_rows(results)$uniqueID
+  
   
   if(!length(mean3)==length(mean1)){
     mean1<-dplyr::bind_rows(mean1)
@@ -3978,9 +3995,9 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
     mean3<-mean3%>% dplyr::group_split(uniqueID)
     
     if(!nrow(mean3[[1]])==nrow(mean1[[1]])){
-      mean1<-dplyr::bind_rows(mean1) %>% dplyr::select(-M2,-T7,-T9,-T10) %>% distinct(.)
-      mean1_1<-dplyr::bind_rows(mean1_1)%>% dplyr::select(-M2,-T7,-T9,-T10)%>% distinct(.)
-      mean3<-dplyr::bind_rows(mean3)%>% dplyr::select(-M2,-T7,-T9,-T10)%>% distinct(.)
+      mean1<-dplyr::bind_rows(mean1) %>% dplyr::select(-M2) %>% distinct(.)
+      mean1_1<-dplyr::bind_rows(mean1_1)%>% dplyr::select(-M2)%>% distinct(.)
+      mean3<-dplyr::bind_rows(mean3)%>% dplyr::select(-M2)%>% distinct(.)
       
       CID<-dplyr::intersect(mean1$uniqueID,mean1_1$uniqueID)
       CID<-dplyr::intersect(CID,mean3$uniqueID)
@@ -4002,13 +4019,18 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
   if(isTRUE(Ftest)){
     
     #Calculate rss0 and rss1 null vs alt
-    rss0<-purrr::map(mean3,function(x)data.frame(RSS0=x$rss,
+    rss0<-purrr::map(mean3,function(x)data.frame(uniqueID=x$uniqueID[1],
+                                                 sample=x$sample[1],
+                                                 sample_name=x$sample_name[1],
+                                                 AUC=x$AUC[1],
+                                                 rsq=x$rsq[1],
+                                                 RSS0=x$rss,
                                                  se0=summary.gam(x$M1[[1]])$se[1],#standard error
-                                                 pN0=summary.gam(x$M1[[1]])$edf[1],#effective degrees of freedom
+                                                 edf0=summary.gam(x$M1[[1]])$edf[1],#effective degrees of freedom
                                                  rsq0=summary.gam(x$M1[[1]])$r.sq[1],#r-squared
                                                  np0=summary.gam(x$M1[[1]])$np[1],#number of parameters
                                                  rdf=summary.gam(x$M1[[1]])$residual.df[1],#residual degrees of freedom
-                                                 m=summary.gam(x$M1[[1]])$m[1]))
+                                                 m=summary.gam(x$M1[[1]])$m[1]) %>% distinct(.))
     #of smooth terms in the model
     
     #mean1<-purrr::map2(mean1,mean1_1,function(x,y)x %>% purrr::keep(x$uniqueID[1] %in% y$uniqueID[1]))
@@ -4018,21 +4040,27 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
     #make predictions to generate point confidence intervals
     
     
-    rss1<-purrr::map2(mean1,mean1_1,function(x,y)data.frame(RSS=x$rss,
+    rss1<-purrr::map2(mean1,mean1_1,function(x,y)data.frame(uniqueID=x$uniqueID[1],
+                                                            sample=x$sample[1],
+                                                            sample_name=x$sample_name[1],
+                                                            AUC=x$AUC[1],
+                                                            dTm=y$Tm[1]-x$Tm[1],
+                                                            RSS=x$rss,
                                                             se=summary.gam(x$M1[[1]])$se[1],#standard error
                                                             pN1=summary.gam(x$M1[[1]])$edf[1],#effective degrees of freedom
-                                                            rsq=summary.gam(x$M1[[1]])$r.sq[1],#r-squared
+                                                            
                                                             
                                                             rdf=summary.gam(x$M1[[1]])$residual.df[1],#residual degrees of freedom
                                                             m=summary.gam(x$M1[[1]])$m[1],
-                                                            Tm = y$Tm[[1]]-x$Tm[[1]],
+                                                            
                                                             se1=summary.gam(y$M1[[1]])$se[1],#standard error
                                                             pN2=summary.gam(y$M1[[1]])$edf[1],#effective degrees of freedom treated
-                                                            rsq1=summary.gam(y$M1[[1]])$r.sq[1],#r-squared
+                                                            rsq=mean(x$M1[[1]]$r.sq[1],y$M1[[1]]$r.sq[1],na.rm=TRUE),#r-squared
                                                             
                                                             rdf1=summary.gam(y$M1[[1]])$residual.df[1],#residual degrees of freedom
                                                             m1=summary.gam(y$M1[[1]])$m[1],
-                                                            pA=sum(summary.gam(x$M1[[1]])$edf[1],summary.gam(y$M1[[1]])$edf[1],na.rm=TRUE)))
+                                                            npa=sum(summary.gam(x$M1[[1]])$np[1],summary.gam(y$M1[[1]])$np[1],na.rm=TRUE),
+                                                            pNA=sum(summary.gam(x$M1[[1]])$edf[1],summary.gam(y$M1[[1]])$edf[1],na.rm=TRUE)) %>% distinct(.))
     
     
     # rss1<-purrr::map2(rss1,mean1,function(x,y) x %>% dplyr::mutate(fit_v=list(ifelse(class(try(mgcv::predict.gam(y$M1[[1]],newdata=data.frame(C=y$newdata[[1]]),family="link",
@@ -4052,15 +4080,15 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
     
     #mean1_1<-purrr::map2(mean1_1,rss1,function(x,y)cbind(x,y))
     #params for null and alternative models
-    f0<-lapply(mean3,function(x) data.frame(np=x$M1[[1]]$fitted.values))#number of measurements
+    f0<-lapply(mean3,function(x) data.frame(nfv=length(x$M1[[1]]$fitted.values)))#number of measurements
     if(length(mean1[[1]]$M1[[1]]$fitted.values)<length(mean1_1[[1]]$M1[[1]]$fitted.values)){
-      f1<-purrr::map2(mean1,mean1_1,function(x,y) rowSums(cbind(as.vector(x$M1[[1]]$fitted.values),
-                                                                as.vector(y$M1[[1]]$fitted.values[1:length(x$M1[[1]]$fitted.values)]))))#number of measurements alternative
+      f1<-purrr::map2(mean1,mean1_1,function(x,y) sum(length(x$M1[[1]]$fitted.values),
+                                                      length(y$M1[[1]]$fitted.values)))#number of measurements alternative
     }else{
-      f1<-purrr::map2(mean1,mean1_1,function(x,y) rowSums(cbind(as.vector(x$M1[[1]]$fitted.values[1:length(y$M1[[1]]$fitted.values)]),
-                                                                as.vector(y$M1[[1]]$fitted.values))))#number of measurements alternative
+      f1<-purrr::map2(mean1,mean1_1,function(x,y) sum(length(x$M1[[1]]$fitted.values),
+                                                      length(y$M1[[1]]$fitted.values)))#number of measurements alternative
     }
-    f1<-purrr::map(f1,function(x) data.frame(nA=sum(x)))
+    f1<-purrr::map(f1,function(x) data.frame(nfvA=sum(x)))
     int<-dplyr::intersect(names(mean3[[1]]),names(f0[[1]]))
     int1<-dplyr::intersect(names(mean1[[1]]),names(f1[[1]]))
     
@@ -4085,11 +4113,11 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
     
     
     #degrees of freedom before
-    d1<-purrr::map2(pA,pN,function(x,y)data.frame(d1=x$pA-y$pN0))
-    d2<-purrr::map(pA,function(x)data.frame(d2=x$nA-x$pA))
+    d1<-purrr::map2(pA,pN,function(x,y)data.frame(d1=x$pNA-y$np0))
+    d2<-purrr::map(pA,function(x)data.frame(d2=x$npa-x$pNA))
     
     #delta RSS
-    rssDiff<-purrr::map2(rss0,rss1,function(x,y) data.frame(dRSS=x$RSS0-y$RSS,dTm=y$Tm[1],rss1=y$RSS[1]))
+    rssDiff<-purrr::map2(rss0,rss1,function(x,y) data.frame(dRSS=x$RSS0-y$RSS,dTm=y$dTm[1],rss1=y$RSS[1]))
     
     d2<-lapply(d2,function(x) x$d2[1])
     d1<-lapply(d1,function(x) x$d1[1])
@@ -4160,9 +4188,9 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
     # print(TestScaled)
     #Define checked as filtered protein IDs
     check<-testResults$uniqueID
-    test<-testResults %>% dplyr::filter(.$pValue<0.01)
+    test<-testResults
     test$d1<-MASS::fitdistr(x=test$dRSS, densfun = "chi-squared", start = list(df=1))[["estimate"]]
-    test$d2<-MASS::fitdistr(x=test$RSS, densfun = "chi-squared", start = list(df=1))[["estimate"]]
+    test$d2<-MASS::fitdistr(x=test$dRSS, densfun = "chi-squared", start = list(df=1))[["estimate"]]
     test<-test %>% dplyr::filter(test$pAdj<0.01)
     testS<-ggplot(test)+
       geom_density(aes(x=Fvals),fill = "steelblue",alpha = 0.5) +
@@ -5546,7 +5574,7 @@ MSStats_converter<-function(df_raw,solvent){
 
 
 #TPP TR Reader
-TPPbenchmark<-function(f,overlaps=NA,volcano=TRUE){
+TPPbenchmark<-function(f,overlaps=NA,volcano=TRUE,filters="TPP"){
   f<-"~/Files/Scripts/Files/TPP_results"
   f<-list.files(f)
   #read data
@@ -5560,37 +5588,74 @@ TPPbenchmark<-function(f,overlaps=NA,volcano=TRUE){
   
   
   #select columns of interest
-  df_TPP<-dplyr::bind_rows(df_TPP) %>% 
-    select(Protein_ID,fulfills_all_4_requirements,
-           model_converged_DMSO_1,model_converged_DMSO_2,model_converged_MEKi_1,model_converged_MEKi_2,
-           sample_name,
-           diff_meltP_MEKi_1_vs_DMSO_1,diff_meltP_MEKi_2_vs_DMSO_2,
-           pVal_adj_MEKi_1_vs_DMSO_1,pVal_adj_MEKi_2_vs_DMSO_2)%>% dplyr::filter(model_converged_DMSO_1=="Yes" & model_converged_DMSO_2 =="Yes" ,model_converged_MEKi_2=="Yes" & model_converged_MEKi_1 =="Yes")
-  
+  if(filters=="HQ"){
+    df_TPP<-dplyr::bind_rows(df_TPP) %>% 
+      dplyr::select(Protein_ID,fulfills_all_4_requirements,
+                    minSlopes_less_than_0.06,
+                    R_sq_MEKi_2,R_sq_MEKi_1,R_sq_DMSO_2,R_sq_DMSO_1,
+                    plateau_MEKi_2,plateau_MEKi_1,plateau_DMSO_2,plateau_DMSO_1,
+                    diff_meltP_MEKi_1_vs_DMSO_1,diff_meltP_MEKi_2_vs_DMSO_2,
+                    meltP_diffs_have_same_sign,
+                    meltPoint_MEKi_2,meltPoint_MEKi_1,meltPoint_DMSO_2,meltPoint_DMSO_1,
+                    sample_name,
+                    pVal_adj_MEKi_1_vs_DMSO_1,pVal_adj_MEKi_2_vs_DMSO_2)%>%
+      dplyr::filter(!is.na(meltPoint_MEKi_2) & !is.na(meltPoint_MEKi_2) & !is.na(meltPoint_DMSO_2) &!is.na(meltPoint_DMSO_1) &
+                      minSlopes_less_than_0.06=="Yes"
+                    & R_sq_MEKi_2 >0.8 & R_sq_MEKi_1 >0.8 & R_sq_DMSO_2>0.8 &R_sq_DMSO_1>0.8 &
+                      plateau_MEKi_2<0.3 & plateau_MEKi_1<0.3 & plateau_DMSO_2<0.3 & plateau_DMSO_1<0.3)
+  }else if(filters=="Sigmoidal"){
+    df_TPP<-dplyr::bind_rows(df_TPP) %>% 
+      dplyr::select(Protein_ID,fulfills_all_4_requirements,
+                    minSlopes_less_than_0.06,
+                    model_converged_MEKi_2,model_converged_MEKi_1,model_converged_DMSO_2,model_converged_DMSO_1,
+                    R_sq_MEKi_2,R_sq_MEKi_1,R_sq_DMSO_2,R_sq_DMSO_1,
+                    plateau_MEKi_2,plateau_MEKi_1,plateau_DMSO_2,plateau_DMSO_1,
+                    diff_meltP_MEKi_1_vs_DMSO_1,diff_meltP_MEKi_2_vs_DMSO_2,
+                    meltP_diffs_have_same_sign,
+                    meltPoint_MEKi_2,meltPoint_MEKi_1,meltPoint_DMSO_2,meltPoint_DMSO_1,
+                    sample_name,
+                    pVal_adj_MEKi_1_vs_DMSO_1,pVal_adj_MEKi_2_vs_DMSO_2)%>%
+      dplyr::filter(model_converged_DMSO_1=="Yes",model_converged_DMSO_2=="Yes",model_converged_MEKi_1=="Yes",model_converged_MEKi_2=="Yes")
+  }else{
+    df_TPP<-dplyr::bind_rows(df_TPP) %>% 
+      dplyr::select(Protein_ID,fulfills_all_4_requirements,
+                    minSlopes_less_than_0.06,
+                    R_sq_MEKi_2,R_sq_MEKi_1,R_sq_DMSO_2,R_sq_DMSO_1,
+                    plateau_MEKi_2,plateau_MEKi_1,plateau_DMSO_2,plateau_DMSO_1,
+                    diff_meltP_MEKi_1_vs_DMSO_1,diff_meltP_MEKi_2_vs_DMSO_2,
+                    meltP_diffs_have_same_sign,
+                    meltPoint_MEKi_2,meltPoint_MEKi_1,meltPoint_DMSO_2,meltPoint_DMSO_1,
+                    sample_name,
+                    pVal_adj_MEKi_1_vs_DMSO_1,pVal_adj_MEKi_2_vs_DMSO_2)%>%
+      dplyr::filter(!is.na(meltPoint_MEKi_2) & !is.na(meltPoint_MEKi_2) & !is.na(meltPoint_DMSO_2) &!is.na(meltPoint_DMSO_1) &
+                      minSlopes_less_than_0.06=="Yes"
+                    & R_sq_MEKi_2 >0.8 & R_sq_MEKi_1 >0.8 & R_sq_DMSO_2>0.8 &R_sq_DMSO_1>0.8 &
+                      plateau_MEKi_2<0.3 & plateau_MEKi_1<0.3 & plateau_DMSO_2<0.3 & plateau_DMSO_1<0.3 & fulfills_all_4_requirements=="Yes")
+  }
   df_TPP$Protein_ID<-as.factor(df_TPP$Protein_ID)
   df_TPP$sample_name<-str_replace(df_TPP$sample_name,"S","\u03A6")
   #get names
   
-  df_TPP<-df_TPP %>% dplyr::group_split(sample_name)
+  df_TPP<-df_TPP %>% dplyr::group_split(sample_name) 
+  df_TPP1<-purrr::map(df_TPP,function(x)x %>% dplyr::select(Protein_ID,sample_name,pVal_adj_MEKi_1_vs_DMSO_1,pVal_adj_MEKi_2_vs_DMSO_2,diff_meltP_MEKi_1_vs_DMSO_1,diff_meltP_MEKi_2_vs_DMSO_2) %>% 
+                        pivot_longer(c(pVal_adj_MEKi_1_vs_DMSO_1,pVal_adj_MEKi_2_vs_DMSO_2),
+                                     names_to = c("hi","dTm"),
+                                     names_pattern = c("(.+)pVal_(.+)"),
+                        ) %>% dplyr::rename("p_dTm"="value"))
+  df_TPP1<-purrr::map(df_TPP1,function(x)x %>% dplyr::select(Protein_ID,sample_name,diff_meltP_MEKi_1_vs_DMSO_1,diff_meltP_MEKi_2_vs_DMSO_2,p_dTm) %>% 
+                        pivot_longer(c(diff_meltP_MEKi_1_vs_DMSO_1,diff_meltP_MEKi_2_vs_DMSO_2),
+                                     names_to = c("hi","set"),
+                                     names_pattern = "(.+)diff_(.+)"
+                        ) %>% dplyr::rename("dTm"="value") %>% dplyr::select(-hi,-set))
+  df_TPP1<-purrr::map(df_TPP1,function(x) x[!is.na(x$dTm),])
   if(isTRUE(volcano)){
     
-    df_TPP1<-purrr::map(df_TPP,function(x)x %>% dplyr::select(Protein_ID,sample_name,pVal_adj_MEKi_1_vs_DMSO_1,pVal_adj_MEKi_2_vs_DMSO_2,diff_meltP_MEKi_1_vs_DMSO_1,diff_meltP_MEKi_2_vs_DMSO_2) %>% 
-                          pivot_longer(c(pVal_adj_MEKi_1_vs_DMSO_1,pVal_adj_MEKi_2_vs_DMSO_2),
-                                       names_to = c("hi","dTm"),
-                                       names_pattern = c("(.+)pVal_(.+)"),
-                          ) %>% dplyr::rename("p_dTm"="value"))
-    df_TPP2<-purrr::map(df_TPP1,function(x)x %>% dplyr::select(Protein_ID,sample_name,diff_meltP_MEKi_1_vs_DMSO_1,diff_meltP_MEKi_2_vs_DMSO_2,p_dTm) %>% 
-                          pivot_longer(c(diff_meltP_MEKi_1_vs_DMSO_1,diff_meltP_MEKi_2_vs_DMSO_2),
-                                       names_to = c("hi","set"),
-                                       names_pattern = "(.+)diff_(.+)"
-                          ) %>% dplyr::rename("dTm"="value") %>% dplyr::select(-hi,-set))
-    df_TPP3<-purrr::map(df_TPP2,function(x) x[!is.na(x$dTm),])
-    df_TPP2<-dplyr::bind_rows(df_TPP3) 
+    df_TPP2<-dplyr::bind_rows(df_TPP1) 
     df_TPP2$diffexpressed <- "No"
     # if log2Foldchange > 0.6 and pvalue < 0.05, set as "UP" 
-    df_TPP2$diffexpressed[df_TPP2$dTm > 1 & df_TPP2$p_dTm < 0.05] <- "Stabilized"
+    df_TPP2$diffexpressed[df_TPP2$dTm > 2 & df_TPP2$p_dTm < 0.05] <- "Stabilized"
     # if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"
-    df_TPP2$diffexpressed[df_TPP2$dTm < -1 & df_TPP2$p_dTm < 0.05] <- "Destabilized"
+    df_TPP2$diffexpressed[df_TPP2$dTm < -2 & df_TPP2$p_dTm < 0.05] <- "Destabilized"
     df_TPP2$delabel <- NA
     df_TPP2$delabel[df_TPP2$Protein_ID %in%c("P36507","Q02750")] <- as.character(df_TPP2$Protein_ID[df_TPP2$Protein_ID %in%c("P36507","Q02750")])
     #get overlaps in data
@@ -5599,10 +5664,10 @@ TPPbenchmark<-function(f,overlaps=NA,volcano=TRUE){
     
     
     
-    df_TPP2<-dplyr::bind_rows(df_TPP2) %>% dplyr::group_split(sample_name,Protein_ID)
+    df_TPP2<-dplyr::bind_rows(df_TPP2) %>% distinct(.) %>%  dplyr::group_split(sample_name,Protein_ID)
     df_TPP2<-purrr::map(df_TPP2,function(x) x[1,])
     df_TPP2<-dplyr::bind_rows(df_TPP2) %>% dplyr::group_split(sample_name)
-    df_TPP2<-purrr::map(df_TPP2,function(x)
+    df_TPP3<-purrr::map(df_TPP2,function(x)
       ggplot(data=x,mapping=aes(x=dTm,y=-log10(p_dTm),color=diffexpressed))+geom_point()+ geom_vline(xintercept=c(-2, 2), col="red") +
         geom_hline(yintercept=-log10(0.05), col="red")+ scale_color_manual("Stabilization",values=c("blue", "black", "red"))+
         labs(y=expression(-log["10"]*(P-value)),x=expression(Delta*T["m"]))+
@@ -5611,115 +5676,330 @@ TPPbenchmark<-function(f,overlaps=NA,volcano=TRUE){
         geom_label(aes(16,y=40),label=paste0("S = ",nrow(x[x$diffexpressed=="Stabilized",])),show.legend=FALSE)+
         geom_label(aes(-16,y=40),label=paste0("DS = ",nrow(x[x$diffexpressed=="Destabilized",])),show.legend=FALSE)+
         #geom_text(aes(dTm, -log10(p_dTm), label = delabel), data = df_,color="black")+
-        geom_text_repel(aes(dTm, -log10(p_dTm),label=delabel),color="black")+ggtitle(x$sample_name[1])+ylim(-0.1,55))#+
+        geom_label_repel(aes(dTm, -log10(p_dTm),label=delabel),color="black")+ggtitle(x$sample_name[1])+ylim(-0.1,55))#+
     #geom_point(data=df_TPP2[df_TPP2$Stroke==1,],
     #pch=21, fill=NA, size=4, colour="black", stroke=1)
     
     
     
-    return(df_TPP2)
+    return(df_TPP3)
   }
-  #for upset plots
-  df_1<-purrr::map(df_TPP,function(x)
-    pivot_wider(x,names_from=pVal_adj_MEKi_1_vs_DMSO_1,values_from=c(pVal_adj_MEKi_1_vs_DMSO_1,pVal_adj_MEKi_2_vs_DMSO_2),values_fill=NA))
   
-  # df_1<-dplyr::bind_rows(df_1)
-  df_1<-dplyr::bind_rows(df_TPP)
+  #for number of curves
   
-  df_1$model_converged_DMSO_1[df_1$model_converged_DMSO_1=="Yes"]<-"TRUE"
-  df_1$model_converged_DMSO_2[df_1$model_converged_DMSO_2=="Yes"]<-"TRUE"
-  df_1$model_converged_MEKi_1[df_1$model_converged_MEKi_1=="Yes"]<-"TRUE"
-  df_1$model_converged_MEKi_2[df_1$model_converged_MEKi_2=="Yes"]<-"TRUE"
-  df_1$fulfills_all_4_requirements[df_1$fulfills_all_4_requirements=="Yes"]<-"TRUE"
-  
-  df_1$model_converged_DMSO_1[df_1$model_converged_DMSO_1=="No"]<-"FALSE"
-  df_1$model_converged_DMSO_2[df_1$model_converged_DMSO_2=="No"]<-"FALSE"
-  df_1$model_converged_MEKi_1[df_1$model_converged_MEKi_1=="No"]<-"FALSE"
-  df_1$model_converged_MEKi_2[df_1$model_converged_MEKi_2=="No"]<-"FALSE"
-  df_1$fulfills_all_4_requirements[df_1$fulfills_all_4_requirements=="No"]<-"FALSE"
+  df_1<-dplyr::bind_rows(df_TPP1)
   
   df_1$sample_name<-str_replace(df_1$sample_name,"S","\u03A6")
-  df_1<-lapply(df_1,function(x) x %>% dplyr::rename("Passed_4_filters"="fulfills_all_4_requirements"))
   df_1<-dplyr::bind_rows(df_1) 
-  df_1$Passed_4_filters<-as.factor(df_1$Passed_4_filters)
   df_1$sample_name<-as.factor(df_1$sample_name)
-  df_1<-df_1 %>% dplyr::group_split(sample_name)
+  df_1$uniqueID<-df_1$Protein_ID
   
+  df_1<-df_1 %>% dplyr::select(p_dTm,uniqueID,sample_name,dTm) %>% distinct(.)
+  df_1<-df_1[!duplicated(df_1),]
+  df_1<-df_1[!is.na(df_1$dTm),]
+  df_1$p_dTm<-base::round(df_1$p_dTm,3) 
+  df_1<-dplyr::bind_rows(df_1) %>% distinct(.)%>% dplyr::group_split(uniqueID,sample_name)
+  df_1<-purrr::map(df_1,function(x) x[1,])
+  df_1<-dplyr::bind_rows(df_1)
+  
+  colors<-data.frame(sample_name=as.character(unique(dplyr::bind_rows(df_TPP)$sample_name)))
+  colors$sample_name<-as.character(colors$sample_name)
+  colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')
+  
+  check1<-df_1 %>% count(sample_name) %>%
+    mutate(focus = ifelse(sample_name == "C_F_Φ", 0.2, 0)) %>%
+    ggplot() +
+    ggforce::geom_arc_bar(aes(x0 = 0, y0 = 0, r0 = 0.7, r = 1, amount = n, fill = sample_name, explode = focus), stat = "pie") +
+    ggforce::theme_no_axes()+
+    scale_fill_manual(values = colors$hex,aesthetics="fill")+
+    xlim(-1.1,1.45)+
+    geom_label(mapping=aes(x=c(1.4,1.4,1.4,1.4,1.4,1.4,1.4,1.4),y=c(0.57,0.42,0.27,0.12,-0.03,-0.18,-0.33,-0.48),label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
+    ggtitle("Number of fitted curves")
+  if(!isTRUE(filters)){
+    pdf("Number_of_fitted_curves_TPP_Protein_only_converging.pdf",encoding="CP1253.enc",compress=TRUE,width=6.12,height=4.02)
+    check1
+    dev.off()
+  }else{
+    pdf("Number_of_fitted_curves_TPP_iMAATSA_4_req_Filters.pdf",encoding="CP1253.enc",compress=TRUE,width=6.12,height=4.02)
+    check1
+    dev.off()
+  }
+  # 
+  # 'Size'=(
+  #   intersection_size(
+  #     mode=mode,
+  #     mapping=aes(fill=exclusive_intersection),
+  #     size=0,
+  #     text=list(check_overlap=TRUE)
+  #   ) + scale_fill_venn_mix(
+  #     data=abc_data,
+  #     guide=FALSE,
+  #     colors=c('A'='red', 'B'='blue', 'C'='green3')
+  # 
+  df_1<-dplyr::bind_rows(df_TPP)
+  df_1$uniqueID<-df_1$Protein_ID
+  df_1<-dplyr::bind_rows(df_1) %>% dplyr::select(uniqueID,sample_name) %>% 
+    pivot_wider(names_from=sample_name,values_from=sample_name) %>% distinct(.)
+  
+  
+  
+  
+  #df_1<-df_1 %>% dplyr::mutate(uniqueID=as.character(uniqueID))
+  # df_ <- df_ %>%
+  #   mutate_if(sapply(df_, is.factor), as.numeric)
+  IDs<-df_1$uniqueID
+  df_1 <- mutate_all(df_1[,2:length(df_1)], ~replace(., !is.na(.), "TRUE"))
+  df_1 <- mutate_all(df_1[,2:length(df_1)], ~replace(., is.na(.), "FALSE"))
+  df_1<-cbind(IDs,df_1)
+  colors<-data.frame(sample_name=as.character(unique(dplyr::bind_rows(df_TPP)$sample_name)))
+  colors$sample_name<-as.character(colors$sample_name)
+  colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')
+  rating_scale = scale_fill_manual(name="Stabilization (Tm-based)",
+                                   values=c("Stabilized" ='#fee6ce', "Destabilized" ='#fdae6b', "NA"  = '#e6550d'))
+  df_1<-na.omit(df_1)
   check<-list()
-  check<-purrr::map(df_1,function(x) upset(x,colnames(x)[!colnames(x) %in% c("sample_name","Protein_ID")],
-                                           min_degree=2,
-                                           set_sizes=FALSE,
-                                           guides='collect',
-                                           n_intersections=5,
-                                           stripes='white',
-                                           sort_intersections_by="cardinality",
-                                           stat='count',
-                                           position=position_fill(vjust = .5)
-                                           # show_hide_scale,
-                                           # rating_scale
-                                           # 
-  )+ggtitle(paste0("TPP results: ",x$sample_name[1])))
+  check<-upset(df_1,colnames(df_1)[!colnames(df_1) %in% c("sample_name","stabilized","uniqueID")],
+               #min_degree=6,
+               set_sizes=FALSE,
+               n_intersections=10,
+               min_degree=1,
+               encode_sets=FALSE,
+               stripes='white',
+               # intersections=list(
+               #   c("C_F_E","C_F_Φ","C_nF_E","nC_F_E","nC_nF_E","nC_nF_Φ","C_nF_Φ","nC_F_Φ"),
+               #   c("C_F_E","C_F_Φ","C_nF_E","C_nF_Φ"),
+               #   c("nC_nF_E","nC_nF_Φ","nC_nF_E","nC_F_Φ"),
+               #   c("C_F_E","C_F_Φ","nC_F_E","nC_F_Φ"),
+               #   c("C_nF_E","C_nF_Φ","nC_nF_E","nC_nF_Φ")
+               #   
+               # ),
+               # mode = 'inclusive_union',
+               #mode=mode,
+               # intersections=list(
+               #   c('C_F_E', paste0('C_F_','\u03A6'),'C_nF_E',paste0('C_nF_','\u03A6'),'nC_F_E',paste0('nC_F_','\u03A6'),'nC_nF_E',paste0('nC_F_','\u03A6')),
+               #   c(paste0('C_F_','\u03A6'),paste0('C_nF_','\u03A6'),paste0('nC_F_','\u03A6'),paste0('nC_F_','\u03A6')),
+               #   c('C_F_E','C_nF_E','nC_F_E','nC_nF_E'),
+               #   c('C_F_E','C_nF_E',paste0('C_F_','\u03A6'),paste0('C_nF_','\u03A6')),
+               #   c('C_F_E','nC_F_E',paste0('C_F_','\u03A6'),paste0('nC_F_','\u03A6'))
+               #   
+               # ),
+               #sort_intersections_by="cardinality",
+               base_annotations=list(
+                 '# of fitted curves'=
+                   intersection_size(
+                     # mode='inclusive_intersection',
+                     counts=TRUE,
+                     # mapping=aes(fill='inclusive_intersection')
+                   )+
+                   #scale_color_brewer(palette="Dark2")+
+                   theme(legend.position = 'none',
+                         # axis.text=element_text(size=20, face='bold'),
+                         # axis.title=element_text(size=20, face='bold')
+                   )+
+                   ggplot2::ylab("# of fitted curves")
+               ),               # base_annotations=list(
+               #   'Number of protein events'=upset_annotate(
+               #     '..count..',
+               #     list(
+               #       geom_bar(aes(fill=df_$stabilized)),
+               #       scale_fill_manual(values=c("Stabilized" ='#fee6ce', "Destabilized" ='#fdae6b', "NA"  = '#e6550d'))
+               #     )
+               #   )
+               # )#,
+               
+               # annotations =list(
+               #   'Stabilized Percentage'=list(
+               #     aes=aes(x=intersection, fill=as.factor(df_$stabilized)),
+               #     geom=list(
+               #       geom_bar(stat='count', position='fill', na.rm=TRUE),
+               #       geom_text(
+               #         aes(
+               #           label=!!aes_percentage(relative_to='group'),
+               #           group=df_$stabilized
+               #         ),
+               #         stat='count',
+               #         position=position_fill(vjust = .5)
+               #       ),
+               #       scale_y_continuous(labels=scales::percent_format()),
+               #       rating_scale
+               #     )
+               #   )
+               # ,
+               # 'Tm'=(
+               #   # note that aes(x=intersection) is supplied by default and can be skipped
+               #   ggplot(mapping=aes(y=log10(df_$dTm)))+
+               #     # checkout ggbeeswarm::geom_quasirandom for better results!
+               #     geom_jitter(aes(color=log2(df_$dTm), na.rm=TRUE))+
+               #     geom_violin(alpha=0.5, na.rm=TRUE)
+               # )
+               #),
+               width_ratio=0.1,
+               height_ratio=0.8
+               
+  )+ggtitle(paste0("Top 10 number of fitted curves (TPP) ",ifelse(isTRUE(Peptide),"peptide","protein"),"-level ",ifelse(filters=="TPP" | filters=="HQ","filtered","unfiltered")))
   
-  rating_scale = scale_fill_manual(name="High Quality Melt Curves",
-                                   values=c("TRUE" ='#fee6ce', "FALSE" ='#fdae6b', "NA"  = '#e6550d'))
+  #check upset plots for intersections
+  check_intersections<-data.frame(IDs=check[[1]]$data$intersection,inclusive=check[[1]]$data$inclusive_intersection_size) %>% distinct(.) %>% dplyr::arrange(inclusive) %>% head(10)
+  #filter exclusive intersection colors
+  colors<-colors %>% dplyr::filter(sample_name %in% check_intersections$IDs)
   
-  show_hide_scale = scale_color_manual(values=c('show'='black', 'hide'='transparent'), guide=FALSE)
-  
-  check<-list()
-  check<- purrr::map(df_1,function(x)upset(x,names(x),
-                                           min_degree=1,
-                                           set_sizes=FALSE,
-                                           guides='collect',
-                                           n_intersections=5,
-                                           height_ratio = 0.7,
-                                           stripes='white',
-                                           base_annotations=list(
-                                             '# of Protein Curves'=intersection_size(
-                                               counts=TRUE,
-                                               aes=aes(fill=sample_name,
-                                                       color=sample_name,
-                                                       palette="Dark2")
-                                             ) 
-                                             
-                                           ),
-                                           annotations =list(
-                                             'Bin %'=list(
-                                               aes=aes(x=intersection, fill=Passed_4_filters),
-                                               geom=list(
-                                                 geom_bar(stat='count', position='fill', na.rm=TRUE),
-                                                 geom_text(
-                                                   aes(
-                                                     label=!!aes_percentage(relative_to='intersection'),
-                                                     color="black"
-                                                   ),
-                                                   stat='count',
-                                                   position=position_fill(vjust = .5)
-                                                 ),
-                                                 scale_y_continuous(labels=scales::percent_format()),
-                                                 
-                                               )
-                                             )
-                                           )
-                                           
-                                           
-  )+ggtitle(paste0("TPP results: ",x$sample_name[1])))
-  #y<-get_legend(check$patches$plots[[1]])
-  colors<-as.list(brewer.pal(n = 8, name = "Dark2"))
-  test<-purrr::map2(check,colors,function(x,y) x+scale_fill_manual(palette))
-  data<-unlist(lapply(check,function(x) x$labels$title))
-  check<-check[order(data)]
-  P<-ggarrange(plotlist=check,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO")
-  
-  return(print(P))
+  #add query
+  check<-upset(df_1,colnames(df_1)[!colnames(df_1) %in% c("sample_name","stabilized","uniqueID")],
+               #min_degree=6,
+               set_sizes=FALSE,
+               n_intersections=10,
+               min_degree=1,
+               encode_sets=FALSE,
+               stripes='white',
+               # intersections=list(
+               #   c("C_F_E","C_F_Φ","C_nF_E","nC_F_E","nC_nF_E","nC_nF_Φ","C_nF_Φ","nC_F_Φ"),
+               #   c("C_F_E","C_F_Φ","C_nF_E","C_nF_Φ"),
+               #   c("nC_nF_E","nC_nF_Φ","nC_nF_E","nC_F_Φ"),
+               #   c("C_F_E","C_F_Φ","nC_F_E","nC_F_Φ"),
+               #   c("C_nF_E","C_nF_Φ","nC_nF_E","nC_nF_Φ")
+               #   
+               # ),
+               # mode = 'inclusive_union',
+               #mode=mode,
+               # intersections=list(
+               #   c('C_F_E', paste0('C_F_','\u03A6'),'C_nF_E',paste0('C_nF_','\u03A6'),'nC_F_E',paste0('nC_F_','\u03A6'),'nC_nF_E',paste0('nC_F_','\u03A6')),
+               #   c(paste0('C_F_','\u03A6'),paste0('C_nF_','\u03A6'),paste0('nC_F_','\u03A6'),paste0('nC_F_','\u03A6')),
+               #   c('C_F_E','C_nF_E','nC_F_E','nC_nF_E'),
+               #   c('C_F_E','C_nF_E',paste0('C_F_','\u03A6'),paste0('C_nF_','\u03A6')),
+               #   c('C_F_E','nC_F_E',paste0('C_F_','\u03A6'),paste0('nC_F_','\u03A6'))
+               #   
+               # ),
+               #sort_intersections_by="cardinality",
+               base_annotations=list(
+                 '# of fitted curves'=
+                   intersection_size(
+                     # mode='inclusive_intersection',
+                     counts=TRUE
+                     # mapping=aes(fill='inclusive_intersection')
+                   )+
+                   ggplot2::ylab("# of fitted curves")
+               ),               
+               # base_annotations=list(
+               #   'Number of protein events'=upset_annotate(
+               #     '..count..',
+               #     list(
+               #       geom_bar(aes(fill=df_$stabilized)),
+               #       scale_fill_manual(values=c("Stabilized" ='#fee6ce', "Destabilized" ='#fdae6b', "NA"  = '#e6550d'))
+               #     )
+               #   )
+               # )#,
+               
+               # annotations =list(
+               #   'Stabilized Percentage'=list(
+               #     aes=aes(x=intersection, fill=as.factor(df_$stabilized)),
+               #     geom=list(
+               #       geom_bar(stat='count', position='fill', na.rm=TRUE),
+               #       geom_text(
+               #         aes(
+               #           label=!!aes_percentage(relative_to='group'),
+               #           group=df_$stabilized
+               #         ),
+               #         stat='count',
+               #         position=position_fill(vjust = .5)
+               #       ),
+               #       scale_y_continuous(labels=scales::percent_format()),
+               #       rating_scale
+               #     )
+               #   )
+               # ,
+               # 'Tm'=(
+               #   # note that aes(x=intersection) is supplied by default and can be skipped
+               #   ggplot(mapping=aes(y=log10(df_$dTm)))+
+               #     # checkout ggbeeswarm::geom_quasirandom for better results!
+               #     geom_jitter(aes(color=log2(df_$dTm), na.rm=TRUE))+
+               #     geom_violin(alpha=0.5, na.rm=TRUE)
+               # )
+               #),
+               width_ratio=0.1,
+               height_ratio=0.8,
+               queries=list(
+                 upset_query(
+                   intersect=c('C_F_Φ', 'nC_F_Φ','nC_F_E',"C_nF_Φ",'nC_nF_Φ','C_nF_E','nC_nF_E'),
+                   color='black',
+                   fill='black',
+                   only_components='# of fitted curves'
+                 ),
+                 upset_query(
+                   intersect=colors$sample_name[1],
+                   color=colors$hex[1],
+                   fill=colors$hex[1],
+                   only_components='# of fitted curves'
+                 ),
+                 upset_query(
+                   intersect=colors$sample_name[2],
+                   color=colors$hex[2],
+                   fill=colors$hex[2],
+                   only_components='# of fitted curves'
+                 )
+                 # ,
+                 # upset_query(
+                 #   intersect=colors$sample_name[3],
+                 #   color=colors$hex[3],
+                 #   fill=colors$hex[3],
+                 #   only_components='# of fitted curves'
+                 # )
+                 # ,
+                 # upset_query(
+                 #   intersect=colors$sample_name[4],
+                 #   color=colors$hex[4],
+                 #   fill=colors$hex[4],
+                 #   only_components='# of fitted curves'
+                 # ),
+                 # upset_query(
+                 #   intersect=colors$sample_name[5],
+                 #   color=colors$hex[5],
+                 #   fill=colors$hex[5],
+                 #   only_components='# of fitted curves'
+                 # ),
+                 # upset_query(
+                 #   intersect=colors$sample_name[6],
+                 #   color=colors$hex[6],
+                 #   fill=colors$hex[6],
+                 #   only_components='# of fitted curves'
+                 # ),
+                 # upset_query(
+                 #   intersect= as.character(colors$sample_name[7]),
+                 #   color=as.character(colors$hex[7]),
+                 #   fill=as.character(colors$hex[7]),
+                 #   only_components='# of fitted curves'
+                 # )
+                 # ,
+                 # upset_query(
+                 #   intersect=as.character(colors$sample_name[8]),
+                 #   color=as.character(colors$hex[8]),
+                 #   fill=as.character(colors$hex[8]),
+                 #   only_components='# of fitted curves'
+                 # )
+               )
+               
+               
+               
+  )+ggtitle(paste0("Top 10 number of fitted curves (TPP) (",ifelse(isTRUE(Peptide),"peptide","protein"),"-level ",ifelse(filters=="TPP","additional filters)",ifelse(filters=="HQ","high-quality filtered)","unfiltered)"))))
+  if(!isTRUE(filters)){
+    pdf("Upset_fitted_curves_TPP_Protein_only_converging.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+    check
+    dev.off()
+  }else{
+    pdf("Upset_fitted_curves_TPP_iMAATSA_4_req_additional_Filters.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+    check
+    dev.off()
+  }
+  return(list(check,check1))
   
   
 }
+
 #CV<-his_sp(res_sp[[3]],df.temps,MD=FALSE)
-UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FALSE,filter=FALSE){
+UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,filter=FALSE){
   
   if(isTRUE(Peptide) & any(names(f)=="rank_l")){
     f<-dplyr::bind_rows(f) %>% dplyr::mutate(sample_name=as.factor(sample_name),dataset=as.factor(dataset)) %>%
-      dplyr::select(-rank,-rank_l,-C,-I,-temp_ref,-CV_pct,-missing_pct) %>%
+      dplyr::select(-rank,-rank_l,-C,-I,-temp_ref,-CV_pct,-missing_pct) %>% dplyr::filter(!is.na(sample_name)) %>%
       dplyr::group_split(uniqueID,dataset,sample_name,sample)
     
     f<-purrr::map(f,function(x) x %>% group_by(sample,dataset) %>% dplyr::summarise(uniqueID=uniqueID,
@@ -5809,37 +6089,49 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
     f<-dplyr::bind_rows(f) 
     f$sample_name<-str_replace(f$sample_name,"S","\u03A6")
     
-    df_TPP<-dplyr::bind_rows(f) %>%
+    df_TPP<-dplyr::bind_rows(f) %>% dplyr::filter(!is.na(sample_name)) %>% 
       dplyr::select(uniqueID,sample_name,Tm,rss,AUC,p_dTm,stabilized) %>% 
       distinct(.)
     
     df_1<-df_TPP %>% dplyr::select(p_dTm,uniqueID,sample_name,Tm) %>% distinct(.)
     df_1<-dplyr::bind_rows(df_1)
-    
-    
+    df_2<-df_1
     df_1<-df_1[!duplicated(df_1),]
+    colors<-data.frame(sample_name=as.character(unique(dplyr::bind_rows(df_TPP)$sample_name)))
+    colors$sample_name<-as.character(colors$sample_name)
+    colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')
+    
     check1<-df_1 %>% count(sample_name) %>%
       mutate(focus = ifelse(sample_name == "C_F_E", 0.2, 0)) %>%
       ggplot() +
-      ggforce::geom_arc_bar(aes(x0 = 0, y0 = 0, r0 = 0.7, r = 1, amount = n, fill = sample_name, explode = focus), alpha = 0.3, stat = "pie") +
-      ggforce::ggtheme_no_axes()+
-      xlim(-1.1,1.25)+
-      geom_label(mapping=aes(x=c(1.2,1.2,1.2,1.2,1.2,1.2,1.2,1.2),y=c(0.57,0.42,0.27,0.12,-0.03,-0.18,-0.33,-0.48),label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
+      ggforce::geom_arc_bar(aes(x0 = 0, y0 = 0, r0 = 0.7, r = 1, amount = n, fill = sample_name, explode = focus), stat = "pie") +
+      ggforce::theme_no_axes()+
+      scale_fill_manual(values = colors$hex,aesthetics="fill")+
+      xlim(-1.1,1.45)+
+      geom_label(mapping=aes(x=c(1.4,1.4,1.4,1.4,1.4,1.4,1.4,1.4),y=c(0.57,0.42,0.27,0.12,-0.03,-0.18,-0.33,-0.48),label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
       ggtitle("Number of fitted curves")
     
+    # pdf("Number_of_curves_splines_peptide.pdf",encoding="CP1253.enc",compress=FALSE,width=6.31,height=4.02)
+    # check1
+    # dev.off()
+    
+    df_1<-dplyr::bind_rows(df_2)
+    
+    df_1<-dplyr::bind_rows(df_1) %>% dplyr::select(uniqueID,sample_name) %>% 
+      pivot_wider(names_from=sample_name,values_from=sample_name) %>% distinct(.)
     
     
-    df_<-dplyr::bind_rows(df_1) %>% dplyr::select(uniqueID,sample_name,Tm,p_dTm) %>% 
-      pivot_wider(names_from=sample_name,values_from=c(Tm)) %>% distinct(.)
     
     
+    #df_1<-df_1 %>% dplyr::mutate(uniqueID=as.character(uniqueID))
     
-    
-    df_<-df_ %>% dplyr::mutate(uniqueID=as.character(uniqueID))
-    df_ <- df_ %>%
-      mutate_if(sapply(df_, is.factor), as.numeric)
-    
-    df_ <- mutate_all(df_, ~replace(., is.na(.), FALSE))
+    IDs<-as.factor(df_1$uniqueID)
+    df_1 <- mutate_all(df_1[,2:length(df_1)], ~replace(., !is.na(.), "TRUE"))
+    df_1 <- mutate_all(df_1[,2:length(df_1)], ~replace(., is.na(.), "FALSE"))
+    df_1<-cbind(IDs,df_1)
+    rating_scale = scale_fill_manual(name="Stabilization (Tm-based)",
+                                     values=c("Stabilized" ='#fee6ce', "Destabilized" ='#fdae6b', "NA"  = '#e6550d'))
+    df_1<-na.omit(df_1)
     
     #keep the first row out of redundant peptide group data
     
@@ -5859,11 +6151,14 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
     rating_scale = scale_fill_manual(name="Stabilization (Tm-based)",
                                      values=c("Stabilized" ='#fee6ce', "Destabilized" ='#fdae6b', "NA"  = '#e6550d'))
     
+    
     check<-list()
-    check<-upset(df_,colnames(df_)[!colnames(df_) %in% c("sample_name","stabilized","uniqueID")],
+    
+    check<-upset(df_1,colnames(df_1)[!colnames(df_1) %in% c("sample_name","stabilized","uniqueID")],
                  #min_degree=6,
                  set_sizes=FALSE,
                  n_intersections=10,
+                 min_degree=1,
                  encode_sets=FALSE,
                  stripes='white',
                  # intersections=list(
@@ -5874,7 +6169,7 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
                  #   c("C_nF_E","C_nF_Φ","nC_nF_E","nC_nF_Φ")
                  #   
                  # ),
-                 mode = 'inclusive_union',
+                 # mode = 'inclusive_union',
                  #mode=mode,
                  # intersections=list(
                  #   c('C_F_E', paste0('C_F_','\u03A6'),'C_nF_E',paste0('C_nF_','\u03A6'),'nC_F_E',paste0('nC_F_','\u03A6'),'nC_nF_E',paste0('nC_F_','\u03A6')),
@@ -5886,16 +6181,99 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
                  # ),
                  #sort_intersections_by="cardinality",
                  base_annotations=list(
-                   '# of Protein Events'=
+                   '# of fitted curves'=
                      intersection_size(
-                       mode='inclusive_intersection',
-                       counts=TRUE,
-                       mapping=aes(fill='inclusive_intersection')
+                       # mode='inclusive_intersection',
+                       counts=TRUE
+                       # mapping=aes(fill='inclusive_intersection')
                      )+
-                     scale_color_brewer(palette="Dark2")+
-                     theme(legend.position = 'none')+
-                     ggplot2::ylab("# of Protein Events")
-                 ),               # base_annotations=list(
+                     ggplot2::ylab("# of fitted curves")
+                 ),     
+                 # base_annotations=list(
+                 #   'Number of protein events'=upset_annotate(
+                 #     '..count..',
+                 #     list(
+                 #       geom_bar(aes(fill=df_$stabilized)),
+                 #       scale_fill_manual(values=c("Stabilized" ='#fee6ce', "Destabilized" ='#fdae6b', "NA"  = '#e6550d'))
+                 #     )
+                 #   )
+                 # )#,
+                 
+                 # annotations =list(
+                 #   'Stabilized Percentage'=list(
+                 #     aes=aes(x=intersection, fill=as.factor(df_$stabilized)),
+                 #     geom=list(
+                 #       geom_bar(stat='count', position='fill', na.rm=TRUE),
+                 #       geom_text(
+                 #         aes(
+                 #           label=!!aes_percentage(relative_to='group'),
+                 #           group=df_$stabilized
+                 #         ),
+                 #         stat='count',
+                 #         position=position_fill(vjust = .5)
+                 #       ),
+                 #       scale_y_continuous(labels=scales::percent_format()),
+                 #       rating_scale
+                 #     )
+                 #   )
+                 # ,
+                 # 'Tm'=(
+                 #   # note that aes(x=intersection) is supplied by default and can be skipped
+                 #   ggplot(mapping=aes(y=log10(df_$dTm)))+
+                 #     # checkout ggbeeswarm::geom_quasirandom for better results!
+                 #     geom_jitter(aes(color=log2(df_$dTm), na.rm=TRUE))+
+                 #     geom_violin(alpha=0.5, na.rm=TRUE)
+                 # )
+                 #),
+                 width_ratio=0.1,
+                 height_ratio=0.8
+                 
+    )+ggtitle(paste0("Top 10 number of fitted curves splines ",ifelse(isTRUE(Peptide),"(peptide","(protein"),"-level ",ifelse(filter=="TRUE","filtered)","unfiltered)")))
+    
+    level_data=rev(levels(check$data$intersection))
+    #colors$sample_name<-as.character(levels(colors$sample))
+    colors<-data.frame(sample_name=as.character(unique(dplyr::bind_rows(df_TPP)$sample_name)))
+    colors$sample_name<-as.factor(colors$sample_name)
+    colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#ac5180','#404898','#12a7c8','#ec5481')
+    
+    colors<-dplyr::bind_rows(colors) %>% dplyr::filter(sample_name %in% level_data)
+    
+    check<-upset(df_1,colnames(df_1)[!colnames(df_1) %in% c("sample_name","stabilized","uniqueID","IDs")],
+                 #min_degree=6,
+                 set_sizes=FALSE,
+                 n_intersections=10,
+                 min_degree=1,
+                 encode_sets=TRUE,
+                 stripes='white',
+                 # intersections=list(
+                 #   c("C_F_E","C_F_Φ","C_nF_E","nC_F_E","nC_nF_E","nC_nF_Φ","C_nF_Φ","nC_F_Φ"),
+                 #   c("C_F_E","C_F_Φ","C_nF_E","C_nF_Φ"),
+                 #   c("nC_nF_E","nC_nF_Φ","nC_nF_E","nC_F_Φ"),
+                 #   c("C_F_E","C_F_Φ","nC_F_E","nC_F_Φ"),
+                 #   c("C_nF_E","C_nF_Φ","nC_nF_E","nC_nF_Φ"),
+                 #   
+                 # ),
+                 # mode = 'inclusive_union',
+                 #mode=mode,
+                 # intersections=list(
+                 #   c('C_F_E', paste0('C_F_','\u03A6'),'C_nF_E',paste0('C_nF_','\u03A6'),'nC_F_E',paste0('nC_F_','\u03A6'),'nC_nF_E',paste0('nC_F_','\u03A6')),
+                 #   c(paste0('C_F_','\u03A6'),paste0('C_nF_','\u03A6'),paste0('nC_F_','\u03A6'),paste0('nC_F_','\u03A6')),
+                 #   c('C_F_E','C_nF_E','nC_F_E','nC_nF_E'),
+                 #   c('C_F_E','C_nF_E',paste0('C_F_','\u03A6'),paste0('C_nF_','\u03A6')),
+                 #   c('C_F_E','nC_F_E',paste0('C_F_','\u03A6'),paste0('nC_F_','\u03A6'))
+                 #   
+                 # ),
+                 #sort_intersections_by="cardinality",
+                 base_annotations=list(
+                   '# of fitted curves'=
+                     intersection_size(
+                       # mode='inclusive_intersection',
+                       counts=TRUE
+                       # mapping=aes(fill='inclusive_intersection')
+                     )+
+                     ggplot2::ylab("# of fitted curves")
+                 ),               
+                 # base_annotations=list(
                  #   'Number of protein events'=upset_annotate(
                  #     '..count..',
                  #     list(
@@ -5933,54 +6311,123 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
                  #),
                  width_ratio=0.1,
                  height_ratio=0.8,
-                 themes=upset_default_themes(text=element_text(size=18,colour="black"))
-    )+ggtitle(paste0("Number of fitted ", ifelse(isTRUE(Splines),"Spline","Trilinear") ," curves (",ifelse(isTRUE(Peptide),"Peptide","Protein"),"-level ", ifelse(isTRUE(filter),"filtered","unfiltered"),"): "))
+                 queries=list(
+                   upset_query(
+                     intersect=c('C_F_Φ', 'nC_F_Φ','nC_F_E',"C_nF_Φ",'nC_nF_Φ','C_nF_E','nC_nF_E'),
+                     color='black',
+                     fill='black',
+                     only_components='# of fitted curves'
+                   ),
+                   upset_query(
+                     intersect=colors$sample_name[1],
+                     color=colors$hex[1],
+                     fill=colors$hex[1],
+                     only_components='# of fitted curves'
+                   ),
+                   upset_query(
+                     intersect=colors$sample_name[2],
+                     color=colors$hex[2],
+                     fill=colors$hex[2],
+                     only_components='# of fitted curves'
+                   )
+                   # ,
+                   # upset_query(
+                   #   intersect=as.character(colors$sample_name[3]),
+                   #   color=colors$hex[3],
+                   #   fill=colors$hex[3],
+                   #   only_components='# of fitted curves'
+                   # )
+                   # ,
+                   # upset_query(
+                   #   intersect=colors$sample_name[4],
+                   #   color=colors$hex[4],
+                   #   fill=colors$hex[4],
+                   #   only_components='# of fitted curves'
+                   # ),
+                   # upset_query(
+                   #   intersect=colors$sample_name[5],
+                   #   color=colors$hex[5],
+                   #   fill=colors$hex[5],
+                   #   only_components='# of fitted curves'
+                   # ),
+                   # upset_query(
+                   #   intersect=colors$sample_name[6],
+                   #   color=colors$hex[6],
+                   #   fill=colors$hex[6],
+                   #   only_components='# of fitted curves'
+                   # ),
+                   # upset_query(
+                   #   intersect= as.character(colors$sample_name[7]),
+                   #   color=as.character(colors$hex[7]),
+                   #   fill=as.character(colors$hex[7]),
+                   #   only_components='# of fitted curves'
+                   # )
+                   # ,
+                   # upset_query(
+                   #   intersect=as.character(colors$sample_name[8]),
+                   #   color=as.character(colors$hex[8]),
+                   #   fill=as.character(colors$hex[8]),
+                   #   only_components='# of fitted curves'
+                   # )
+                   
+                   
+                   
+                 )
+    )+ggtitle(paste0("Top 10 number of fitted curves ", ifelse(isTRUE(Splines),"splines","trilinear")
+                     ,ifelse(isTRUE(Peptide),"(peptide","(protein"),"-level ",
+                     ifelse(isTRUE(filter),"filtered)","unfiltered)")))
     
     df_<-df_[apply(df_!=0, 1, all),]
     return(list(check,check1,df_))
   }else{
     
-    f<-dplyr::bind_rows(f) %>% dplyr::select(-sample) %>% 
-      distinct(.) %>% dplyr::group_split(uniqueID,sample_name)
+    f1<-dplyr::bind_rows(f) %>% 
+      distinct(.) %>% dplyr::group_split(uniqueID,sample,sample_name)
     
     
-    f<-purrr::map(f,function(x) x[1,])
+    f<-purrr::map(f1,function(x) x[1,])
     
     f<-dplyr::bind_rows(f) 
     f$sample_name<-str_replace(f$sample_name,"S","\u03A6")
     
-    df_TPP<-dplyr::bind_rows(f) %>%
+    df_TPP<-dplyr::bind_rows(f) %>%dplyr::filter(!is.na(sample_name)) %>% 
       dplyr::select(uniqueID,sample_name,rss,AUC,p_dTm,Tm) %>% 
       distinct(.)
     
     df_1<-df_TPP %>% dplyr::select(p_dTm,uniqueID,sample_name,Tm) %>% distinct(.)
     
     df_1<-dplyr::bind_rows(df_1)
-    #df_1<-df_1[!duplicated(df_),]
+    df_2<-df_1
+    df_1<-df_1[!duplicated(df_1),]
+    df_1<-df_1[!duplicated(df_1),]
+    colors<-data.frame(sample_name=as.character(unique(dplyr::bind_rows(df_TPP)$sample_name)))
+    colors$sample_name<-as.character(colors$sample_name)
+    colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')
+    
     check1<-df_1 %>% count(sample_name) %>%
       mutate(focus = ifelse(sample_name == "C_F_E", 0.2, 0)) %>%
       ggplot() +
-      ggforce::geom_arc_bar(aes(x0 = 0, y0 = 0, r0 = 0.7, r = 1, amount = n, fill = sample_name, explode = focus), alpha = 0.3, stat = "pie") +
+      ggforce::geom_arc_bar(aes(x0 = 0, y0 = 0, r0 = 0.7, r = 1, amount = n, fill = sample_name, explode = focus), stat = "pie") +
       ggforce::theme_no_axes()+
-      xlim(-1.1,1.25)+
-      geom_label(mapping=aes(x=c(1.2,1.2,1.2,1.2,1.2,1.2,1.2,1.2),y=c(0.57,0.42,0.27,0.12,-0.03,-0.18,-0.33,-0.48),label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
+      scale_fill_manual(values = colors$hex,aesthetics="fill")+
+      xlim(-1.1,1.45)+
+      geom_label(mapping=aes(x=c(1.4,1.4,1.4,1.4,1.4,1.4,1.4,1.4),y=c(0.57,0.42,0.27,0.12,-0.03,-0.18,-0.33,-0.48),label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
       ggtitle("Number of fitted curves")
     
-    # pdf("Number of fitted_curves_Peptide_.pdf",encoding="CP1253.enc",compress=TRUE,width=5.31,height=4.02)
+    # pdf("Number of fitted_curves_Peptide.pdf",encoding="CP1253.enc",compress=TRUE,width=5.00,height=4.02)
     # check1
     # dev.off()
     
-    df_<-dplyr::bind_rows(df_1) %>% dplyr::select(uniqueID,sample_name,Tm) %>% 
+    df_<-dplyr::bind_rows(df_2) %>% dplyr::select(uniqueID,sample_name,Tm) %>% 
       pivot_wider(names_from=sample_name,values_from=c(Tm)) %>% distinct(.)
-    
-    
-    
     
     df_<-df_ %>% dplyr::mutate(uniqueID=as.character(uniqueID))
     df_ <- df_ %>%
       mutate_if(sapply(df_, is.factor), as.numeric)
-    
-    df_ <- mutate_all(df_, ~replace(., is.na(.), FALSE))
+    df_$uniqueID<-as.factor(df_$uniqueID)
+    df_1<-mutate_all(df_, ~replace(., !is.na(.) & is.numeric(.), "TRUE"))
+    df_ <- mutate_all(df_1, ~replace(., is.na(.), "FALSE"))
+    df_ <- mutate_all(df_1, ~replace(., is.character(.), as.logical(.)))
     
     #keep the first row out of redundant peptide group data
     
@@ -6001,10 +6448,12 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
                                      values=c("Stabilized" ='#fee6ce', "Destabilized" ='#fdae6b', "NA"  = '#e6550d'))
     
     check<-list()
-    check<-upset(df_,colnames(df_)[!colnames(df_) %in% c("sample_name","stabilized","uniqueID","Tm","NA")],
+    
+    check<-upset(df_,colnames(df_)[!colnames(df_) %in% c("sample_name","stabilized","uniqueID")],
                  #min_degree=6,
                  set_sizes=FALSE,
                  n_intersections=10,
+                 min_degree=1,
                  encode_sets=FALSE,
                  stripes='white',
                  # intersections=list(
@@ -6015,7 +6464,7 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
                  #   c("C_nF_E","C_nF_Φ","nC_nF_E","nC_nF_Φ")
                  #   
                  # ),
-                 mode = 'inclusive_union',
+                 # mode = 'inclusive_union',
                  #mode=mode,
                  # intersections=list(
                  #   c('C_F_E', paste0('C_F_','\u03A6'),'C_nF_E',paste0('C_nF_','\u03A6'),'nC_F_E',paste0('nC_F_','\u03A6'),'nC_nF_E',paste0('nC_F_','\u03A6')),
@@ -6027,16 +6476,15 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
                  # ),
                  #sort_intersections_by="cardinality",
                  base_annotations=list(
-                   '# of Protein Events'=
+                   '# of fitted curves'=
                      intersection_size(
-                       mode='inclusive_intersection',
-                       counts=TRUE,
-                       mapping=aes(fill='inclusive_intersection')
+                       # mode='inclusive_intersection',
+                       counts=TRUE
+                       # mapping=aes(fill='inclusive_intersection')
                      )+
-                     scale_color_brewer(palette="Dark2")+
-                     theme(legend.position = 'none')+
-                     ggplot2::ylab("# of Protein Events")
-                 ),               # base_annotations=list(
+                     ggplot2::ylab("# of fitted curves")
+                 ),     
+                 # base_annotations=list(
                  #   'Number of protein events'=upset_annotate(
                  #     '..count..',
                  #     list(
@@ -6073,10 +6521,301 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
                  # )
                  #),
                  width_ratio=0.1,
-                 height_ratio=0.8,
-                 themes=upset_default_themes(text=element_text(size=18,colour="black"))
-    )+ggtitle(paste0("Number of fitted ", ifelse(isTRUE(Splines),"Spline","Trilinear") ," curves (",ifelse(isTRUE(Peptide),"Peptide","Protein"),"-level ", ifelse(isTRUE(filter),"filtered","unfiltered"),"): "))
+                 height_ratio=0.8
+                 
+    )+ggtitle(paste0("Top 10 number of fitted curves splines ",ifelse(isTRUE(Peptide),"(peptide","(protein"),"-level ",ifelse(filter=="TRUE","filtered)","unfiltered)")))
     
+    
+    level_data=rev(levels(check$data$intersection))
+    #colors$sample_name<-as.character(levels(colors$sample))
+    colors<-data.frame(sample_name=as.character(unique(dplyr::bind_rows(df_TPP)$sample_name)))
+    colors$sample_name<-as.factor(colors$sample_name)
+    colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#ac5180','#404898','#12a7c8','#ec5481')
+    
+    colors<-dplyr::bind_rows(colors) %>% dplyr::filter(sample_name %in% level_data)
+    if(!isTRUE(filter)){
+      check<-upset(df_,colnames(df_)[!colnames(df_) %in% c("sample_name","stabilized","uniqueID")],
+                   #min_degree=6,
+                   set_sizes=FALSE,
+                   n_intersections=10,
+                   min_degree=1,
+                   encode_sets=TRUE,
+                   stripes='white',
+                   # intersections=list(
+                   #   c("C_F_E","C_F_Φ","C_nF_E","nC_F_E","nC_nF_E","nC_nF_Φ","C_nF_Φ","nC_F_Φ"),
+                   #   c("C_F_E","C_F_Φ","C_nF_E","C_nF_Φ"),
+                   #   c("nC_nF_E","nC_nF_Φ","nC_nF_E","nC_F_Φ"),
+                   #   c("C_F_E","C_F_Φ","nC_F_E","nC_F_Φ"),
+                   #   c("C_nF_E","C_nF_Φ","nC_nF_E","nC_nF_Φ"),
+                   #   
+                   # ),
+                   # mode = 'inclusive_union',
+                   #mode=mode,
+                   # intersections=list(
+                   #   c('C_F_E', paste0('C_F_','\u03A6'),'C_nF_E',paste0('C_nF_','\u03A6'),'nC_F_E',paste0('nC_F_','\u03A6'),'nC_nF_E',paste0('nC_F_','\u03A6')),
+                   #   c(paste0('C_F_','\u03A6'),paste0('C_nF_','\u03A6'),paste0('nC_F_','\u03A6'),paste0('nC_F_','\u03A6')),
+                   #   c('C_F_E','C_nF_E','nC_F_E','nC_nF_E'),
+                   #   c('C_F_E','C_nF_E',paste0('C_F_','\u03A6'),paste0('C_nF_','\u03A6')),
+                   #   c('C_F_E','nC_F_E',paste0('C_F_','\u03A6'),paste0('nC_F_','\u03A6'))
+                   #   
+                   # ),
+                   #sort_intersections_by="cardinality",
+                   base_annotations=list(
+                     '# of fitted curves'=
+                       intersection_size(
+                         # mode='inclusive_intersection',
+                         counts=TRUE
+                         # mapping=aes(fill='inclusive_intersection')
+                       )+
+                       ggplot2::ylab("# of fitted curves")
+                   ),               
+                   # base_annotations=list(
+                   #   'Number of protein events'=upset_annotate(
+                   #     '..count..',
+                   #     list(
+                   #       geom_bar(aes(fill=df_$stabilized)),
+                   #       scale_fill_manual(values=c("Stabilized" ='#fee6ce', "Destabilized" ='#fdae6b', "NA"  = '#e6550d'))
+                   #     )
+                   #   )
+                   # )#,
+                   
+                   # annotations =list(
+                   #   'Stabilized Percentage'=list(
+                   #     aes=aes(x=intersection, fill=as.factor(df_$stabilized)),
+                   #     geom=list(
+                   #       geom_bar(stat='count', position='fill', na.rm=TRUE),
+                   #       geom_text(
+                   #         aes(
+                   #           label=!!aes_percentage(relative_to='group'),
+                   #           group=df_$stabilized
+                   #         ),
+                   #         stat='count',
+                   #         position=position_fill(vjust = .5)
+                   #       ),
+                   #       scale_y_continuous(labels=scales::percent_format()),
+                   #       rating_scale
+                   #     )
+                   #   )
+                   # ,
+                   # 'Tm'=(
+                   #   # note that aes(x=intersection) is supplied by default and can be skipped
+                   #   ggplot(mapping=aes(y=log10(df_$dTm)))+
+                   #     # checkout ggbeeswarm::geom_quasirandom for better results!
+                   #     geom_jitter(aes(color=log2(df_$dTm), na.rm=TRUE))+
+                   #     geom_violin(alpha=0.5, na.rm=TRUE)
+                   # )
+                   #),
+                   width_ratio=0.1,
+                   height_ratio=0.8,
+                   queries=list(
+                     upset_query(
+                       intersect=c('C_F_Φ', 'nC_F_Φ','nC_F_E',"C_nF_Φ",'nC_nF_Φ','C_nF_E','nC_nF_E','C_F_E'),
+                       color='black',
+                       fill='black',
+                       only_components='# of fitted curves'
+                     ),
+                     upset_query(
+                       intersect=as.character(colors$sample_name[1]),
+                       color=colors$hex[1],
+                       fill=colors$hex[1],
+                       only_components='# of fitted curves'
+                     ),
+                     upset_query(
+                       intersect=as.character(colors$sample_name[2]),
+                       color=colors$hex[2],
+                       fill=colors$hex[2],
+                       only_components='# of fitted curves'
+                     )
+                     ,
+                     upset_query(
+                       intersect=as.character(colors$sample_name[3]),
+                       color=colors$hex[3],
+                       fill=colors$hex[3],
+                       only_components='# of fitted curves'
+                     )
+                     ,
+                     upset_query(
+                       intersect=as.character(colors$sample_name[4]),
+                       color=colors$hex[4],
+                       fill=colors$hex[4],
+                       only_components='# of fitted curves'
+                     )
+                     ,
+                     upset_query(
+                       intersect=as.character(colors$sample_name[5]),
+                       color=colors$hex[5],
+                       fill=colors$hex[5],
+                       only_components='# of fitted curves'
+                     )
+                     
+                     # upset_query(
+                     #   intersect=colors$sample_name[6],
+                     #   color=colors$hex[6],
+                     #   fill=colors$hex[6],
+                     #   only_components='# of fitted curves'
+                     # ),
+                     # upset_query(
+                     #   intersect= as.character(colors$sample_name[7]),
+                     #   color=as.character(colors$hex[7]),
+                     #   fill=as.character(colors$hex[7]),
+                     #   only_components='# of fitted curves'
+                     # )
+                     # ,
+                     # upset_query(
+                     #   intersect=as.character(colors$sample_name[8]),
+                     #   color=as.character(colors$hex[8]),
+                     #   fill=as.character(colors$hex[8]),
+                     #   only_components='# of fitted curves'
+                     # )
+                     
+                     
+                     
+                   )
+      )+ggtitle(paste0("Top 10 number of fitted curves ", ifelse(isTRUE(Splines),"splines ","trilinear ")
+                       ,ifelse(isTRUE(Peptide),"(peptide","(protein"),"-level ",
+                       ifelse(isTRUE(filter),"filtered)","unfiltered)")))
+    }else{
+      check<-upset(df_,colnames(df_)[!colnames(df_) %in% c("sample_name","stabilized","uniqueID")],
+                   #min_degree=6,
+                   set_sizes=FALSE,
+                   n_intersections=10,
+                   min_degree=1,
+                   encode_sets=TRUE,
+                   stripes='white',
+                   # intersections=list(
+                   #   c("C_F_E","C_F_Φ","C_nF_E","nC_F_E","nC_nF_E","nC_nF_Φ","C_nF_Φ","nC_F_Φ"),
+                   #   c("C_F_E","C_F_Φ","C_nF_E","C_nF_Φ"),
+                   #   c("nC_nF_E","nC_nF_Φ","nC_nF_E","nC_F_Φ"),
+                   #   c("C_F_E","C_F_Φ","nC_F_E","nC_F_Φ"),
+                   #   c("C_nF_E","C_nF_Φ","nC_nF_E","nC_nF_Φ"),
+                   #   
+                   # ),
+                   # mode = 'inclusive_union',
+                   #mode=mode,
+                   # intersections=list(
+                   #   c('C_F_E', paste0('C_F_','\u03A6'),'C_nF_E',paste0('C_nF_','\u03A6'),'nC_F_E',paste0('nC_F_','\u03A6'),'nC_nF_E',paste0('nC_F_','\u03A6')),
+                   #   c(paste0('C_F_','\u03A6'),paste0('C_nF_','\u03A6'),paste0('nC_F_','\u03A6'),paste0('nC_F_','\u03A6')),
+                   #   c('C_F_E','C_nF_E','nC_F_E','nC_nF_E'),
+                   #   c('C_F_E','C_nF_E',paste0('C_F_','\u03A6'),paste0('C_nF_','\u03A6')),
+                   #   c('C_F_E','nC_F_E',paste0('C_F_','\u03A6'),paste0('nC_F_','\u03A6'))
+                   #   
+                   # ),
+                   #sort_intersections_by="cardinality",
+                   base_annotations=list(
+                     '# of fitted curves'=
+                       intersection_size(
+                         # mode='inclusive_intersection',
+                         counts=TRUE
+                         # mapping=aes(fill='inclusive_intersection')
+                       )+
+                       ggplot2::ylab("# of fitted curves")
+                   ),               
+                   # base_annotations=list(
+                   #   'Number of protein events'=upset_annotate(
+                   #     '..count..',
+                   #     list(
+                   #       geom_bar(aes(fill=df_$stabilized)),
+                   #       scale_fill_manual(values=c("Stabilized" ='#fee6ce', "Destabilized" ='#fdae6b', "NA"  = '#e6550d'))
+                   #     )
+                   #   )
+                   # )#,
+                   
+                   # annotations =list(
+                   #   'Stabilized Percentage'=list(
+                   #     aes=aes(x=intersection, fill=as.factor(df_$stabilized)),
+                   #     geom=list(
+                   #       geom_bar(stat='count', position='fill', na.rm=TRUE),
+                   #       geom_text(
+                   #         aes(
+                   #           label=!!aes_percentage(relative_to='group'),
+                   #           group=df_$stabilized
+                   #         ),
+                   #         stat='count',
+                   #         position=position_fill(vjust = .5)
+                   #       ),
+                   #       scale_y_continuous(labels=scales::percent_format()),
+                   #       rating_scale
+                   #     )
+                   #   )
+                   # ,
+                   # 'Tm'=(
+                   #   # note that aes(x=intersection) is supplied by default and can be skipped
+                   #   ggplot(mapping=aes(y=log10(df_$dTm)))+
+                   #     # checkout ggbeeswarm::geom_quasirandom for better results!
+                   #     geom_jitter(aes(color=log2(df_$dTm), na.rm=TRUE))+
+                   #     geom_violin(alpha=0.5, na.rm=TRUE)
+                   # )
+                   #),
+                   width_ratio=0.1,
+                   height_ratio=0.8,
+                   queries=list(
+                     upset_query(
+                       intersect=c('C_F_Φ', 'nC_F_Φ','nC_F_E',"C_nF_Φ",'nC_nF_Φ','C_nF_E','nC_nF_E','C_F_E'),
+                       color='black',
+                       fill='black',
+                       only_components='# of fitted curves'
+                     ),
+                     upset_query(
+                       intersect=as.character(colors$sample_name[1]),
+                       color=colors$hex[1],
+                       fill=colors$hex[1],
+                       only_components='# of fitted curves'
+                     ),
+                     upset_query(
+                       intersect=as.character(colors$sample_name[2]),
+                       color=colors$hex[2],
+                       fill=colors$hex[2],
+                       only_components='# of fitted curves'
+                     )
+                     ,
+                     upset_query(
+                       intersect=as.character(colors$sample_name[3]),
+                       color=colors$hex[3],
+                       fill=colors$hex[3],
+                       only_components='# of fitted curves'
+                     )
+                     ,
+                     upset_query(
+                       intersect=as.character(colors$sample_name[4]),
+                       color=colors$hex[4],
+                       fill=colors$hex[4],
+                       only_components='# of fitted curves'
+                     )
+                     ,
+                     upset_query(
+                       intersect=as.character(colors$sample_name[5]),
+                       color=colors$hex[5],
+                       fill=colors$hex[5],
+                       only_components='# of fitted curves'
+                     )
+                     
+                     # upset_query(
+                     #   intersect=colors$sample_name[6],
+                     #   color=colors$hex[6],
+                     #   fill=colors$hex[6],
+                     #   only_components='# of fitted curves'
+                     # ),
+                     # upset_query(
+                     #   intersect= as.character(colors$sample_name[7]),
+                     #   color=as.character(colors$hex[7]),
+                     #   fill=as.character(colors$hex[7]),
+                     #   only_components='# of fitted curves'
+                     # )
+                     # ,
+                     # upset_query(
+                     #   intersect=as.character(colors$sample_name[8]),
+                     #   color=as.character(colors$hex[8]),
+                     #   fill=as.character(colors$hex[8]),
+                     #   only_components='# of fitted curves'
+                     # )
+                     
+                     
+                     
+                   )
+      )+ggtitle(paste0("Top 10 number of fitted curves ", ifelse(isTRUE(Splines),"splines ","trilinear ")
+                       ,ifelse(isTRUE(Peptide),"(peptide","(protein"),"-level ",
+                       ifelse(isTRUE(filter),"filtered)","unfiltered)")))
+    }
     df_<-df_[apply(df_!=0, 1, all),]
     return(list(check,check1,df_))
     
@@ -6084,78 +6823,144 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
 }
 
 
-volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FALSE,fT=FALSE,NPARC=TRUE){
+volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FALSE,benchmark=TRUE,Fhist=TRUE,labels=FALSE){
   f<-data.frame(f)
+  
   if(any(names(f)=="I3")){
     f<-f %>% dplyr::rename("I"="I3")
   }
-  if(isTRUE(fT)){
+  if(isTRUE(benchmark)){
     if(isTRUE(Peptide)){
       
       f<-f %>% 
-        dplyr::select(uniqueID,sample,sample_name,dTm,AUC,rsq,fStatistic,pValue,pAdj,dataset,Fvals,p_dTm,dRSS)
+        dplyr::select(uniqueID,sample,sample_name,dTm,AUC,rsq,fStatistic,pValue,pAdj,dataset,Fvals,p_dTm,dRSS,d1,d2,rss1,RSS)
       f$sample_name<-str_replace(f$sample_name,"S","\u03A6")
       
+      f<-dplyr::bind_rows(f)
       f$diffexpressed <- "Not Shifted"
-      f$diffexpressed[f$Fvals < f$fStatistic & f$pAdj < 0.01] <- "Shifted"
-      # if log2Foldchange > 0.6 and pvalue < 0.05, set as "UP" 
-      f$diffexpressed[f$Fvals < f$fStatistic & f$pAdj < 0.01 & f$dTm > 0] <- "Stabilized Shift"
-      f$diffexpressed[f$Fvals < f$fStatistic & f$pAdj < 0.01 & f$dTm < 0] <- "Destabilized Shift"
-      
-      
-      f$delabel <- NA
-      others<-as.character(f$uniqueID[which(f$pAdj<0.01)])
-      f$delabel[f$uniqueID %in%others] <- as.character(f$uniqueID[f$uniqueID %in%others])
-      f$targets <- NA
-      
-      others<-as.character(f$uniqueID[which(f$dRSS>5)])
-      f$targets[f$uniqueID %in%c("P36507","Q02750")] <- as.character(f$uniqueID[f$uniqueID %in%c("P36507","Q02750")])
-      f$delabel[f$uniqueID %in%others] <- as.character(f$uniqueID[f$uniqueID %in%others])
-      f<-data.frame(f) %>% distinct(.)
+      f$diffexpressed[f$dTm > 0] <- "Stabilized Tm"
+      f$diffexpressed[f$dTm < 0] <- "Destabilized Tm"
+      f$diffexpressed[f$Fvals < f$fStatistic & f$pAdj < 0.05 & f$dTm > 0] <- "Stabilized Shift"
+      f$diffexpressed[f$Fvals < f$fStatistic & f$pAdj < 0.05 & f$dTm < 0] <- "Destabilized Shift"
       f$diffexpressed<-as.factor(f$diffexpressed)
-      flevels<-data.frame(colors=c("#beaed4","#ef8a62","black","#7fc97f"))
+      f$targets<-NA
+      f$delabel <- NA
+      others<-as.character(f$uniqueID[which(f$pAdj < 0.05)])
+      f$targets[f$uniqueID %in%c("P36507","Q02750",others)] <- as.character(f$uniqueID[f$uniqueID %in%c("P36507","Q02750",others)])
+      f$delabel[f$uniqueID %in%others] <- as.character(f$uniqueID[f$uniqueID %in%others])
+      flevels<-data.frame(colors=c("#762a83","#af8dc3","#b35806","#7fbf7b","#1b7837"),
+                          labels=c("Destabilized Shift","Destabilized Tm","Not Shifted","Stabilized Tm","Stabilized Shift"))
+      flevels<-flevels %>% dplyr::filter(labels %in% unique(f$diffexpressed))
       
-      if(isTRUE(NPARC)){
-        check<-ggplot(data=f,mapping=aes(x=fStatistic,y=-log10(pAdj),color=diffexpressed))+geom_point()+
-          geom_hline(yintercept=-log10(0.01), col="red")+
-          scale_color_manual("Stabilization",values=flevels$colors[1:length(unique(f$diffexpressed))],labels = unique(f$diffexpressed))+
-          labs(x="F-values",y=expression(log["10"]*p["adj"]-value))+
-          #geom_label(aes(dTm, pAdj, label = delabel), data = f,color="black")+
-          # geom_text_repel(df_,mapping=aes(dTm, -log10(p_dTm),label=targets),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 30),
-          #                 nudge_x = 1,
-          #                 force = 2,
-          #                 box.padding = 2,
-          #                 segment.alpha = .5)+
-          ggtitle(f$sample_name[1])+
-          theme(legend.position="bottom", legend.box = "horizontal")+
-          geom_label_repel(f,mapping=aes(fStatistic, -log10(pAdj),label=targets),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 50),
-                           nudge_x = 1,
-                           force = 3,
-                           box.padding = 3,
-                           segment.alpha = .5)+
-          xlim(0,max(f$fStatistic,na.rm=TRUE)+3)
-        
+      
+      f<-data.frame(f)
+      if(isTRUE(benchmark)){
+        if(!isTRUE(Fhist)){
+          check<-ggplot(data=f,mapping=aes(x=Fvals,y=-log10(pAdj),color=diffexpressed))+geom_point()+
+            geom_hline(yintercept=-log10(0.05), col="red")+
+            scale_color_manual("Stabilization",values=as.character(flevels$colors),labels = flevels$labels)+
+            labs(x=expression(RSS["0"]-RSS["1"]),y=expression(-log["10"]*p["adj"]-value))+
+            #geom_label(aes(dTm, pAdj, label = delabel), data = f,color="black")+
+            # geom_text_repel(df_,mapping=aes(dTm, -log10(p_dTm),label=targets),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 30),
+            #                 nudge_x = 1,
+            #                 force = 2,
+            #                 box.padding = 2,
+            #                 segment.alpha = .5)+
+            ggtitle(f$sample_name[1])+
+            theme(legend.position="bottom", legend.box = "horizontal")+
+            xlim(0,max(f$Fvals,na.rm=TRUE))+
+            ylim(0,4)
+          if(isTRUE(labels)){
+            check<-check+
+              geom_label_repel(f,mapping=aes(Fvals, -log10(pAdj),label=targets),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 50),
+                               nudge_x = 1,
+                               force = 3,
+                               box.padding = 3,
+                               segment.alpha = .5)
+          }
+        }else{
+          
+          check<-ggplot(f)+
+            geom_density(aes(x=Fvals),fill = "black",alpha = 0.5) +
+            theme_bw() +
+            coord_cartesian(xlim=c(0,10))+
+            ggplot2::xlab("F-values")+
+            xlim(0,max(f$Fvals))
+        }
       }else{
-        check<-ggplot(data=f,mapping=aes(x=fStatistic,y=pAdj,color=diffexpressed))+geom_point()+
-          geom_hline(yintercept=-log10(0.01), col="red")+ 
-          labs(y="P-value",x="F-values")+
-          #geom_text(mapping=aes(Fvals, pAdj, label = delabel), data = f,color="black")+
-          # geom_text_repel(f,mapping=aes(Fvals, pAdj,label=delabel),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 30),
-          #                 nudge_x = 1,
-          #                 force = 3,
-          #                 box.padding = 2,
-          #                 segment.alpha = .5)+
-          ggtitle(f$sample_name[1])+
-          theme(legend.position="bottom", legend.box = "horizontal")+
-          # geom_label(aes(x=40,y=1),label=paste0("S = ",nrow(f[f$diffexpressed=="Stabilized Shift",])),show.legend = FALSE)+
-          # geom_label(aes(x=40,y=0.9),label=paste0("DS = ",nrow(f[f$diffexpressed=="Destabilized Shift",])),show.legend = FALSE)+
-          geom_point(aes(x=fStatistic[uniqueID %in%c("P36507","Q02750")],y=-log10(pAdj[uniqueID %in%c("P36507","Q02750")]),color="black"))+
-          scale_color_manual("Stabilization",values=flevels$colors[1:length(unique(f$diffexpressed))],labels = unique(f$diffexpressed))+
-          geom_label_repel(f,mapping=aes(fStatistic, -log10(pAdj),label=targets),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 30),
-                           nudge_x = 1,
-                           force = 1,
-                           box.padding = 1,
-                           segment.alpha = .5) 
+        f$sig<-sign(f$dTm)
+        # #p-val
+        # f<-f %>%
+        #   dplyr::mutate(pV = (1-stats::pf(sig*sqrt(dRSS),df1=as.numeric(f$d1[1]),df2=as.numeric(f$d2[1]))))
+        # f<-f %>% dplyr::mutate(pAdj = p.adjust(.$pV,method="BH"))
+        # 
+        # M<-median(f$dRSS,na.rm=TRUE)
+        # V<-mad(f$dRSS,na.rm=TRUE)
+        # #alternative scaling factor sig0-sq
+        # altScale<-0.5*V/M
+        # #filter out negative delta rss
+        # f<-f %>% dplyr::filter(dRSS>0)
+        # #effective degrees of freedom
+        # ed1<-MASS::fitdistr(x=f$dRSS, densfun = "chi-squared", start = list(df=1))[["estimate"]]
+        # ed2<-MASS::fitdistr(x=f$rss1, densfun = "chi-squared", start = list(df=1))[["estimate"]]
+        # #scale data
+        # f <-f %>% 
+        #   dplyr::mutate(rssDiff = .$dRSS/altScale,
+        #                 rss1 =.$rss1/altScale,
+        #                 d1=ed1,
+        #                 d2=ed2)
+        # #
+        # #new F-test
+        # f<-f %>% dplyr::mutate(Fvals=(rssDiff/rss1)*(d2/d1))
+        # 
+        # d1<-f$d1
+        # d2<-f$d2
+        # 
+        # #RSS1 numerator
+        # f$fNum<-f$dRSS/d1
+        # #Rss denominator
+        # f$fDen<-f$RSS/d2
+        # #     
+        # f$fStatistic=f$fNum/f$fDen
+        f$diffexpressed <- "Not Shifted"
+        f$diffexpressed[f$dTm > 0] <- "Stabilized Tm"
+        f$diffexpressed[f$dTm < 0] <- "Destabilized Tm"
+        f$diffexpressed[f$Fvals < f$fStatistic & f$pAdj < 0.05 & f$dTm > 0] <- "Stabilized Shift"
+        f$diffexpressed[f$Fvals < f$fStatistic & f$pAdj < 0.05 & f$dTm < 0] <- "Destabilized Shift"
+        f$diffexpressed<-as.factor(f$diffexpressed)
+        f$targets<-NA
+        f$delabel <- NA
+        others<-as.character(f$uniqueID[which(f$pAdj < 0.05)])
+        f$targets[f$uniqueID %in%c("P36507","Q02750",others)] <- as.character(f$uniqueID[f$uniqueID %in%c("P36507","Q02750",others)])
+        f$delabel[f$uniqueID %in%others] <- as.character(f$uniqueID[f$uniqueID %in%others])
+        flevels<-data.frame(colors=c("#762a83","#af8dc3","#b35806","#7fbf7b","#1b7837"),
+                            labels=c("Destabilized Shift","Destabilized Tm","Not Shifted","Stabilized Tm","Stabilized Shift"))
+        flevels<-flevels %>% dplyr::filter(labels %in% unique(f$diffexpressed))
+        f<-data.frame(f)
+        if(!isTRUE(Fhist)){
+          check<-ggplot(data=f,mapping=aes(y=log2(Fvals+1),x=sig*sqrt(dRSS),color=diffexpressed))+geom_point()+
+            #geom_hline(yintercept=-log10(0.01), col="red")+ 
+            labs(y=expression(-log["2"]*F["vals"]+1),x=expression(sign("k")*sqrt(RSS["0"]-RSS["1"])))+
+            scale_color_manual("Stabilization",values=as.character(flevels$colors),labels = flevels$labels)+
+            ggtitle(f$sample_name[1])+
+            theme(legend.position="bottom", legend.box = "horizontal")
+          if(isTRUE(labels)){
+            check<-check+
+              geom_label_repel(f,mapping=aes(y=log2(Fvals+1), x=sig*sqrt(dRSS),label=targets),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 30),
+                               nudge_x = 1,
+                               force = 1,
+                               box.padding = 1,
+                               segment.alpha = .5) 
+          }
+        }else{
+          check<-ggplot(f)+
+            geom_density(aes(x=Fvals),fill = "black",alpha = 0.5) + 
+            geom_line(aes(x=Fvals,y= df(Fvals,df1=d1,df2=d2)),color="darkred",size = 1.5) +
+            theme_bw() +
+            coord_cartesian(xlim=c(0,10))+
+            ggplot2::xlab("F-values")
+        }
+        
       }
       return(check)
       
@@ -6167,61 +6972,76 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
       f$sample_name<-str_replace(f$sample_name,"S","\u03A6")
       f<-f %>% dplyr::group_split(uniqueID)
       
-      f<-dplyr::bind_rows(f)
       f$diffexpressed <- "Not Shifted"
-      f$diffexpressed[f$Fvals < f$fStatistic & f$pAdj < 0.05] <- "Shifted"
-      
+      f$diffexpressed[f$dTm > 0] <- "Stabilized Tm"
+      f$diffexpressed[f$dTm < 0] <- "Destabilized Tm"
       f$diffexpressed[f$Fvals < f$fStatistic & f$pAdj < 0.05 & f$dTm > 0] <- "Stabilized Shift"
       f$diffexpressed[f$Fvals < f$fStatistic & f$pAdj < 0.05 & f$dTm < 0] <- "Destabilized Shift"
+      f$diffexpressed<-as.factor(f$diffexpressed)
       f$targets<-NA
       f$delabel <- NA
-      others<-as.character(f$uniqueID[which(f$dRSS>5)])
-      f$targets[f$uniqueID %in%c("P36507","Q02750")] <- as.character(f$uniqueID[f$uniqueID %in%c("P36507","Q02750")])
+      others<-as.character(f$uniqueID[which(!f$diffexpressed=="Not Shifted")])
+      f$targets[f$uniqueID %in%c("P36507","Q02750",others)] <- as.character(f$uniqueID[f$uniqueID %in%c("P36507","Q02750",others)])
       f$delabel[f$uniqueID %in%others] <- as.character(f$uniqueID[f$uniqueID %in%others])
-      flevels<-data.frame(colors=c("#b35806","#b2abd2","#fdb863","#542788","#fee0b6","#d8daeb","#e08214","#8073ac"))
-      f$diffexpressed<-as.factor(f$diffexpressed)
+      flevels<-data.frame(colors=c("#762a83","#af8dc3","#b35806","#7fbf7b","#1b7837"),
+                          labels=c("Destabilized Shift","Destabilized Tm","Not Shifted","Stabilized Tm","Stabilized Shift"))
+      flevels<-flevels %>% dplyr::filter(labels %in% unique(f$diffexpressed))
+      
       f<-data.frame(f)
-      if(isTRUE(NPARC)){
-        check<-ggplot(data=f,mapping=aes(x=fStatistic,y=-log10(pAdj),color=diffexpressed))+geom_point()+
-          geom_hline(yintercept=-log10(0.01), col="red")+
-          scale_color_manual("Stabilization",values=as.character(flevels$colors[1:length(unique(f$diffexpressed))]),labels = unique(f$diffexpressed))+
-          labs(x="F-values",y=expression(-log["10"]*p["adj"]-value))+
-          #geom_label(aes(dTm, pAdj, label = delabel), data = f,color="black")+
-          # geom_text_repel(df_,mapping=aes(dTm, -log10(p_dTm),label=targets),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 30),
-          #                 nudge_x = 1,
-          #                 force = 2,
-          #                 box.padding = 2,
-          #                 segment.alpha = .5)+
-          ggtitle(f$sample_name[1])+
-          theme(legend.position="bottom", legend.box = "horizontal")+
-          geom_label_repel(f,mapping=aes(fStatistic, -log10(pAdj),label=targets),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 50),
-                           nudge_x = 1,
-                           force = 3,
-                           box.padding = 3,
-                           segment.alpha = .5)+
-          xlim(0,max(f$fStatistic,na.rm=TRUE))
-        
+      if(isTRUE(benchmark)){
+        if(!isTRUE(Fhist)){
+          check<-ggplot(data=f,mapping=aes(x=Fvals,y=-log10(pAdj),color=diffexpressed))+geom_point()+
+            geom_hline(yintercept=-log10(0.01), col="red")+
+            scale_color_manual("Stabilization",values=as.character(flevels$colors),labels = flevels$labels)+
+            labs(x=expression(RSS["0"]-RSS["1"]),y=expression(-log["10"]*p["adj"]-value))+
+            ggtitle(f$sample_name[1])+
+            theme(legend.position="bottom", legend.box = "horizontal")+
+            xlim(0,max(f$Fvals,na.rm=TRUE))+
+            ylim(0,4)
+          if(isTRUE(labels)){
+            check<-check+
+              geom_label_repel(f,mapping=aes(Fvals, -log10(pAdj),label=targets),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 50),
+                               nudge_x = 1,
+                               force = 3,
+                               box.padding = 3,
+                               segment.alpha = .5)
+          }
+        }else{
+          
+          check<-ggplot(f)+
+            geom_density(aes(x=Fvals),fill = "black",alpha = 0.5) +
+            theme_bw() +
+            coord_cartesian(xlim=c(0,10))+
+            ggplot2::xlab("F-values")+
+            xlim(0,max(f$Fvals))
+        }
       }else{
-        check<-ggplot(data=f,mapping=aes(x=dTm,y=p_dTm,color=diffexpressed))+geom_point()+
-          geom_hline(yintercept=0.01, col="red")+ 
-          labs(y="P-value",x=expression(Delta*T["m"]))+
-          #geom_text(mapping=aes(Fvals, pAdj, label = delabel), data = f,color="black")+
-          # geom_text_repel(f,mapping=aes(Fvals, pAdj,label=delabel),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 30),
-          #                 nudge_x = 1,
-          #                 force = 3,
-          #                 box.padding = 2,
-          #                 segment.alpha = .5)+
-          ggtitle(f$sample_name[1])+
-          theme(legend.position="bottom", legend.box = "horizontal")+
-          # geom_label(aes(x=40,y=1),label=paste0("S = ",nrow(f[f$diffexpressed=="Stabilized Shift",])),show.legend = FALSE)+
-          # geom_label(aes(x=40,y=0.9),label=paste0("DS = ",nrow(f[f$diffexpressed=="Destabilized Shift",])),show.legend = FALSE)+
-          geom_point(aes(x=dTm[uniqueID %in%c("P36507","Q02750")],y=p_dTm[uniqueID %in%c("P36507","Q02750")],color="black"))+
-          scale_color_manual("Stabilization",values=as.character(flevels$colors[1:length(unique(f$diffexpressed))]),labels = unique(f$diffexpressed))+
-          geom_label_repel(f,mapping=aes(fStatistic, p_dTm,label=targets),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 30),
-                           nudge_x = 1,
-                           force = 1,
-                           box.padding = 1,
-                           segment.alpha = .5) 
+        f$sig<-sign(f$dTm)
+        if(!isTRUE(Fhist)){
+          check<-ggplot(data=f,mapping=aes(y=log2(Fvals+1),x=sig*sqrt(dRSS),color=diffexpressed))+geom_point()+
+            scale_color_manual("Stabilization",values=as.character(flevels$colors),labels = flevels$labels)+
+            labs(y=expression(-log["2"]*F["vals"]+1),x=expression(sign("k")*sqrt(RSS["0"]-RSS["1"])))+
+            ggtitle(f$sample_name[1])+
+            theme(legend.position="bottom", legend.box = "horizontal")+
+            xlim(0,max(f$Fvals,na.rm=TRUE))+
+            ylim(0,4)
+          if(isTRUE(labels)){
+            check<-check+
+              geom_label_repel(f,mapping=aes(y=log2(Fvals+1), x=sig*sqrt(dRSS),label=targets),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 50),
+                               nudge_x = 1,
+                               force = 3,
+                               box.padding = 3,
+                               segment.alpha = .5)
+          }
+        }else{
+          check<-ggplot(f)+
+            geom_density(aes(x=Fvals),fill = "black",alpha = 0.5) +
+            theme_bw() +
+            coord_cartesian(xlim=c(0,10))+
+            ggplot2::xlab("F-values")+
+            xlim(0,max(f$Fvals))
+        }
+        
       }
       return(check)
     }
@@ -6304,7 +7124,7 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
     df_$delabel[df_$uniqueID %in%c("P36507","Q02750","P60033")] <- as.character(df_$uniqueID[df_$uniqueID %in%c("P36507","Q02750","P60033")])
     
     check<-ggplot(data=df_,mapping=aes(x=dTm,y=-log10(p_dTm),color=diffexpressed))+geom_point()+ geom_vline(xintercept=c(-2, 2), col="red") +
-      geom_hline(yintercept=-log10(0.05), col="red")+ scale_color_manual("Stabilization",values=flevels$colors[1:length(unique(df_$diffexpressed))],labels = unique(df_$diffexpressed))+
+      geom_hline(yintercept=-log10(0.05), col="red")+ scale_color_manual("Stabilization",values=flevels$colors[1:length(levels(df_$diffexpressed))],labels = levels(df_$diffexpressed))+
       labs(y=expression(-log["10"]*(p["adj"]-value)),x=expression(Delta*T["m"]))+
       #geom_text(aes(dTm, -log10(p_dTm), label = delabel), data = df_)+
       geom_text_repel(df_,mapping=aes(Fvals, -log10(p_dTm),label=targets),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 30))+ggtitle(df_$sample_name[1])+
@@ -6332,17 +7152,18 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
     # if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"
     df_$diffexpressed[df_$dTm < -2 & df_$p_dTm < 0.01] <- "Destabilized Shift"
     df_$delabel <- NA
-    Names<-df_$uniqueID[df_$p_dTm<0.01]
+    Names<-as.character(f$uniqueID[which(df_$p_dTm<0.05 & !f$diffexpressed=="Not Shifted")])
+    
     df_$targets<-NA
     df_$delabel[df_$uniqueID %in%c(Names)] <- as.character(df_$uniqueID[df_$uniqueID %in%c(Names)])
-    df_$targets[df_$uniqueID %in%c("P36507","Q02750")] <- as.character(df_$uniqueID[df_$uniqueID %in%c("P36507","Q02750")])
+    df_$targets[df_$uniqueID %in%c("P36507","Q02750",Names)] <- as.character(df_$uniqueID[df_$uniqueID %in%c("P36507","Q02750",Names)])
     df_$diffexpressed<-as.factor(df_$diffexpressed)
     flevels<-data.frame(colors=c("blue","black","red"))
     df_<-df_ %>% dplyr::select(-Tm,-rss,-AUC,-rsq,-stabilized)
     #df_<-df_[!duplicated(df_),]
     check<-ggplot(data=df_,mapping=aes(x=dTm,y=-log10(p_dTm),color=diffexpressed))+geom_point()+ geom_vline(xintercept=c(-2, 2), col="red") +
       geom_hline(yintercept=-log10(0.01), col="red")+
-      scale_color_manual("Stabilization",values=flevels$colors[1:length(unique(df_$diffexpressed))],labels = unique(df_$diffexpressed))+
+      scale_color_manual("Stabilization",values=flevels$colors[1:length(levels(df_$diffexpressed))],labels = levels(df_$diffexpressed))+
       labs(y=expression(-log["10"]*(p["adj"]-value)),x=expression(Delta*T["m"]))+
       
       # geom_text_repel(df_,mapping=aes(dTm, -log10(p_dTm),label=targets),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 30),
@@ -6521,8 +7342,8 @@ f<- list.files(pattern='*Proteins.xlsx')
 # f<-"C:/Users/figue/OneDrive - Northeastern University/CETSA R/CP_Exploris_20200811_DMSOvsMEKi_carrier_FAIMS_PhiSDM_PEPTIDES.xlsx"
 #df_raw <- read_cetsa("~/Files/Scripts/Files/Zebra","~/Files/Scripts/Files/Zebra","_Proteins",Peptide=FALSE,Batch=FALSE,CFS=FALSE,solvent="Control")     
 #df_raw <- read_cetsa("~/Files/Scripts/Files/Covid","~/Files/Scripts/Files/Covid","_Proteins",Peptide=FALSE,CFS=FALSE,Batch=FALSE)                                                              
-#df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS","~/Files/Scripts/Files/CONSENSUS","_Proteins",Peptide=TRUE,Batch=FALSE,solvent="DMSO")                                                              
-df_raw <- read_cetsa("~/CONSENSUS11","~/CONSENSUS11","_Proteins",Peptide=TRUE,Batch=FALSE,solvent="DMSO")                                                              
+df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS","~/Files/Scripts/Files/CONSENSUS","_Proteins",Peptide=FALSE,Batch=FALSE,solvent="DMSO")                                                              
+#df_raw <- read_cetsa("~/CONSENSUS11","~/CONSENSUS11","_Proteins",Peptide=FALSE,Batch=FALSE,solvent="DMSO")                                                              
 
 #saveRDS(df_raw,"df_raw.RDS")
 
@@ -6717,7 +7538,7 @@ df.s <- function(data_path,n,rep_,bio_,vehicle_name,treated_name,Batch=FALSE,PSM
 df.samples<-df.s(f,dplyr::bind_rows(df_raw),3,2,"DMSO","TREATED",Batch=TRUE,PSM=TRUE)
 #Peptides
 df_raw<-df_raw %>% group_split(sample_name)
-df_clean <- furrr::future_map(df_raw1,function(x) clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=TRUE,solvent="DMSO",CFS=TRUE,CARRIER=TRUE))#assgns temperature and replicate values
+df_clean <- furrr::future_map(df_raw,function(x) clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=FALSE,solvent="DMSO",CFS=TRUE,CARRIER=TRUE))#assgns temperature and replicate values
 
 #Covid data
 #df_clean<-purrr::map(seq_along(df_clean),function(x) rbind(df_clean[[1]],x))
@@ -6725,7 +7546,7 @@ df_clean <- furrr::future_map(df_raw1,function(x) clean_cetsa(x, temperatures = 
 #df_clean<-dplyr::bind_rows(df_clean) %>% dplyr::group_split(sample_name)
 
 #normalize data
-df_norm <- furrr::future_map(df_clean,function(x) normalize_cetsa(x, df.temps$temperature,Peptide=TRUE,filters=FALSE)) #normalizes according to Franken et. al. without R-squared filter
+df_norm <- furrr::future_map(df_clean,function(x) normalize_cetsa(x, df.temps$temperature,Peptide=FALSE,filters=FALSE)) #normalizes according to Franken et. al. without R-squared filter
 
 # rm(df_raw,df_clean)
 
@@ -6914,18 +7735,19 @@ P2
 dev.off()
 
 #plot Number of curves
-Check<-UpSet_curves(overlaps,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,filter=FALSE)
-pdf("Number_of_curves_upset_splines_Protein.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
+Check<-UpSet_curves(plotS2,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=TRUE,filter=FALSE)
+pdf("Number_of_curves_upset_splines_PEPTIDE.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
 Check[[1]]
+dev.off()
+pdf("Number_of_upset_splines_PEPTIDE.pdf",encoding="CP1253.enc",compress=FALSE,width=6.12,height=4.02)
 Check[[2]]
 dev.off()
-
-saveRDS(plotS2,"Protein_overlaps.RDS")
+#saveRDS(plotS2,"Protein_overlaps.RDS")
 #df1 <- only IDs in order desc(stability)
 #df2<-original data in order  
 #Df1 <- ordered spline results 
 ###############################
-plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE,simulations=FALSE){
+plot_Splines<-function(x,Protein="Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=TRUE,show_results=TRUE,Peptide=TRUE,simulations=FALSE){
   Filters=Filters
   fT=fT
   MD=MD
@@ -6938,10 +7760,10 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=FALSE,fT=FALSE,show_r
       x<-x %>% dplyr::mutate(I=I3)%>% dplyr::select(-I3,-I5,-I10)
       
     }else if(isTRUE(Peptide) & any(names(x)=="XCor_l")){
-      x<-x %>% dplyr::select(-"Annotated_Sequence",-XCor_l,-Charge,-PEP,-DeltaM,-Modifications,-XCorr,-MissedCleavages) %>% unique(.)
+      x<-x %>% dplyr::select(-Annotated_Sequence,-XCor_l,-Charge,-PEP,-DeltaM,-Modifications,-XCorr,-MissedCleavages) %>% unique(.)
       x<-x %>% dplyr::mutate(I=I3)%>% dplyr::select(-I3,-I5,-I10)
     }else if(isTRUE(Peptide)){
-      x<-x %>% dplyr::select(-"Annotated_Sequence",-Charge,-tidyr::contains("PEP"),-DeltaM,-Modifications,-XCorr,-MissedCleavages) %>% unique(.)
+      x<-x %>% dplyr::select(-Annotated_Sequence,-Charge,-tidyr::contains("PEP"),-DeltaM,-Modifications,-XCorr,-MissedCleavages) %>% unique(.)
       x<-x %>% dplyr::mutate(I=I3)%>% dplyr::select(-I3,-I5,-I10)
     }else if (any(names(x)=="I3")){
       x<-x %>% dplyr::mutate(I=I3)%>% dplyr::select(-I3,-I5,-I10)
@@ -6984,9 +7806,9 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=FALSE,fT=FALSE,show_r
       
       return(Pred1)
     }else{
-      DFN<-x 
-      df_<-x %>% dplyr::filter(dataset=="vehicle")
-      df_1<-x %>% dplyr::filter(dataset=="treated")
+      DFN<-dplyr::bind_rows(x)
+      df_<-dplyr::bind_rows(x) %>% dplyr::filter(dataset=="vehicle")
+      df_1<-dplyr::bind_rows(x) %>% dplyr::filter(dataset=="treated")
       
       if(nrow(df_1)==0){
         df_1<-df_
@@ -6997,7 +7819,7 @@ plot_Splines<-function(x,Protein,df.temps,MD=FALSE,Filters=FALSE,fT=FALSE,show_r
       
       spresults<-try(spstat(DFN,df_,df_1,Ftest=fT,show_results=show_results,filters=Filters,scaled_dof=FALSE,Peptide=Peptide))
       if(class(spresults)=="try-error"){
-        return(warning("Error with t-test function, please recheck the data"))
+        warning("Error with t-test function, please recheck the data")
       }
       if(isTRUE(show_results)){
         return(spresults)
@@ -7065,8 +7887,8 @@ P3<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = 
 #For covid dataset
 # check<-dplyr::bind_rows(df_norm) %>% dplyr::group_split(time_point)
 # plotS2 <- purrr::map(check,function(x) try(plot_Splines(x,"P0DTC2",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
-# 
-plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=TRUE,show_results=TRUE,Peptide=TRUE,simulations=FALSE)))
+
+plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=TRUE,fT=TRUE,show_results=TRUE,Peptide=FALSE,simulations=FALSE)))
 
 check<-ggplot2::ggplot_build(plotS2[[2]])
 y<-get_legend(check$plot)
@@ -7110,16 +7932,30 @@ P1
 P2
 dev.off()
 #plot volcano for unfiltered data
-check<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,fT=FALSE,NPARC=FALSE)))
-check1<-ggplot2::ggplot_build(check[[1]])
-y<-get_legend(check1$plot)
+check<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=TRUE,benchmark=TRUE,Fhist=TRUE,labels=TRUE)))
+check_<-ggplot2::ggplot_build(check[[1]])#fT is tied to benchmark
+y<-get_legend(check_$plot)
+
 P1<-ggarrange(plotlist=check,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-pdf("volcano_splines_Protein_no_R2_filter_panels.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+check2<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=TRUE,benchmark=TRUE,Fhist=FALSE,labels=TRUE)))
+check_<-ggplot2::ggplot_build(check2[[1]])
+y<-get_legend(check_$plot)
+P2<-ggarrange(plotlist=check2,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
+
+pdf("volcano_splines_hist_PEPTIDE_gof_panels_labels.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 P1
+P2
+dev.off()
+
+check<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,benchmark=FALSE,Fhist=FALSE,labels=TRUE)))
+check_<-ggplot2::ggplot_build(check[[1]])#fT is tied to benchmark
+y<-get_legend(check_$plot)
+pdf("volcano_splines_PROTEIN_no_labels.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+check
 dev.off()
 #plot volcano for gof filtered data (F statistic)
-check<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=TRUE,fT=FALSE)))
+check<-purrr::map(plotS2[1],function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=TRUE,fT=FALSE)))
 check1<-ggplot2::ggplot_build(check[[1]])
 y<-get_legend(check1$plot)
 P2<-ggarrange(plotlist=check,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
@@ -7128,16 +7964,16 @@ pdf("volcano_splines_Peptide_gof_panels.pdf",encoding="CP1253.enc",compress=TRUE
 P2
 dev.off()
 
-check<-TPPbenchmark(f,volcano=TRUE)
+check<-TPPbenchmark(f,volcano=TRUE,filters="HQ")
 check1<-ggplot2::ggplot_build(check[[1]])
 y<-get_legend(check1$plot)
 P1<-ggarrange(plotlist=check,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-pdf("volcano_TPP_Protein_panels.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+pdf("volcano_TPP_Protein_panels_Protein_filterd_4_req.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 P1
 dev.off()
 #ot Number of curves
-Check<-UpSet_curves(plotS2,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,filter=FALSE)
+Check<-UpSet_curves(plotS2,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=TRUE,filter=TRUE)
 pdf("Number_of_curves_upset_splines_Protein.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 Check
 dev.off()
