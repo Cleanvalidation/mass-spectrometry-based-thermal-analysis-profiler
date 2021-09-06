@@ -516,6 +516,7 @@ clean_cetsa <- function(df, temperatures = NULL, samples = NULL,Peptide=FALSE,so
     df<-df %>% dplyr::rename("Accession"="uniqueID")
   }
   df<-df %>% dplyr::rename("I"="value")
+  df<-dplyr::bind_rows(df)
   return(df)
   
 }
@@ -783,9 +784,9 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     
     
     #unnest fitted values from list and name value column and keep fitted values and temps
-    check3 <-purrr::map(d3,function(x) x [10,])
-    check5 <-purrr::map(d5,function(x) x [10,])
-    check10 <-purrr::map(d10,function(x) x [10,])
+    check3 <-purrr::map(d3,function(x) x [1:10,])
+    check5 <-purrr::map(d5,function(x) x [1:10,])
+    check10 <-purrr::map(d10,function(x) x [1:10,])
     
     check3<-purrr::map(check3,function(x) x %>% unnest(c(fitted_values3)) %>% unique(.) %>% dplyr::mutate(temperature=temperatures))
     check5<-purrr::map(check5,function(x) x %>% unnest(c(fitted_values5)) %>% unique(.) %>% dplyr::mutate(temperature=temperatures))
@@ -918,13 +919,14 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
       dplyr::select(sample,fitted_values,temperature) %>% ungroup(.)
     
     d<-df.fit %>% dplyr::group_split(sample)
-    d<-purrr::map(d,function(x)x[1:10,])
+    d<-purrr::map(d,function(x)x[1:length(unique(x$fitted_values[[1]])),])
+    
     check <-purrr::map(d,function(x) data.frame(fitted_values=unique(x$fitted_values[[1]])))
     check <- lapply(check, function(x) {
-      rownames(x) <- paste(1:10)
+      rownames(x) <- row.names(x)
       return(x)
     })
-    check<-purrr::map2(d,check,function(x,y) x %>% dplyr::mutate(fitted_values=y$fitted_values))
+    check<-purrr::map2(d,check,function(x,y) x %>% dplyr::mutate(fitted_values=y$fitted_values[[1]]))
     #check<-purrr::map(d,function(x) x %>% unnest(c(fitted_values)) %>% unique(.) %>% dplyr::mutate(temperature=temperatures))
     check<-dplyr::bind_rows(check) %>% unique(.) 
     
@@ -7856,8 +7858,8 @@ df.s <- function(data_path,n,rep_,bio_,vehicle_name,treated_name,Batch=FALSE,PSM
 
 df.samples<-df.s(f,dplyr::bind_rows(df_raw),3,2,"DMSO","TREATED",Batch=TRUE,PSM=TRUE)
 #Peptides
-df_raw<-df_raw %>% group_split(sample_name)
-df_clean <- furrr::future_map(df_raw1,function(x) clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=TRUE,solvent="DMSO",CFS=TRUE,CARRIER=TRUE))#assgns temperature and replicate values
+df_raw<-dplyr::bind_rows(df_raw) %>% group_split(sample_name)
+df_clean <- furrr::future_map(df_raw,function(x) clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=FALSE,solvent="DMSO",CFS=TRUE,CARRIER=TRUE))#assgns temperature and replicate values
 
 #Covid data
 #df_clean<-purrr::map(seq_along(df_clean),function(x) rbind(df_clean[[1]],x))
@@ -7865,7 +7867,7 @@ df_clean <- furrr::future_map(df_raw1,function(x) clean_cetsa(x, temperatures = 
 #df_clean<-dplyr::bind_rows(df_clean) %>% dplyr::group_split(sample_name)
 
 #normalize data
-df_norm <- furrr::future_map(df_clean,function(x) normalize_cetsa(x, df.temps$temperature,Peptide=TRUE,filters=FALSE)) #normalizes according to Franken et. al. without R-squared filter
+df_norm <- furrr::future_map(df_clean,function(x) normalize_cetsa(x, temperatures=df.temps$temperature,Peptide=FALSE,filters=FALSE,CARRIER=TRUE)) #normalizes according to Franken et. al. without R-squared filter
 
 # rm(df_raw,df_clean)
 
