@@ -919,15 +919,9 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
       dplyr::select(sample,fitted_values,temperature) %>% ungroup(.)
     
     d<-df.fit %>% dplyr::group_split(sample)
-    d<-purrr::map(d,function(x)x[1:length(unique(x$fitted_values[[1]])),])
+    check <-purrr::map(d,function(x) x [1:10,])
     
-    check <-purrr::map(d,function(x) data.frame(fitted_values=unique(x$fitted_values[[1]])))
-    check <- lapply(check, function(x) {
-      rownames(x) <- row.names(x)
-      return(x)
-    })
-    check<-purrr::map2(d,check,function(x,y) x %>% dplyr::mutate(fitted_values=y$fitted_values[[1]]))
-    #check<-purrr::map(d,function(x) x %>% unnest(c(fitted_values)) %>% unique(.) %>% dplyr::mutate(temperature=temperatures))
+    check<-purrr::map(check,function(x) x %>% unnest(c(fitted_values)) %>% unique(.))#check<-purrr::map(d,function(x) x %>% unnest(c(fitted_values)) %>% unique(.) %>% dplyr::mutate(temperature=temperatures))
     check<-dplyr::bind_rows(check) %>% unique(.) 
     
     test<-df %>% dplyr::right_join(check,c('sample','temperature'))
