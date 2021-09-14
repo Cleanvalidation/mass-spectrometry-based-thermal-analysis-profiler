@@ -3435,7 +3435,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs,CARRIER=
 #   # if(any(names(df[[1]])=="time_point")){
 #   #   df<-purrr::map(df,function(x) dplyr::bind_rows(x) %>% dplyr::group_split(uniqueID,time_point))
 #   # }
-#   m <- purrr::map(df,function(x)x %>% dplyr::mutate(M1 = list(try(mgcv::gam(x$I ~ s(x$C,k=6), data = x , method = "REML")))))
+#   m <- purrr::map(df,function(x)x %>% dplyr::mutate(M1 = list(try(mgcv::gam(x$I ~ s(x$C,k=5), data = x , method = "REML")))))
 #   m<-m %>% purrr::keep(function(x)any(class(dplyr::first(x$M1))=="gam"))
 #   #check significance and refit data with more k 
 #   m<-purrr::map(m,function(x)x %>% dplyr::mutate(k_ = .$M1[[1]]$rank,
@@ -3447,7 +3447,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs,CARRIER=
 #                                                  rsq=summary(x$M1[[1]])$r.sq,
 #                                                  n = ifelse(any(class(dplyr::first(.$M1))=="gam"),1,0),
 #                                                  sample_name=.$sample_name))
-#   m1 <- purrr::map(df1,function(x)x %>% dplyr::mutate(M1 = list(try(mgcv::gam(I ~ s(C,k=6), data = x , method = "REML")))))
+#   m1 <- purrr::map(df1,function(x)x %>% dplyr::mutate(M1 = list(try(mgcv::gam(I ~ s(C,k=5), data = x , method = "REML")))))
 #   m1<-m1 %>% purrr::keep(function(x)any(class(dplyr::first(x$M1))=="gam"))
 #   #check significance and refit data with more k 
 #   m1<-purrr::map(m1,function(x)x %>% dplyr::mutate(k_ = .$M1[[1]]$rank,
@@ -3462,7 +3462,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs,CARRIER=
 #   #m1<-lapply(df1,function(x) x %>% dplyr::mutate(sig = ifelse(sum[[1]]$p.pv[[1]]<0.05,list(mgcv::gam(I ~ s(C,k=k_[[1]]-1), data = x , method = "REML")),"ns")))
 #   
 #   
-#   mn<- purrr::map(DF,function(x)x %>% dplyr::mutate(M1 = list(try(mgcv::gam(I ~ s(C,k=6), data =x, method = "REML",fit=TRUE)))))
+#   mn<- purrr::map(DF,function(x)x %>% dplyr::mutate(M1 = list(try(mgcv::gam(I ~ s(C,k=5), data =x, method = "REML",fit=TRUE)))))
 #   mn<-mn %>% purrr::keep(function(x)any(class(dplyr::first(x$M1))=="gam"))
 #   #check significance and refit data with more k 
 #   mn<-purrr::map(mn,function(x)x %>% dplyr::mutate(k_ = .$M1[[1]]$rank,
@@ -3789,7 +3789,7 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
   # if(any(names(df[[1]])=="time_point")){
   #   df<-purrr::map(df,function(x) dplyr::bind_rows(x) %>% dplyr::group_split(uniqueID,time_point))
   # }
-  m <- purrr::map(df,function(x)x %>% dplyr::mutate(M1 = list(try(mgcv::gam(x$I ~ s(x$C,k=6), data = x , method = "REML")))))
+  m <- purrr::map(df,function(x)x %>% dplyr::mutate(M1 = list(try(mgcv::gam(x$I ~ s(x$C,k=5), data = x , method = "REML")))))
   m<-m %>% purrr::keep(function(x)any(class(dplyr::first(x$M1))=="gam"))
   
   
@@ -3804,12 +3804,12 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
                   dplyr::ungroup(.))
   m<-dplyr::bind_rows(m) %>% dplyr::group_split(uniqueID,dataset,sample)
   m<-purrr::map(m,function(x) x %>% dplyr::mutate(
-    M2 = list(try(mgcv::gam(x$I ~ s(x$C,k=6), data = x , method = "REML")))))
+    M2 = list(try(mgcv::gam(x$I ~ s(x$C,k=5), data = x , method = "REML")))))
   m<-m %>% purrr::keep(function(x)any(class(dplyr::first(x$M2))=="gam"))
   m<-purrr::map(m,function(x) x %>%dplyr::rowwise() %>%  dplyr::mutate(
     Tm=as.numeric(with(x, stats::approx(M2[[1]]$fitted.values,C, xout=min(M2[[1]]$fitted.values,na.rm=TRUE)+(0.5*(max(M2[[1]]$fitted.values, na.rm=TRUE)-min(M2[[1]]$fitted.values, na.rm=TRUE))))$y))))
   
-  m1 <- purrr::map(df1,function(x)x %>% dplyr::mutate(M1 = list(try(mgcv::gam(I ~ s(C,k=6), data = x , method = "REML")))))
+  m1 <- purrr::map(df1,function(x)x %>% dplyr::mutate(M1 = list(try(mgcv::gam(I ~ s(C,k=5), data = x , method = "REML")))))
   m1<-m1 %>% purrr::keep(function(x)any(class(dplyr::first(x$M1))=="gam"))
   
   
@@ -3825,12 +3825,12 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
   #m1<-lapply(df1,function(x) x %>% dplyr::mutate(sig = ifelse(sum[[1]]$p.pv[[1]]<0.05,list(mgcv::gam(I ~ s(C,k=k_[[1]]-1), data = x , method = "REML")),"ns")))
   m1<-dplyr::bind_rows(m1) %>% dplyr::group_split(uniqueID,dataset,sample)
   m1<-purrr::map(m1,function(x) x %>% dplyr::mutate(
-    M2 = list(try(mgcv::gam(x$I ~ s(x$C,k=6), data = x , method = "REML")))))
+    M2 = list(try(mgcv::gam(x$I ~ s(x$C,k=5), data = x , method = "REML")))))
   m1<-m1 %>% purrr::keep(function(x)any(class(dplyr::first(x$M2))=="gam"))
   m1<-purrr::map(m1,function(x) x %>%dplyr::rowwise() %>%  dplyr::mutate(
     Tm=as.numeric(with(x, stats::approx(M2[[1]]$fitted.values,C, xout=min(M2[[1]]$fitted.values,na.rm=TRUE)+(0.5*(max(M2[[1]]$fitted.values, na.rm=TRUE)-min(M2[[1]]$fitted.values, na.rm=TRUE))))$y))))
   
-  mn<- purrr::map(DF,function(x)x %>% dplyr::mutate(M1 = list(try(mgcv::gam(I ~ s(C,k=6), data =x, method = "REML",fit=TRUE)))))
+  mn<- purrr::map(DF,function(x)x %>% dplyr::mutate(M1 = list(try(mgcv::gam(I ~ s(C,k=5), data =x, method = "REML",fit=TRUE)))))
   mn<-mn %>% purrr::keep(function(x)any(class(dplyr::first(x$M1))=="gam"))
   
   
@@ -3846,7 +3846,7 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
                    dplyr::ungroup(.))
   mn<-dplyr::bind_rows(mn) %>% dplyr::group_split(uniqueID,dataset,sample)
   mn<-purrr::map(mn,function(x) x %>% dplyr::mutate(
-    M2 = list(try(mgcv::gam(x$I ~ s(x$C,k=6), data = x , method = "REML")))))
+    M2 = list(try(mgcv::gam(x$I ~ s(x$C,k=5), data = x , method = "REML")))))
   mn<-mn %>% purrr::keep(function(x)any(class(dplyr::first(x$M2))=="gam"))
   mn<-purrr::map(mn,function(x) x %>%dplyr::rowwise() %>%  dplyr::mutate(
     Tm=as.numeric(with(x, stats::approx(M2[[1]]$fitted.values,C, xout=min(M2[[1]]$fitted.values,na.rm=TRUE)+(0.5*(max(M2[[1]]$fitted.values, na.rm=TRUE)-min(M2[[1]]$fitted.values, na.rm=TRUE))))$y))))
@@ -3929,7 +3929,7 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
   #Cliff
   results<-dplyr::bind_rows(mean1,mean1_1,mean3)
   if(!isTRUE(Peptide)){
-    results_<-results %>% dplyr::select(uniqueID,sample_name,Tm,sample,dataset) %>% distinct(.) %>% dplyr::group_split(uniqueID,sample_name,dataset)
+    results_<-results %>% dplyr::select(uniqueID,sample_name,Tm,sample,dataset,M1) %>% distinct(.) %>% dplyr::group_split(uniqueID,sample_name,dataset)
     results_<-purrr::map(results_,function(x)x %>% dplyr::mutate(replicate=row.names(.)))
     results_<-dplyr::bind_rows(results_) %>% dplyr::group_split(uniqueID,sample_name,replicate)
     results_<-results_ %>% purrr::keep(function(x) nrow(x)==2)
@@ -4327,506 +4327,506 @@ spf<-function(spresults,DFN,filters = TRUE){
   ret[[3]]<-Df1
   return(ret)
 }
-spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulations=FALSE,CI=TRUE,Peptide=FALSE,CARRIER=TRUE){
-  if(isTRUE(CARRIER)){
-    df.temps<-length(unique(df.temps$temperature))-1
-  }else{
-    df.temps<-length(unique(df.temps$temperature))
-  }
-  null<-data.frame()
-  i<-i
-  
-  #set C and I as numeric
-  df2$C<-as.numeric(as.vector(df2$C))
-  df2$I<-as.numeric(as.vector(df2$I))
-  df2<-df2 %>% mutate_if(is.logical,as.numeric) 
-  df2$uniqueID<-as.character(df2$uniqueID)
-  
-  
-  #get original data
-  ###########################################
-  df1<-df1$uniqueID[i]
-  DF1<-df2[which(df2$uniqueID %in% df1),]
-  Df1<-data.frame(Df1[[i]])
-  null<-Df1[which(Df1$uniqueID %in% df1 & Df1$dataset %in% "null"),]
-  ###########################################
-  DF_f<-df2 %>% subset(uniqueID %in% df1 & dataset %in% "vehicle")
-  vehicle<-Df1 %>% subset(uniqueID %in% df1 & dataset %in% "vehicle")
-  ###########################################
-  DF_f1<-df2%>% subset(uniqueID %in% df1 & dataset %in% "treated")
-  treated<-Df1 %>% subset(uniqueID == df1 & dataset == "treated")
-  
-  ###########################################
-  #get confidence intervals for all conditions
-  ###########################################
-  
-  #return fit and confidence intervals
-  
-  BSVarN<-NA
-  BSVar<-NA
-  BSVar1<-NA
-  BSvarN<-NA
-  BSvar<-NA
-  BSvar1<-NA
-  BSvarN<-df2 %>% subset(uniqueID == df1 ) 
-  BSvar1 <-df2 %>% subset(uniqueID == df1 & dataset== "treated")
-  BSvar <-df2 %>% subset(uniqueID == df1 & dataset== "vehicle")
-  BSVarN<-df2 %>% subset(uniqueID == df1 ) 
-  BSVar <-df2 %>% subset(uniqueID == df1 & dataset== "vehicle")
-  BSVar1 <-df2 %>% subset(uniqueID == df1 & dataset== "treated")
-  
-  
-  BSVarN<-BSVarN %>% dplyr::mutate(dataset="null") 
-  BSVar<-BSVar %>% dplyr::mutate(dataset="vehicle")
-  BSVar1<-BSVar1 %>% dplyr::mutate(dataset="treated")
-  BSVarN$dataset<-as.factor(BSVarN$dataset)
-  BSVar$dataset<-as.factor(BSVar$dataset)
-  BSVar1$dataset<-as.factor(BSVar1$dataset)
+#spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulations=FALSE,CI=TRUE,Peptide=FALSE,CARRIER=TRUE){
+if(isTRUE(CARRIER)){
+  df.temps<-length(unique(df.temps$temperature))-1
+}else{
+  df.temps<-length(unique(df.temps$temperature))
+}
+null<-data.frame()
+i<-i
+
+#set C and I as numeric
+df2$C<-as.numeric(as.vector(df2$C))
+df2$I<-as.numeric(as.vector(df2$I))
+df2<-df2 %>% mutate_if(is.logical,as.numeric) 
+df2$uniqueID<-as.character(df2$uniqueID)
+
+
+#get original data
+###########################################
+df1<-df1$uniqueID[i]
+DF1<-df2[which(df2$uniqueID %in% df1),]
+Df1<-data.frame(Df1[[i]])
+null<-Df1[which(Df1$uniqueID %in% df1 & Df1$dataset %in% "null"),]
+###########################################
+DF_f<-df2 %>% subset(uniqueID %in% df1 & dataset %in% "vehicle")
+vehicle<-Df1 %>% subset(uniqueID %in% df1 & dataset %in% "vehicle")
+###########################################
+DF_f1<-df2%>% subset(uniqueID %in% df1 & dataset %in% "treated")
+treated<-Df1 %>% subset(uniqueID == df1 & dataset == "treated")
+
+###########################################
+#get confidence intervals for all conditions
+###########################################
+
+#return fit and confidence intervals
+
+BSVarN<-NA
+BSVar<-NA
+BSVar1<-NA
+BSvarN<-NA
+BSvar<-NA
+BSvar1<-NA
+BSvarN<-df2 %>% subset(uniqueID == df1 ) 
+BSvar1 <-df2 %>% subset(uniqueID == df1 & dataset== "treated")
+BSvar <-df2 %>% subset(uniqueID == df1 & dataset== "vehicle")
+BSVarN<-df2 %>% subset(uniqueID == df1 ) 
+BSVar <-df2 %>% subset(uniqueID == df1 & dataset== "vehicle")
+BSVar1 <-df2 %>% subset(uniqueID == df1 & dataset== "treated")
+
+
+BSVarN<-BSVarN %>% dplyr::mutate(dataset="null") 
+BSVar<-BSVar %>% dplyr::mutate(dataset="vehicle")
+BSVar1<-BSVar1 %>% dplyr::mutate(dataset="treated")
+BSVarN$dataset<-as.factor(BSVarN$dataset)
+BSVar$dataset<-as.factor(BSVar$dataset)
+BSVar1$dataset<-as.factor(BSVar1$dataset)
+
+BSVar<-BSVar[!is.na(BSVar$I),]
+BSVar1<-BSVar1[!is.na(BSVar1$I),]
+BSVarN<-BSVarN[!is.na(BSVarN$I),]
+
+fit <-  stats::smooth.spline(x = BSVar$C, y=BSVar$I,cv=F)
+fit1<-  stats::smooth.spline(x = BSVar1$C, y=BSVar1$I,cv=F)
+fitN<-  stats::smooth.spline(x = BSVarN$C, y=BSVarN$I,cv=F)
+
+#####try GAM
+#fit penalized splines
+m <- mgcv::gam(I ~ s(C,k=5), data = BSVar , method = "ML")
+m1<-  mgcv::gam(I ~ s(C,k=5), data =BSVar1, method = "ML")
+mn<-  mgcv::gam(I ~ s(C,k=5), data = BSVarN, method = "ML")
+
+BSVar$M1<-list(m)
+BSVar1$M1<-list(m1)
+BSVarN$M1<-list(mn)
+#####try GAM
+
+#Plot boostrapped  residuals with 95%CI
+#PLP<-plot(m, shade = TRUE, seWithMean = TRUE, residuals = TRUE, pch = 16, cex = 0.8)
+#generate random values from a multivariate normal distribution
+
+#get some parmeters
+Vb <- vcov(m)
+newd <- with(BSVar, data.frame(C = seq(min(C), max(C), length = 30)))%>% as.data.frame(.)
+pred <- predict(m, newd, se.fit = TRUE)%>% as.data.frame(.)#get confidence intervals
+se.fit <- pred$se.fit
+#get some parmeters
+Vb1<- vcov(m1) 
+newd1<- with(BSVar1,data.frame(C = seq(min(C), max(C), length = 30)))%>% as.data.frame(.)
+pred1<- predict(m1,newd1,se.fit = TRUE) %>% as.data.frame(.)
+se.fit1<- pred1$se.fit
+#generate std
+set.seed(42)
+N <- 1000
+#sample n from mvn dist: generates random multivariate normal deviates
+BUdiff <- mgcv::rmvn(N, mu = rep(0, nrow(Vb)), Vb )
+#sample n from mvn dist generates random multivariate normal deviates
+BUdiff1<-  mgcv::rmvn(N, mu = rep(0, nrow(Vb1)),Vb1)
+#random sampling######################################
+Cg <- predict(m, newd, type = "lpmatrix")
+fits <- Cg %*% t(BUdiff)
+nrnd <- 30 #30 random samples
+rnd <- sample(N, nrnd)
+stackFits <- stack(as.data.frame(fits[, rnd]))
+stackFits <- transform(stackFits, C = rep(newd$C, length(rnd)))
+#simulations for treated
+Cg1 <- predict(m1, newd1, type = "lpmatrix")
+fits1 <- Cg1 %*% t(BUdiff1)
+nrnd1 <- 30 #30 random samples
+rnd1 <- sample(N, nrnd1)
+stackFits1 <- stack(as.data.frame(fits1[, rnd1]))
+stackFits1 <- transform(stackFits1, C = rep(newd1$C, length(rnd1)))
+#calculate deviation
+Cg <- predict(m, newd, type = "lpmatrix")
+simDev <- Cg %*% t(BUdiff)
+#calculate deviation
+Cg1<- predict(m1,newd1,type = "lpmatrix")
+simDev1<- Cg1%*% t(BUdiff1)
+#calculate abs deviation
+absDev <- abs(sweep(simDev, 1, se.fit, FUN = "/"))
+#calculate abs deviation
+absDev1<- abs(sweep(simDev1,1, se.fit, FUN = "/"))
+#max abs dev
+masd <- apply(absDev, 2L, max)
+#max abs dev
+masd1<- apply(absDev1,2L, max)
+#95% crit values
+crit <- quantile(masd, prob = alpha/2)
+#95% crit values
+crit1<- quantile(masd1,prob = alpha/2)
+#plot CI
+pred <- transform(cbind(data.frame(pred), newd),
+                  uprP = fit + (2 * se.fit),
+                  lwrP = fit - (2 * se.fit),
+                  uprS = fit + (crit * se.fit),
+                  lwrS = fit - (crit * se.fit))
+pred$dataset<-"vehicle"
+pred$dataset<-as.factor(pred$dataset)
+pred$CI<-"vehicle"
+pred$CI<-as.factor(pred$CI)
+
+plot<-ggplot(pred,mapping= ggplot2::aes(x = C,y=fit ))+
+  geom_point(BSVar, mapping=ggplot2::aes(x=C,y=I,color = dataset,shape=factor(CC)))+
+  geom_ribbon(aes(ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2) +
+  ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::ggtitle("")+ylim(-0.4,1.6)+xlim(37,68)+theme(legend.position="bottom")
+
+pred1<- transform(cbind(data.frame(pred1),newd1),
+                  uprP = fit + (2 * se.fit),
+                  lwrP = fit - (2 * se.fit),
+                  uprS = fit + (crit * se.fit),
+                  lwrS = fit - (crit * se.fit))
+pred1$dataset<-"treated"
+pred1$dataset<-as.factor(pred1$dataset)
+pred1$CI<-"treated"
+pred1$CI<-as.factor(pred1$CI)
+pred1$AUC<-pracma::trapz(pred1$fit-pred$fit)
+pred1$AUC<-abs(round(pred1$AUC[1],3))
+
+pred1$RSS<- deviance(m1)+deviance(m)
+
+pred1$RSS<- round(pred1$RSS,3)
+#Residuals
+
+pred1$Tm<-round(treated$Tm[1]-vehicle$Tm[1],1)
+#missing values
+miss_v<-data.frame(NA)
+miss_t<-data.frame(NA)
+#max replicates
+roundUpNice <- function(x, nice=c(1,2,4,5,6,8,10)) {
+  if(length(x) != 1) stop("'x' must be of length 1")
+  10^floor(log10(x)) * nice[[which(x <= 10^floor(log10(x)) * nice)[[1]]]]
+}
+miss_v<-DF1%>% dplyr::filter(dataset=="vehicle") %>% unique(.)
+miss_t<-DF1%>% dplyr::filter(dataset=="treated") %>% unique(.)
+
+Pred<-data.frame(m$fitted.values,m$residuals)
+names(Pred)<- c("fit","rn")
+Pred$dataset<-as.factor("vehicle")
+BSVar$dataset<-as.factor("vehicle")
+Pred1<-data.frame(m1$fitted.values,m1$residuals)
+names(Pred1)<-c("fit","rn")
+Pred1$dataset<-as.factor("treated")
+Preds<-rbind(Pred,Pred1)
+BSVar1$dataset<-as.factor("treated")
+#get fitted value data
+fitted.values<-data.frame(C=BSVar$M1[[1]]$model$C,fit=predict.gam(BSVar$M1[[1]],se.fit=TRUE))
+names(fitted.values)<-c("C","fit","se.fit")
+fitted.values1<-data.frame(C=BSVar1$M1[[1]]$model$C,fit=predict.gam(BSVar1$M1[[1]],se.fit=TRUE))
+names(fitted.values1)<-c("C","fit","se.fit")
+if(any(names(miss_v)=='rss')){
+  num<-roundUpNice(length(unique(miss_v$C))*length(unique(miss_v$rss)))
+}else{
+  num<-roundUpNice(length(unique(miss_v$C)))
+}
+#append Tm values on predicted data
+pred1$Tm<-round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1)-round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1)
+if(isTRUE(residuals)){
+  PLrs<-ggplot2::ggplot(Preds, ggplot2::aes(x =fit,y = rn,color=dataset)) +ggplot2::geom_point()+ 
+    ggplot2::ggtitle(paste(Df1[[i]]$uniqueID[1]," ",str_replace(df2$sample_name[1],"S",paste0("\u03A6"))))+ggplot2::xlab("Fitted Intensities")+ggplot2::ylab("Residuals")
+  print(PLrs)
+}
+if(isTRUE(CI)){
+  BSVar <-df2 %>% subset(uniqueID == df1 & dataset== "vehicle")%>%dplyr::group_by(C) # %>% dplyr::mutate(I=mean(I))
+  BSVar1 <-df2 %>% subset(uniqueID == df1 & dataset== "treated")%>%dplyr::group_by(C)# %>% dplyr::mutate(I=mean(I))
   
   BSVar<-BSVar[!is.na(BSVar$I),]
   BSVar1<-BSVar1[!is.na(BSVar1$I),]
-  BSVarN<-BSVarN[!is.na(BSVarN$I),]
   
-  fit <-  stats::smooth.spline(x = BSVar$C, y=BSVar$I,cv=F)
-  fit1<-  stats::smooth.spline(x = BSVar1$C, y=BSVar1$I,cv=F)
-  fitN<-  stats::smooth.spline(x = BSVarN$C, y=BSVarN$I,cv=F)
+  BSVar<-BSVar %>% distinct(.)
+  BSVar1<-BSVar1 %>% distinct(.)
   
-  #####try GAM
+  
   #fit penalized splines
-  m <- mgcv::gam(I ~ s(C,k=6), data = BSVar , method = "ML")
-  m1<-  mgcv::gam(I ~ s(C,k=6), data =BSVar1, method = "ML")
-  mn<-  mgcv::gam(I ~ s(C,k=6), data = BSVarN, method = "ML")
+  m <- mgcv::gam(I ~ s(C,k=5), data = BSVar , method = "ML")
+  m1<-  mgcv::gam(I ~ s(C,k=5), data =BSVar1, method = "ML")
+  mn<-  mgcv::gam(I ~ s(C,k=5), data = BSVarN, method = "ML")
   
-  BSVar$M1<-list(m)
-  BSVar1$M1<-list(m1)
-  BSVarN$M1<-list(mn)
   #####try GAM
-  
-  #Plot boostrapped  residuals with 95%CI
-  #PLP<-plot(m, shade = TRUE, seWithMean = TRUE, residuals = TRUE, pch = 16, cex = 0.8)
-  #generate random values from a multivariate normal distribution
-  
   #get some parmeters
   Vb <- vcov(m)
-  newd <- with(BSVar, data.frame(C = seq(min(C), max(C), length = 30)))%>% as.data.frame(.)
-  pred <- predict(m, newd, se.fit = TRUE)%>% as.data.frame(.)#get confidence intervals
-  se.fit <- pred$se.fit
+  newd <- with(BSVar, data.frame(C = seq(min(C), max(C), length = 10)))%>% as.data.frame(.)
+  BSVar <- BSVar %>% dplyr::mutate(fit=list(predict(m, newd, se.fit = TRUE)))
+  
   #get some parmeters
   Vb1<- vcov(m1) 
-  newd1<- with(BSVar1,data.frame(C = seq(min(C), max(C), length = 30)))%>% as.data.frame(.)
-  pred1<- predict(m1,newd1,se.fit = TRUE) %>% as.data.frame(.)
-  se.fit1<- pred1$se.fit
-  #generate std
-  set.seed(42)
-  N <- 1000
-  #sample n from mvn dist: generates random multivariate normal deviates
-  BUdiff <- mgcv::rmvn(N, mu = rep(0, nrow(Vb)), Vb )
-  #sample n from mvn dist generates random multivariate normal deviates
-  BUdiff1<-  mgcv::rmvn(N, mu = rep(0, nrow(Vb1)),Vb1)
-  #random sampling######################################
-  Cg <- predict(m, newd, type = "lpmatrix")
-  fits <- Cg %*% t(BUdiff)
-  nrnd <- 30 #30 random samples
-  rnd <- sample(N, nrnd)
-  stackFits <- stack(as.data.frame(fits[, rnd]))
-  stackFits <- transform(stackFits, C = rep(newd$C, length(rnd)))
-  #simulations for treated
-  Cg1 <- predict(m1, newd1, type = "lpmatrix")
-  fits1 <- Cg1 %*% t(BUdiff1)
-  nrnd1 <- 30 #30 random samples
-  rnd1 <- sample(N, nrnd1)
-  stackFits1 <- stack(as.data.frame(fits1[, rnd1]))
-  stackFits1 <- transform(stackFits1, C = rep(newd1$C, length(rnd1)))
-  #calculate deviation
-  Cg <- predict(m, newd, type = "lpmatrix")
-  simDev <- Cg %*% t(BUdiff)
-  #calculate deviation
-  Cg1<- predict(m1,newd1,type = "lpmatrix")
-  simDev1<- Cg1%*% t(BUdiff1)
-  #calculate abs deviation
-  absDev <- abs(sweep(simDev, 1, se.fit, FUN = "/"))
-  #calculate abs deviation
-  absDev1<- abs(sweep(simDev1,1, se.fit, FUN = "/"))
-  #max abs dev
-  masd <- apply(absDev, 2L, max)
-  #max abs dev
-  masd1<- apply(absDev1,2L, max)
-  #95% crit values
-  crit <- quantile(masd, prob = alpha/2)
-  #95% crit values
-  crit1<- quantile(masd1,prob = alpha/2)
-  #plot CI
-  pred <- transform(cbind(data.frame(pred), newd),
-                    uprP = fit + (2 * se.fit),
-                    lwrP = fit - (2 * se.fit),
-                    uprS = fit + (crit * se.fit),
-                    lwrS = fit - (crit * se.fit))
-  pred$dataset<-"vehicle"
-  pred$dataset<-as.factor(pred$dataset)
-  pred$CI<-"vehicle"
-  pred$CI<-as.factor(pred$CI)
-  
-  plot<-ggplot(pred,mapping= ggplot2::aes(x = C,y=fit ))+
-    geom_point(BSVar, mapping=ggplot2::aes(x=C,y=I,color = dataset,shape=factor(CC)))+
-    geom_ribbon(aes(ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2) +
-    ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::ggtitle("")+ylim(-0.4,1.6)+xlim(37,68)+theme(legend.position="bottom")
-  
-  pred1<- transform(cbind(data.frame(pred1),newd1),
-                    uprP = fit + (2 * se.fit),
-                    lwrP = fit - (2 * se.fit),
-                    uprS = fit + (crit * se.fit),
-                    lwrS = fit - (crit * se.fit))
-  pred1$dataset<-"treated"
-  pred1$dataset<-as.factor(pred1$dataset)
-  pred1$CI<-"treated"
-  pred1$CI<-as.factor(pred1$CI)
-  pred1$AUC<-pracma::trapz(pred1$fit-pred$fit)
-  pred1$AUC<-abs(round(pred1$AUC[1],3))
-  
-  pred1$RSS<- deviance(m1)+deviance(m)
-  
-  pred1$RSS<- round(pred1$RSS,3)
-  #Residuals
-  
-  pred1$Tm<-round(treated$Tm[1]-vehicle$Tm[1],1)
-  #missing values
-  miss_v<-data.frame(NA)
-  miss_t<-data.frame(NA)
-  #max replicates
-  roundUpNice <- function(x, nice=c(1,2,4,5,6,8,10)) {
-    if(length(x) != 1) stop("'x' must be of length 1")
-    10^floor(log10(x)) * nice[[which(x <= 10^floor(log10(x)) * nice)[[1]]]]
+  newd1<- with(BSVar1,data.frame(C = seq(min(C), max(C), length = 10)))%>% as.data.frame(.)
+  BSVar1 <- BSVar1 %>% dplyr::mutate(fit=list(predict(m1, newd1, se.fit = TRUE)))
+  if (any(names(BSVar)=="sample.x")){
+    BSVar<-BSVar %>% dplyr::rename("sample"="sample.x")
+    
   }
-  miss_v<-DF1%>% dplyr::filter(dataset=="vehicle") %>% unique(.)
-  miss_t<-DF1%>% dplyr::filter(dataset=="treated") %>% unique(.)
+  if (any(names(BSVar1)=="sample.x")){
+    BSVar1<-BSVar1 %>% dplyr::rename("sample"="sample.x")
+    
+  }
   
-  Pred<-data.frame(m$fitted.values,m$residuals)
-  names(Pred)<- c("fit","rn")
-  Pred$dataset<-as.factor("vehicle")
-  BSVar$dataset<-as.factor("vehicle")
-  Pred1<-data.frame(m1$fitted.values,m1$residuals)
-  names(Pred1)<-c("fit","rn")
-  Pred1$dataset<-as.factor("treated")
-  Preds<-rbind(Pred,Pred1)
-  BSVar1$dataset<-as.factor("treated")
-  #get fitted value data
-  fitted.values<-data.frame(C=BSVar$M1[[1]]$model$C,fit=predict.gam(BSVar$M1[[1]],se.fit=TRUE))
-  names(fitted.values)<-c("C","fit","se.fit")
-  fitted.values1<-data.frame(C=BSVar1$M1[[1]]$model$C,fit=predict.gam(BSVar1$M1[[1]],se.fit=TRUE))
-  names(fitted.values1)<-c("C","fit","se.fit")
-  if(any(names(miss_v)=='rss')){
-    num<-roundUpNice(length(unique(miss_v$C))*length(unique(miss_v$rss)))
+  #append missing value data
+  if(!isTRUE(Peptide)){
+    getmode <- function(v) {
+      uniqv <- unique(v)
+      uniqv[which.max(tabulate(match(v, uniqv)))]
+    }
+    
+    BSVar$missing_v<-rep(getmode(miss_v$missing_pct),nrow(BSVar))
+    BSVar$missing_t<-rep(getmode(miss_t$missing_pct),nrow(BSVar))
   }else{
-    num<-roundUpNice(length(unique(miss_v$C)))
+    BSVar$missing_v<-rep((100*(num-df.temps)/num),nrow(BSVar))
+    BSVar$missing_t<-rep((100*(num-df.temps)/num),nrow(BSVar))
   }
-  #append Tm values on predicted data
-  pred1$Tm<-round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1)-round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1)
-  if(isTRUE(residuals)){
-    PLrs<-ggplot2::ggplot(Preds, ggplot2::aes(x =fit,y = rn,color=dataset)) +ggplot2::geom_point()+ 
-      ggplot2::ggtitle(paste(Df1[[i]]$uniqueID[1]," ",str_replace(df2$sample_name[1],"S",paste0("\u03A6"))))+ggplot2::xlab("Fitted Intensities")+ggplot2::ylab("Residuals")
-    print(PLrs)
-  }
-  if(isTRUE(CI)){
-    BSVar <-df2 %>% subset(uniqueID == df1 & dataset== "vehicle")%>%dplyr::group_by(C) # %>% dplyr::mutate(I=mean(I))
-    BSVar1 <-df2 %>% subset(uniqueID == df1 & dataset== "treated")%>%dplyr::group_by(C)# %>% dplyr::mutate(I=mean(I))
-    
-    BSVar<-BSVar[!is.na(BSVar$I),]
-    BSVar1<-BSVar1[!is.na(BSVar1$I),]
-    
-    BSVar<-BSVar %>% distinct(.)
-    BSVar1<-BSVar1 %>% distinct(.)
-    
-    
-    #fit penalized splines
-    m <- mgcv::gam(I ~ s(C,k=6), data = BSVar , method = "ML")
-    m1<-  mgcv::gam(I ~ s(C,k=6), data =BSVar1, method = "ML")
-    mn<-  mgcv::gam(I ~ s(C,k=6), data = BSVarN, method = "ML")
-    
-    #####try GAM
-    #get some parmeters
-    Vb <- vcov(m)
-    newd <- with(BSVar, data.frame(C = seq(min(C), max(C), length = 10)))%>% as.data.frame(.)
-    BSVar <- BSVar %>% dplyr::mutate(fit=list(predict(m, newd, se.fit = TRUE)))
-    
-    #get some parmeters
-    Vb1<- vcov(m1) 
-    newd1<- with(BSVar1,data.frame(C = seq(min(C), max(C), length = 10)))%>% as.data.frame(.)
-    BSVar1 <- BSVar1 %>% dplyr::mutate(fit=list(predict(m1, newd1, se.fit = TRUE)))
-    if (any(names(BSVar)=="sample.x")){
-      BSVar<-BSVar %>% dplyr::rename("sample"="sample.x")
-      
-    }
-    if (any(names(BSVar1)=="sample.x")){
-      BSVar1<-BSVar1 %>% dplyr::rename("sample"="sample.x")
-      
-    }
-    
-    #append missing value data
-    if(!isTRUE(Peptide)){
-      getmode <- function(v) {
-        uniqv <- unique(v)
-        uniqv[which.max(tabulate(match(v, uniqv)))]
-      }
-      
-      BSVar$missing_v<-rep(getmode(miss_v$missing_pct),nrow(BSVar))
-      BSVar$missing_t<-rep(getmode(miss_t$missing_pct),nrow(BSVar))
+  p<-data.frame(BSVar$fit[[1]])
+  p1<-data.frame(BSVar1$fit[[1]])
+  
+  fit_v<-p %>% dplyr::mutate(lwrP=fit-(1.96*se.fit),
+                             uprP=fit+(1.96*se.fit),
+                             uprS = fit + (crit * se.fit),
+                             lwrS = fit - (crit * se.fit),
+                             C= seq(min(BSVar$C), max(BSVar$C), length = 10),
+                             dataset=BSVar$dataset[1],
+                             CI=BSVar$dataset[1])
+  fit_t<-p1 %>% dplyr::mutate(lwrP=fit-(1.96*se.fit),
+                              uprP=fit+(1.96*se.fit),
+                              uprS = fit + (crit1 * se.fit),
+                              lwrS = fit - (crit1 * se.fit),
+                              C= seq(min(BSVar1$C), max(BSVar1$C), length = 10),
+                              dataset=BSVar1$dataset[1],
+                              CI=BSVar1$dataset[1])
+  
+  # id<-data.frame(sample=as.factor(unique(BSVar$sample)),replicate=as.factor(seq(unique(BSVar$sample))))
+  # id1<-data.frame(sample=as.factor(unique(BSVar1$sample)),replicate=as.factor(seq(unique(BSVar1$sample))))
+  # 
+  # BSVar<-BSVar %>%  dplyr::right_join(id,by="sample")
+  # BSVar1<-BSVar1%>% dplyr::right_join(id1,by="sample")
+  if(isTRUE(Peptide)){
+    BSVar$PeptideGroup<-NA
+    BSVar1$PeptideGroup<-NA
+    BSVar$PeptideGroup<-BSVar$replicate
+    BSVar1$PeptideGroup<-BSVar1$replicate
+    if(any(names(BSVar)=="rank_l")){
+      BSVar$Stroke<-0
+      BSVar1$Stroke<-0
+      # BSVar$Stroke<-ifelse(BSVar$rank_l==TRUE,1,0)
+      # BSVar1$Stroke<-ifelse(BSVar1$rank_l==TRUE,1,0)
     }else{
-      BSVar$missing_v<-rep((100*(num-df.temps)/num),nrow(BSVar))
-      BSVar$missing_t<-rep((100*(num-df.temps)/num),nrow(BSVar))
+      BSVar$Stroke<-0
+      BSVar1$Stroke<-0
     }
-    p<-data.frame(BSVar$fit[[1]])
-    p1<-data.frame(BSVar1$fit[[1]])
     
-    fit_v<-p %>% dplyr::mutate(lwrP=fit-(1.96*se.fit),
-                               uprP=fit+(1.96*se.fit),
-                               uprS = fit + (crit * se.fit),
-                               lwrS = fit - (crit * se.fit),
-                               C= seq(min(BSVar$C), max(BSVar$C), length = 10),
-                               dataset=BSVar$dataset[1],
-                               CI=BSVar$dataset[1])
-    fit_t<-p1 %>% dplyr::mutate(lwrP=fit-(1.96*se.fit),
-                                uprP=fit+(1.96*se.fit),
-                                uprS = fit + (crit1 * se.fit),
-                                lwrS = fit - (crit1 * se.fit),
-                                C= seq(min(BSVar1$C), max(BSVar1$C), length = 10),
-                                dataset=BSVar1$dataset[1],
-                                CI=BSVar1$dataset[1])
+    plot1<-ggplot2::ggplot(BSVar,ggplot2::aes(x =C,y = I,color=dataset))+
+      ggplot2::geom_point(BSVar,mapping=ggplot2::aes(x=C,y=I,color = dataset,shape=PeptideGroup))+
+      geom_point(data=BSVar[BSVar$Stroke==1,],
+                 pch=21, fill=NA, size=4, colour="black", stroke=1)+
+      ggplot2::geom_ribbon(data.frame(fit_v),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2 ) +
+      ggplot2::geom_ribbon(data.frame(fit_v),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrS, ymax = uprS ,fill=CI), alpha = 0.2,linetype=0) +
+      ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+
+      ggplot2::annotate("text", x=45, y=-0.35, label= paste("\u03A3","RSS= ", pred1$RSS[1]),size=3.5)+
+      ggplot2::annotate("text", x=45, y=-0.45, label=  paste("\u0394", "AUC = ",pred1$AUC[1]),size=3.5)+
+      ggplot2::annotate("text", x=45, y=-0.55, label= paste("\u0394","Tm = ",round(pred1$Tm[1],1),"\u00B0C"),size=3.5)+
+      annotate("text",
+               x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
+               y = -0.10,
+               label=paste0(round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1)),
+               colour="blue",
+               size=3.5
+      )+
+      annotate("segment", x = min(fitted.values$C), xend = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
+               y = 0.5, yend = 0.5,
+               colour = "blue",linetype=2)+
+      annotate("segment", x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
+               xend = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
+               colour = "blue",linetype=2)
     
-    # id<-data.frame(sample=as.factor(unique(BSVar$sample)),replicate=as.factor(seq(unique(BSVar$sample))))
-    # id1<-data.frame(sample=as.factor(unique(BSVar1$sample)),replicate=as.factor(seq(unique(BSVar1$sample))))
-    # 
-    # BSVar<-BSVar %>%  dplyr::right_join(id,by="sample")
-    # BSVar1<-BSVar1%>% dplyr::right_join(id1,by="sample")
-    if(isTRUE(Peptide)){
-      BSVar$PeptideGroup<-NA
-      BSVar1$PeptideGroup<-NA
-      BSVar$PeptideGroup<-BSVar$replicate
-      BSVar1$PeptideGroup<-BSVar1$replicate
-      if(any(names(BSVar)=="rank_l")){
-        BSVar$Stroke<-0
-        BSVar1$Stroke<-0
-        # BSVar$Stroke<-ifelse(BSVar$rank_l==TRUE,1,0)
-        # BSVar1$Stroke<-ifelse(BSVar1$rank_l==TRUE,1,0)
-      }else{
-        BSVar$Stroke<-0
-        BSVar1$Stroke<-0
-      }
-      
-      plot1<-ggplot2::ggplot(BSVar,ggplot2::aes(x =C,y = I,color=dataset))+
-        ggplot2::geom_point(BSVar,mapping=ggplot2::aes(x=C,y=I,color = dataset,shape=PeptideGroup))+
-        geom_point(data=BSVar[BSVar$Stroke==1,],
-                   pch=21, fill=NA, size=4, colour="black", stroke=1)+
-        ggplot2::geom_ribbon(data.frame(fit_v),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2 ) +
-        ggplot2::geom_ribbon(data.frame(fit_v),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrS, ymax = uprS ,fill=CI), alpha = 0.2,linetype=0) +
-        ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+
-        ggplot2::annotate("text", x=45, y=-0.35, label= paste("\u03A3","RSS= ", pred1$RSS[1]),size=3.5)+
-        ggplot2::annotate("text", x=45, y=-0.45, label=  paste("\u0394", "AUC = ",pred1$AUC[1]),size=3.5)+
-        ggplot2::annotate("text", x=45, y=-0.55, label= paste("\u0394","Tm = ",round(pred1$Tm[1],1),"\u00B0C"),size=3.5)+
-        annotate("text",
-                 x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
-                 y = -0.10,
-                 label=paste0(round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1)),
-                 colour="blue",
-                 size=3.5
-        )+
-        annotate("segment", x = min(fitted.values$C), xend = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
-                 y = 0.5, yend = 0.5,
-                 colour = "blue",linetype=2)+
-        annotate("segment", x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
-                 xend = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
-                 colour = "blue",linetype=2)
-      
-      
-      plot<-plot1+
-        ggplot2::geom_point(BSVar1,mapping=ggplot2::aes(x=C,y=I,color = dataset,shape=PeptideGroup))+
-        geom_point(data=BSVar1[BSVar1$Stroke==1,],
-                   pch=21, fill=NA, size=4, colour="black", stroke=1)+
-        ggplot2::geom_ribbon(data.frame(fit_t),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=dataset), alpha = 0.2 ) +
-        ggplot2::geom_ribbon(data.frame(fit_t),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrS, ymax = uprS ,fill=CI), alpha = 0.2,linetype=0) +
-        ggplot2::labs(y = "Relative Solubility",
-                      x = "Temperature (\u00B0C)")+
-        annotate("text",
-                 x = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1),
-                 y = -0.10,
-                 label=paste0(round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1)),
-                 colour="red",
-                 size=3.5
-        )+
-        annotate("segment", x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), y = 0.5, yend = 0.5,
-                 colour = "red",linetype=2)+
-        annotate("segment", x = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
-                 colour = "red",linetype=2)+ ggplot2::ggtitle(paste0(as.character(df1[1])," ",str_replace(df2$sample_name[1],"S",paste0("\u03A6"))))+
-        ylim(-0.60,1.6)+xlim(37,68)+
-        theme(legend.position="bottom")
-      
-      return(plot)
-    }else{
-      
-      plot1<-ggplot2::ggplot(BSVar,ggplot2::aes(x =C,y = I,color=dataset))+
-        ggplot2::geom_point(BSVar,mapping=ggplot2::aes(x=C,y=I,color = dataset,shape=replicate))+
-        ggplot2::geom_ribbon(data.frame(fit_v),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2 ) +
-        ggplot2::geom_ribbon(data.frame(fit_v),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrS, ymax = uprS ,fill=CI), alpha = 0.2,linetype=0) +
-        ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+
-        ggplot2::annotate("text", x=45, y=-0.15, label= paste("\u03A3","RSS= ", pred1$RSS[1]),size=3.5)+
-        ggplot2::annotate("text", x=45, y=-0.25, label=  paste("\u0394", "AUC = ",pred1$AUC[1]),size=3.5)+
-        ggplot2::annotate("text", x=45, y=-0.35, label= paste("\u0394","Tm = ",round(pred1$Tm[1],1),"\u00B0C"),size=3.5)+ 
-        ggplot2::annotate("text", x=45, y=-0.45, label= paste("missing",round(BSVar$missing_v[1],0),"%"),size=3.5,colour="#00BFC4")+ 
-        ggplot2::annotate("text", x=45, y=-0.55, label= paste("missing",round(BSVar$missing_t[1],0),"%"),size=3.5,colour="#F8766D")+
-        annotate("text",
-                 x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
-                 y = -0.10,
-                 label=paste0(round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1)),
-                 colour="blue",
-                 size=3.5
-        )+
-        annotate("segment", x = min(fitted.values$C), xend = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
-                 y = 0.5, yend = 0.5,
-                 colour = "blue",linetype=2)+
-        annotate("segment", x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
-                 xend = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
-                 colour = "blue",linetype=2)+theme(legend.position="bottom")
-      
-      
-      plot<-plot1+
-        ggplot2::geom_point(BSVar1,mapping=ggplot2::aes(x=C,y=I,color = dataset,shape=replicate))+
-        ggplot2::geom_ribbon(data.frame(fit_t),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=dataset), alpha = 0.2) +
-        ggplot2::geom_ribbon(data.frame(fit_t),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrS, ymax = uprS ,fill=CI), alpha = 0.2,linetype=0) +
-        ggplot2::labs(y = "Relative Solubility",
-                      x = "Temperature (\u00B0C)")+
-        annotate("text",
-                 x = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1),
-                 y = -0.10,
-                 label=paste0(round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1)),
-                 colour="red",
-                 size=3.5
-        )+
-        annotate("segment", x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), y = 0.5, yend = 0.5,
-                 colour = "red",linetype=2)+
-        annotate("segment", x = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
-                 colour = "red",linetype=2)+ ggplot2::ggtitle(paste0(as.character(df1[1])," ",str_replace(df2$sample_name[1],"S",paste0("\u03A6"))))+
-        ylim(-0.85,1.6)+xlim(37,68)+
-        theme(legend.position="bottom")
-      return(plot)
-    }
+    
+    plot<-plot1+
+      ggplot2::geom_point(BSVar1,mapping=ggplot2::aes(x=C,y=I,color = dataset,shape=PeptideGroup))+
+      geom_point(data=BSVar1[BSVar1$Stroke==1,],
+                 pch=21, fill=NA, size=4, colour="black", stroke=1)+
+      ggplot2::geom_ribbon(data.frame(fit_t),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=dataset), alpha = 0.2 ) +
+      ggplot2::geom_ribbon(data.frame(fit_t),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrS, ymax = uprS ,fill=CI), alpha = 0.2,linetype=0) +
+      ggplot2::labs(y = "Relative Solubility",
+                    x = "Temperature (\u00B0C)")+
+      annotate("text",
+               x = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1),
+               y = -0.10,
+               label=paste0(round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1)),
+               colour="red",
+               size=3.5
+      )+
+      annotate("segment", x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), y = 0.5, yend = 0.5,
+               colour = "red",linetype=2)+
+      annotate("segment", x = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
+               colour = "red",linetype=2)+ ggplot2::ggtitle(paste0(as.character(df1[1])," ",str_replace(df2$sample_name[1],"S",paste0("\u03A6"))))+
+      ylim(-0.60,1.6)+xlim(37,68)+
+      theme(legend.position="bottom")
+    
+    return(plot)
   }else{
-    if(isTRUE(Peptide)){
-      BSVar$PeptideGroup<-BSVar$replicate
-      BSVar1$PeptideGroup<-BSVar1$replicate
-      if(any(names(BSVar)=="rank_l")){
-        BSVar$Stroke<-0
-        BSVar1$Stroke<-0
-        # BSVar$Stroke<-ifelse(BSVar$rank_l==TRUE,1,0)
-        # BSVar1$Stroke<-ifelse(BSVar1$rank_l==TRUE,1,0)
-      }else{
-        BSVar$Stroke<-0
-        BSVar1$Stroke<-0
-      }
-      
-      plot1<-ggplot2::ggplot(BSVar,ggplot2::aes(x =C,y = I,color=dataset))+
-        ggplot2::geom_point(BSVar,mapping=ggplot2::aes(x=C,y=I,color = dataset,shape=PeptideGroup))+
-        geom_point(data=BSVar[BSVar$Stroke==1,],
-                   pch=21, fill=NA, size=4, colour="black", stroke=1)+
-        ggplot2::geom_ribbon(data.frame(pred),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2) +
-        ggplot2::geom_ribbon(data.frame(pred),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrS, ymax = uprS ,fill=CI), alpha = 0.2,linetype=0)+
-        ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+
-        ggplot2::annotate("text", x=45, y=-0.35, label= paste("\u03A3","RSS= ", abs(pred1$RSS[1])),size=3.5)+
-        ggplot2::annotate("text", x=45, y=-0.45, label=  paste("\u0394", "AUC = ",pred1$AUC[1]),size=3.5)+
-        ggplot2::annotate("text", x=45, y=-0.55, label= paste("\u0394","Tm = ",round(pred1$Tm[1],1),"\u00B0C"),size=3.5)+
-        annotate("text",
-                 x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
-                 y = -0.15,
-                 label=paste0(round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1)),
-                 colour="blue",
-                 size=3.5
-        )+
-        annotate("segment", x = min(fitted.values$C), xend = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
-                 y = 0.5, yend = 0.5,
-                 colour = "blue",linetype=2)+
-        annotate("segment", x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
-                 xend = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
-                 colour = "blue",linetype=2)
-      
-      
-      plot<-plot1+
-        ggplot2::geom_point(BSvar1,mapping=ggplot2::aes(x=C,y=I,color = dataset,shape=PeptideGroup))+
-        geom_point(data=BSVar1[BSVar1$Stroke==1,],
-                   pch=21, fill=NA, size=4, colour="black", stroke=1)+
-        ggplot2::geom_ribbon(pred1,mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2) +
-        ggplot2::geom_ribbon(data.frame(pred1),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrS, ymax = uprS ,fill=CI), alpha = 0.2,linetype=0) +
-        ggplot2::labs(y = "Relative Solubility",
-                      x = "Temperature (\u00B0C)")+
-        coord_cartesian(xlim = c(37,67))+
-        annotate("text",
-                 x = 2+round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1),
-                 y = -0.10,
-                 label=paste0(round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1)),
-                 colour="red",
-                 size=3.5
-        )+
-        annotate("segment", x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
-                 xend = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), y = 0.5,
-                 yend = 0.5,
-                 colour = "red",linetype=2)+
-        annotate("segment", x = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1),
-                 xend = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), y = 0,
-                 yend = 0.5,
-                 colour = "red",linetype=2)+ ggplot2::ggtitle(paste0(as.character(df1[1])," ",str_replace(df2$sample_name[1],"S",paste0("\u03A6"))))+
-        ylim(-0.85,1.5)+xlim(37,68)+
-        theme(legend.position="bottom")
-      return(plot)
+    
+    plot1<-ggplot2::ggplot(BSVar,ggplot2::aes(x =C,y = I,color=dataset))+
+      ggplot2::geom_point(BSVar,mapping=ggplot2::aes(x=C,y=I,color = dataset,shape=replicate))+
+      ggplot2::geom_ribbon(data.frame(fit_v),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2 ) +
+      ggplot2::geom_ribbon(data.frame(fit_v),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrS, ymax = uprS ,fill=CI), alpha = 0.2,linetype=0) +
+      ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+
+      ggplot2::annotate("text", x=45, y=-0.15, label= paste("\u03A3","RSS= ", pred1$RSS[1]),size=3.5)+
+      ggplot2::annotate("text", x=45, y=-0.25, label=  paste("\u0394", "AUC = ",pred1$AUC[1]),size=3.5)+
+      ggplot2::annotate("text", x=45, y=-0.35, label= paste("\u0394","Tm = ",round(pred1$Tm[1],1),"\u00B0C"),size=3.5)+ 
+      ggplot2::annotate("text", x=45, y=-0.45, label= paste("missing",round(BSVar$missing_v[1],0),"%"),size=3.5,colour="#00BFC4")+ 
+      ggplot2::annotate("text", x=45, y=-0.55, label= paste("missing",round(BSVar$missing_t[1],0),"%"),size=3.5,colour="#F8766D")+
+      annotate("text",
+               x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
+               y = -0.10,
+               label=paste0(round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1)),
+               colour="blue",
+               size=3.5
+      )+
+      annotate("segment", x = min(fitted.values$C), xend = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
+               y = 0.5, yend = 0.5,
+               colour = "blue",linetype=2)+
+      annotate("segment", x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
+               xend = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
+               colour = "blue",linetype=2)+theme(legend.position="bottom")
+    
+    
+    plot<-plot1+
+      ggplot2::geom_point(BSVar1,mapping=ggplot2::aes(x=C,y=I,color = dataset,shape=replicate))+
+      ggplot2::geom_ribbon(data.frame(fit_t),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=dataset), alpha = 0.2) +
+      ggplot2::geom_ribbon(data.frame(fit_t),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrS, ymax = uprS ,fill=CI), alpha = 0.2,linetype=0) +
+      ggplot2::labs(y = "Relative Solubility",
+                    x = "Temperature (\u00B0C)")+
+      annotate("text",
+               x = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1),
+               y = -0.10,
+               label=paste0(round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1)),
+               colour="red",
+               size=3.5
+      )+
+      annotate("segment", x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), y = 0.5, yend = 0.5,
+               colour = "red",linetype=2)+
+      annotate("segment", x = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
+               colour = "red",linetype=2)+ ggplot2::ggtitle(paste0(as.character(df1[1])," ",str_replace(df2$sample_name[1],"S",paste0("\u03A6"))))+
+      ylim(-0.85,1.6)+xlim(37,68)+
+      theme(legend.position="bottom")
+    return(plot)
+  }
+}else{
+  if(isTRUE(Peptide)){
+    BSVar$PeptideGroup<-BSVar$replicate
+    BSVar1$PeptideGroup<-BSVar1$replicate
+    if(any(names(BSVar)=="rank_l")){
+      BSVar$Stroke<-0
+      BSVar1$Stroke<-0
+      # BSVar$Stroke<-ifelse(BSVar$rank_l==TRUE,1,0)
+      # BSVar1$Stroke<-ifelse(BSVar1$rank_l==TRUE,1,0)
     }else{
-      
-      plot1<-ggplot2::ggplot(BSVar,ggplot2::aes(x =C,y = I,color=dataset))+
-        ggplot2::geom_point(BSVar,mapping=ggplot2::aes(x=C,y=I,shape=replicate))+
-        ggplot2::geom_ribbon(data.frame(pred),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2) +
-        ggplot2::geom_ribbon(data.frame(pred),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrS, ymax = uprS ,fill=CI), alpha = 0.2,linetype=0) +
-        ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+
-        ggplot2::annotate("text", x=45, y=-0.25, label= paste("\u03A3","RSS= ", abs(pred1$RSS[1])),size=3.5)+
-        ggplot2::annotate("text", x=45, y=-0.35, label=  paste("\u0394", "AUC = ",pred1$AUC[1]),size=3.5)+
-        ggplot2::annotate("text", x=45, y=-0.45, label= paste("\u0394","Tm = ",round(pred1$Tm[1],1),"\u00B0C"),size=3.5)+ 
-        ggplot2::annotate("text", x=45, y=-0.55, label= paste("missing",round(BSVar$missing_v[1],0),"%"),size=3.5,colour="#00BFC4")+ 
-        ggplot2::annotate("text", x=45, y=-0.65, label= paste("missing",round(BSVar$missing_t[1],0),"%"),size=3.5,colour="#F8766D")+
-        annotate("text",
-                 x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
-                 y = -0.1,
-                 label=paste0(round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1)),
-                 colour="blue",
-                 size=3.5
-        )+
-        annotate("segment", x = min(fitted.values$C), xend = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
-                 y = 0.5, yend = 0.5,
-                 colour = "blue",linetype=2)+
-        annotate("segment", x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
-                 xend = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
-                 colour = "blue",linetype=2)+theme(legend.position="bottom")
-      
-      
-      plot<-plot1+
-        ggplot2::geom_point(BSvar1,mapping=ggplot2::aes(x=C,y=I,color = dataset,shape=replicate))+
-        ggplot2::geom_ribbon(pred1,mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2) +
-        ggplot2::geom_ribbon(data.frame(pred1),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrS, ymax = uprS ,fill=CI), alpha = 0.2,linetype=0) +
-        ggplot2::labs(y = "Relative Solubility",
-                      x = "Temperature (\u00B0C)")+
-        coord_cartesian(xlim = c(37,67))+
-        annotate("text",
-                 x = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1),
-                 y = -0.1,
-                 label=paste0(round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1)),
-                 colour="red",
-                 size=3.5
-        )+
-        annotate("segment", x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), y = 0.5, yend = 0.5,
-                 colour = "red",linetype=2)+
-        annotate("segment", x = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
-                 colour = "red",linetype=2)+ ggplot2::ggtitle(paste0(as.character(df1[1])," ",str_replace(df2$sample_name[1],"S",paste0("\u03A6"))))+
-        ylim(-0.85,1.5)+xlim(37,68)+
-        theme(legend.position="bottom")
-      
-      return(plot) 
+      BSVar$Stroke<-0
+      BSVar1$Stroke<-0
     }
     
+    plot1<-ggplot2::ggplot(BSVar,ggplot2::aes(x =C,y = I,color=dataset))+
+      ggplot2::geom_point(BSVar,mapping=ggplot2::aes(x=C,y=I,color = dataset,shape=PeptideGroup))+
+      geom_point(data=BSVar[BSVar$Stroke==1,],
+                 pch=21, fill=NA, size=4, colour="black", stroke=1)+
+      ggplot2::geom_ribbon(data.frame(pred),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2) +
+      ggplot2::geom_ribbon(data.frame(pred),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrS, ymax = uprS ,fill=CI), alpha = 0.2,linetype=0)+
+      ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+
+      ggplot2::annotate("text", x=45, y=-0.35, label= paste("\u03A3","RSS= ", abs(pred1$RSS[1])),size=3.5)+
+      ggplot2::annotate("text", x=45, y=-0.45, label=  paste("\u0394", "AUC = ",pred1$AUC[1]),size=3.5)+
+      ggplot2::annotate("text", x=45, y=-0.55, label= paste("\u0394","Tm = ",round(pred1$Tm[1],1),"\u00B0C"),size=3.5)+
+      annotate("text",
+               x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
+               y = -0.15,
+               label=paste0(round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1)),
+               colour="blue",
+               size=3.5
+      )+
+      annotate("segment", x = min(fitted.values$C), xend = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
+               y = 0.5, yend = 0.5,
+               colour = "blue",linetype=2)+
+      annotate("segment", x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
+               xend = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
+               colour = "blue",linetype=2)
+    
+    
+    plot<-plot1+
+      ggplot2::geom_point(BSvar1,mapping=ggplot2::aes(x=C,y=I,color = dataset,shape=PeptideGroup))+
+      geom_point(data=BSVar1[BSVar1$Stroke==1,],
+                 pch=21, fill=NA, size=4, colour="black", stroke=1)+
+      ggplot2::geom_ribbon(pred1,mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2) +
+      ggplot2::geom_ribbon(data.frame(pred1),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrS, ymax = uprS ,fill=CI), alpha = 0.2,linetype=0) +
+      ggplot2::labs(y = "Relative Solubility",
+                    x = "Temperature (\u00B0C)")+
+      coord_cartesian(xlim = c(37,67))+
+      annotate("text",
+               x = 2+round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1),
+               y = -0.10,
+               label=paste0(round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1)),
+               colour="red",
+               size=3.5
+      )+
+      annotate("segment", x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
+               xend = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), y = 0.5,
+               yend = 0.5,
+               colour = "red",linetype=2)+
+      annotate("segment", x = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1),
+               xend = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), y = 0,
+               yend = 0.5,
+               colour = "red",linetype=2)+ ggplot2::ggtitle(paste0(as.character(df1[1])," ",str_replace(df2$sample_name[1],"S",paste0("\u03A6"))))+
+      ylim(-0.85,1.5)+xlim(37,68)+
+      theme(legend.position="bottom")
+    return(plot)
+  }else{
+    
+    plot1<-ggplot2::ggplot(BSVar,ggplot2::aes(x =C,y = I,color=dataset))+
+      ggplot2::geom_point(BSVar,mapping=ggplot2::aes(x=C,y=I,shape=replicate))+
+      ggplot2::geom_ribbon(data.frame(pred),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2) +
+      ggplot2::geom_ribbon(data.frame(pred),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrS, ymax = uprS ,fill=CI), alpha = 0.2,linetype=0) +
+      ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+
+      ggplot2::annotate("text", x=45, y=-0.25, label= paste("\u03A3","RSS= ", abs(pred1$RSS[1])),size=3.5)+
+      ggplot2::annotate("text", x=45, y=-0.35, label=  paste("\u0394", "AUC = ",pred1$AUC[1]),size=3.5)+
+      ggplot2::annotate("text", x=45, y=-0.45, label= paste("\u0394","Tm = ",round(pred1$Tm[1],1),"\u00B0C"),size=3.5)+ 
+      ggplot2::annotate("text", x=45, y=-0.55, label= paste("missing",round(BSVar$missing_v[1],0),"%"),size=3.5,colour="#00BFC4")+ 
+      ggplot2::annotate("text", x=45, y=-0.65, label= paste("missing",round(BSVar$missing_t[1],0),"%"),size=3.5,colour="#F8766D")+
+      annotate("text",
+               x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
+               y = -0.1,
+               label=paste0(round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1)),
+               colour="blue",
+               size=3.5
+      )+
+      annotate("segment", x = min(fitted.values$C), xend = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
+               y = 0.5, yend = 0.5,
+               colour = "blue",linetype=2)+
+      annotate("segment", x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1),
+               xend = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
+               colour = "blue",linetype=2)+theme(legend.position="bottom")
+    
+    
+    plot<-plot1+
+      ggplot2::geom_point(BSvar1,mapping=ggplot2::aes(x=C,y=I,color = dataset,shape=replicate))+
+      ggplot2::geom_ribbon(pred1,mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2) +
+      ggplot2::geom_ribbon(data.frame(pred1),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrS, ymax = uprS ,fill=CI), alpha = 0.2,linetype=0) +
+      ggplot2::labs(y = "Relative Solubility",
+                    x = "Temperature (\u00B0C)")+
+      coord_cartesian(xlim = c(37,67))+
+      annotate("text",
+               x = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1),
+               y = -0.1,
+               label=paste0(round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1)),
+               colour="red",
+               size=3.5
+      )+
+      annotate("segment", x = round(with(fitted.values, stats::approx(fitted.values$fit,fitted.values$C,xout=max(fitted.values$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), y = 0.5, yend = 0.5,
+               colour = "red",linetype=2)+
+      annotate("segment", x = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
+               colour = "red",linetype=2)+ ggplot2::ggtitle(paste0(as.character(df1[1])," ",str_replace(df2$sample_name[1],"S",paste0("\u03A6"))))+
+      ylim(-0.85,1.5)+xlim(37,68)+
+      theme(legend.position="bottom")
+    
+    return(plot) 
   }
   
+}
+
 }
 spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulations=FALSE,CI=TRUE,Peptide=FALSE,CARRIER=TRUE){
   if(isTRUE(CARRIER)){
@@ -5091,11 +5091,11 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
     id<-data.frame(sample=as.factor(unique(BSVar$sample)),replicate=as.factor(seq(unique(BSVar$sample))))
     id1<-data.frame(sample=as.factor(unique(BSVar1$sample)),replicate=as.factor(seq(unique(BSVar1$sample))))
     
-    BSVar<-BSVar %>%  dplyr::right_join(id,by="sample")
-    BSVar1<-BSVar1%>% dplyr::right_join(id1,by="sample")
+    BSVar<-BSVar %>%  dplyr::right_join(id,by=c("sample","replicate"))
+    BSVar1<-BSVar1%>% dplyr::right_join(id1,by=c("sample","replicate"))
     if(isTRUE(Peptide)){
-      BSVar$PeptideGroup<-BSVar$replicate
-      BSVar1$PeptideGroup<-BSVar1$replicate
+      BSVar$PeptideGroup<-as.factor(BSVar$replicate)
+      BSVar1$PeptideGroup<-as.factor(BSVar1$replicate)
       if(any(names(BSVar)=="rank_l")){
         BSVar$Stroke<-0
         BSVar1$Stroke<-0
@@ -5155,7 +5155,8 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
       
       return(plot)
     }else{
-      
+      BSVar$replicate<-as.factor(BSVar$replicate)
+      BSVar1$replicate<-as.factor(BSVar1$replicate)
       plot1<-ggplot2::ggplot(BSVar,ggplot2::aes(x =C,y = I,color=dataset))+
         ggplot2::geom_point(BSVar,mapping=ggplot2::aes(x=C,y=I,color = dataset,shape=replicate))+
         ggplot2::geom_ribbon(data.frame(fit_v),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2 ) +
@@ -5204,8 +5205,8 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
     }
   }else{
     if(isTRUE(Peptide)){
-      BSVar$PeptideGroup<-BSVar$replicate
-      BSVar1$PeptideGroup<-BSVar1$replicate
+      BSVar$PeptideGroup<-as.factor(BSVar$replicate)
+      BSVar1$PeptideGroup<-as.factor(BSVar1$replicate)
       if(any(names(BSVar)=="rank_l")){
         BSVar$Stroke<-0
         BSVar1$Stroke<-0
@@ -5269,7 +5270,8 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
         theme(legend.position="bottom")
       return(plot)
     }else{
-      
+      BSVar$replicate<-as.factor(BSVar$replicate)
+      BSVar1$replicate<-as.factor(BSVar1$replicate)
       plot1<-ggplot2::ggplot(BSVar,ggplot2::aes(x =C,y = I,color=dataset))+
         ggplot2::geom_point(BSVar,mapping=ggplot2::aes(x=C,y=I,shape=replicate))+
         ggplot2::geom_ribbon(data.frame(pred),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2) +
@@ -8650,9 +8652,12 @@ plot_Splines<-function(x,Protein="Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=TRUE
       spresults<-list()
       spresults_PI<-list()
       
-      spresults<-spstat(DFN,df_,df_1,Ftest=fT,show_results=show_results,filters=Filters,scaled_dof=FALSE,Peptide=Peptide)
       if(isTRUE(show_results)){
+        spresults<-spstat(DFN,df_,df_1,Ftest=fT,show_results=show_results,filters=Filters,scaled_dof=FALSE,Peptide=Peptide)
         return(spresults)
+      }else{
+        spresults<-spstat(DFN,df_,df_1,Ftest=fT,show_results=show_results,filters=Filters,scaled_dof=FALSE,Peptide=Peptide)
+        
       }
       if(any(class(spresults)=="list")){
         spresults<-dplyr::bind_rows(spresults)
@@ -8762,9 +8767,9 @@ check<-ggplot2::ggplot_build(plotS2[[2]])
 y<-get_legend(check$plot)
 # data<-unlist(lapply(plotS2,function(x) x$labels$title))
 # plotS2<-plotS2[order(data)]
-P2<-ggarrange(plotlist=plotS2,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = c("I","J","K","L","M","N","O","P"),legend.grob = y)
+P2<-ggarrange(plotlist=plotS2,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "auto",legend.grob = y)
 
-plotS <- furrr::future_map(df_norm,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE,simulations=FALSE)))
+plotS <- furrr::future_map(df_norm1,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=TRUE,show_results=TRUE,Peptide=FALSE,simulations=FALSE)))
 check<-ggplot2::ggplot_build(plotS[[1]])
 y<-get_legend(check$plot)
 # data<-unlist(lapply(plotS,function(x) x$labels$title))
@@ -8783,7 +8788,7 @@ pdf("PEPTIDE_UNFILTERED_NO_IMAATSA.pdf",encoding="CP1253.enc",compress=FALSE,wid
 P2
 dev.off()
 
-plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=TRUE,show_results=FALSE,Peptide=TRUE,simulations=TRUE)))
+plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=TRUE,simulations=FALSE)))
 check<-ggplot2::ggplot_build(plotS2[[1]][[1]])
 y<-get_legend(check$plot)
 
