@@ -264,7 +264,9 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
         PSMs<-PSMs%>% dplyr::select(sample_id,sample_name) %>% unique(.)
       }
       df3<-dplyr::bind_rows(df3) 
-      PSMs<-PSMs%>% dplyr::rename("sample_id"="File.ID")
+      if(!any(names(PSMs)=="sample_id")){
+        PSMs<-PSMs%>% dplyr::rename("sample_id"="File.ID")
+      }
       names<-dplyr::intersect(names(PSMs),names(df3))
       df2<-df3 %>% dplyr::right_join(PSMs,by=names)
       if(isTRUE(Peptide)){
