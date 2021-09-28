@@ -79,6 +79,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
   }
   #read_PSMS and proteins
   Proteins<-parallel::mclapply(f,read_xl,mc.cores = availableCores())
+  Proteins<-lapply(Proteins,function(x) x %>% dplyr::select(-tidyr::starts_with("Found")))
   PSMs<-parallel::mclapply(h,read_xl,mc.cores = availableCores())
   
   if (isTRUE(Peptide)){ #if this is a PSM of peptide group file
@@ -313,20 +314,24 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
     }
     return(df2)
   }else{ #if this is a protein file
+    PSMs<-dplyr::bind_rows(PSMs)
+    PSMs$dataset<-"treated"
+    PSMs[str_detect(PSMs$Spectrum.File,solvent),"dataset"]<-"vehicle"
     i<-1
     #Select protein columns
     if(any(names(Proteins)=="File.ID")){
-      Proteins<-dplyr::bind_rows(Proteins) %>% dplyr::select("Accession","File.ID","MW.kDa.","Biological.Process","Molecular.Function","Cellular.Component","Coverage.",tidyselect::starts_with('Abundance')|tidyselect::starts_with('1')) %>% 
+      Proteins<-dplyr::bind_rows(Proteins) %>% dplyr::select("Accession","File.ID","MW.kDa.","Biological.Process","Molecular.Function","Cellular.Component","Coverage.",tidyselect::starts_with('Abundance')|tidyselect::starts_with('1'),"Modifications") %>% 
         dplyr::rename("Cell_Component"="Cellular.Component","MW_kDa"="MW.kDa.","Bio_Process"="Biological.Process","Coverage"="Coverage.")
     }else{
-      Proteins<-dplyr::bind_rows(Proteins) %>% dplyr::select("Accession","MW.kDa.","Biological.Process","Molecular.Function","Cellular.Component","Coverage.",tidyselect::starts_with('Abundance')|tidyselect::starts_with('1')) %>% 
+      Proteins<-dplyr::bind_rows(Proteins) %>% dplyr::select("Accession","MW.kDa.","Biological.Process","Molecular.Function","Cellular.Component","Coverage.",tidyselect::starts_with('Abundance')|tidyselect::starts_with('1'),"Modifications") %>% 
         dplyr::rename("Cell_Component"="Cellular.Component","MW_kDa"="MW.kDa.","Bio_Process"="Biological.Process","Coverage"="Coverage.")
       
     }
     #Wide to long for proteins
     df2<-data.table(dplyr::bind_rows(Proteins))
+    
     df3<-melt(data = df2, 
-              id.vars = c("Accession","MW_kDa","Cell_Component","Bio_Process","Coverage"),
+              id.vars = c("Accession","MW_kDa","Cell_Component","Bio_Process","Coverage","Modifications"),
               measure.vars = names(df2)[grepl( "Abundance" , names( df2 ) )],
               variable.name = "id",
               value.name = "value")
@@ -354,6 +359,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
     dfP<-data.frame(dfP) %>% 
       dplyr::mutate(temp_ref=stringr::str_extract(id,find)) %>%
       dplyr::select(-id,-value)
+    dfP<-dfP %>% dplyr::filter(temp_ref=="126")
     #round up values for missing data
     num<-length(unique(dfP$temp_ref))
     #Join protein and PSM file
@@ -364,7 +370,14 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
                                                                                                                       missing_pct=100*sum(is.na(value),na.rm=TRUE)/num)})
     
     df_raw_D_R<-dplyr::bind_rows(Protein) %>% dplyr::filter(temp_ref=="126") %>% dplyr::mutate(rank=dplyr::ntile(value,3))%>% dplyr::select(sample_id,Accession,rank)
-    df2<-dplyr::bind_rows(Protein) %>% dplyr::right_join(df_raw_D_R,by=c('sample_id','Accession','sample_name'))
+    Protein<-data.table(dplyr::bind_rows(Protein))
+    df_raw_D_R<-data.table(df_raw_D_R) %>% dplyr::filter(!is.na(rank)) %>% distinct(.)
+    df_raw_D_R<-df_raw_D_R[!grepl(";", df_raw_D_R$Accession),]
+    Protein<-Protein %>% dplyr::filter(!is.na(id)) %>% distinct(.)
+    names<-dplyr::intersect(names(df_raw_D_R),names(Protein))
+    setkeyv(df_raw_D_R,cols=names)
+    setkeyv(Protein,cols=names)
+    df2<-data.frame(data.table::merge.data.table(Protein,df_raw_D_R))
     
     
     
@@ -8840,7 +8853,7 @@ hi<-purrr::map(df_norm1[7],function(x) runTPP(x,df.temps))
 # f<-"C:/Users/figue/OneDrive - Northeastern University/CETSA R/CP_Exploris_20200811_DMSOvsMEKi_carrier_FAIMS_PhiSDM_PEPTIDES.xlsx"
 #df_raw <- read_cetsa("~/Files/Scripts/Files/Zebra","~/Files/Scripts/Files/Zebra","_Proteins",Peptide=TRUE,Batch=TRUE,CFS=FALSE,solvent="Control")     
 #df_raw <- read_cetsa("~/Files/Scripts/Files/Covid","~/Files/Scripts/Files/Covid","_Proteins",Peptide=FALSE,CFS=FALSE,Batch=FALSE)                                                              
-df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS/Shared","~/Files/Scripts/Files/CONSENSUS/Shared","_Proteins",Peptide=TRUE,Batch=FALSE,solvent="DMSO")                                                              
+df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS/Shared","~/Files/Scripts/Files/CONSENSUS/Shared","_Proteins",Peptide=FALSE,Batch=FALSE,solvent="DMSO")                                                              
 #df_raw <- read_cetsa("~/CONSENSUS11","~/CONSENSUS11","_Proteins",Peptide=FALSE,Batch=FALSE,solvent="DMSO")                                                              
 
 #saveRDS(df_raw,"df_raw.RDS")
