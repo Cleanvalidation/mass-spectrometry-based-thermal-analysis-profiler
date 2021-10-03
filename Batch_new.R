@@ -57,7 +57,7 @@ theme_set(theme_bw())
 #' @importFrom tidyr gather
 #' @importFrom stringr stringr::str_extract
 #' @export
-read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batch=TRUE,CFS=TRUE,solvent="DMSO"){
+read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batch=TRUE,CFS=TRUE,solvent="DMSO",CARRIER=TRUE){
   
   file.list<-protein_path
   i=1
@@ -312,6 +312,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
         
       }
     }
+    df2<-df2 %>% distinct(.)
     return(df2)
   }else{ #if this is a protein file
     PSMs<-dplyr::bind_rows(PSMs)
@@ -320,10 +321,10 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
     i<-1
     #Select protein columns
     if(any(names(Proteins)=="File.ID")){
-      Proteins<-dplyr::bind_rows(Proteins) %>% dplyr::select("Accession","File.ID","MW.kDa.","Biological.Process","Molecular.Function","Cellular.Component","Coverage.",tidyselect::starts_with('Abundance')|tidyselect::starts_with('1'),"Modifications") %>% 
+      Proteins<-dplyr::bind_rows(Proteins) %>% dplyr::select("Accession","File.ID","MW.kDa.","Biological.Process","Molecular.Function","Cellular.Component","Coverage.",tidyselect::starts_with('Abundance.')|tidyselect::starts_with('1'),"Modifications") %>% 
         dplyr::rename("Cell_Component"="Cellular.Component","MW_kDa"="MW.kDa.","Bio_Process"="Biological.Process","Coverage"="Coverage.")
     }else{
-      Proteins<-dplyr::bind_rows(Proteins) %>% dplyr::select("Accession","MW.kDa.","Biological.Process","Molecular.Function","Cellular.Component","Coverage.",tidyselect::starts_with('Abundance')|tidyselect::starts_with('1'),"Modifications") %>% 
+      Proteins<-dplyr::bind_rows(Proteins) %>% dplyr::select("Accession","MW.kDa.","Biological.Process","Molecular.Function","Cellular.Component","Coverage.",tidyselect::starts_with('Abundance.')|tidyselect::starts_with('1'),"Modifications") %>% 
         dplyr::rename("Cell_Component"="Cellular.Component","MW_kDa"="MW.kDa.","Bio_Process"="Biological.Process","Coverage"="Coverage.")
       
     }
@@ -347,7 +348,10 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
       }
       
     }else{
-      dfP<-data.table(dplyr::bind_rows(PSMs) %>% dplyr::rename("Accession"="Protein.Accessions","sample_name"="Spectrum.File","sample_id"="sample"))
+      dfP<-data.table(dplyr::bind_rows(PSMs) %>% dplyr::rename("Accession"="Protein.Accessions","sample_name"="Spectrum.File"))
+      if(any(names(dfP)=="File.ID")){
+        dfP <-dfP %>% dplyr::rename("sample_id"="File.ID")
+      }
     }
     dfP<-melt(data = dfP, 
               id.vars = c("Accession","sample_name","sample_id"),
@@ -359,20 +363,31 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
     dfP<-data.frame(dfP) %>% 
       dplyr::mutate(temp_ref=stringr::str_extract(id,find)) %>%
       dplyr::select(-id,-value)
-    dfP<-dfP %>% dplyr::filter(temp_ref=="126")
+    if(isTRUE(CARRIER)){
+      dfP<-dfP %>% dplyr::filter(!temp_ref=="131C") %>%
+        dplyr::select(-temp_ref) %>% distinct(.)
+      df3<-df3 %>% dplyr::filter(!temp_ref=="131C")
+    }
+    names<-dplyr::intersect(names(dfP),names(df3))
     #round up values for missing data
     num<-length(unique(dfP$temp_ref))
     #Join protein and PSM file
-    Protein<-df3 %>% dplyr::right_join(dfP,by=c("Accession","sample_id","temp_ref"))
+    Protein<-df3 %>% dplyr::right_join(dfP,by=names)
     Protein<-Protein %>% dplyr::mutate(sample_name=str_remove(sample_name,"[[:digit]]+[:punct:][[:digit]]+.raw"))
     Protein<-Protein %>% dplyr::group_split(Accession,sample_id,sample_name)
-    Protein<-purrr::map(Protein,function(x){ x %>% dplyr::group_by(Accession,sample_id,sample_name) %>% dplyr::mutate(missing=is.na(value),
-                                                                                                                      missing_pct=100*sum(is.na(value),na.rm=TRUE)/num)})
+    Protein<-purrr::map(Protein,function(x){ x %>% dplyr::group_by(Accession,sample_id,sample_name) %>% distinct(.) %>% dplyr::mutate(missing=is.na(value),
+                                                                                                                                      missing_pct=100*sum(is.na(value),na.rm=TRUE)/nrow(.))})
     
-    df_raw_D_R<-dplyr::bind_rows(Protein) %>% dplyr::filter(temp_ref=="126") %>% dplyr::mutate(rank=dplyr::ntile(value,3))%>% dplyr::select(sample_id,Accession,rank)
+    df_raw_D_R<-dplyr::bind_rows(Protein) %>% dplyr::filter(temp_ref=="126") %>%
+      dplyr::mutate(rank=dplyr::ntile(value,3))%>%
+      dplyr::select(sample_id,Accession,rank,-temp_ref) %>% distinct(.)
+    
     Protein<-data.table(dplyr::bind_rows(Protein))
+    
     df_raw_D_R<-data.table(df_raw_D_R) %>% dplyr::filter(!is.na(rank)) %>% distinct(.)
+    #remove shared protein accessions
     df_raw_D_R<-df_raw_D_R[!grepl(";", df_raw_D_R$Accession),]
+    
     Protein<-Protein %>% dplyr::filter(!is.na(id)) %>% distinct(.)
     names<-dplyr::intersect(names(df_raw_D_R),names(Protein))
     setkeyv(df_raw_D_R,cols=names)
@@ -407,7 +422,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
     df<-lapply(df,function(x) x %>% tidyr::unnest(cols="sample_id"))
     df<-dplyr::bind_rows(df)
     
-    df_raw_D_R<-df %>% dplyr::filter(temp_ref=="126") %>% dplyr::mutate(rank=dplyr::ntile(value,3))%>% dplyr::select(sample_id,Accession,rank)
+    df_raw_D_R<-df %>% dplyr::filter(temp_ref=="126") %>% dplyr::mutate(rank=dplyr::ntile(value,3))%>% dplyr::select(sample_id,Accession,rank,-temp_ref)
     df<-df %>% dplyr::left_join(df_raw_D_R,by=c('sample_id','Accession'))
     df2<-df %>% dplyr::group_by(Accession,sample_id)
     df2<-df2 %>%  dplyr::mutate(missing_pct=100*sum(as.numeric(is.na(value)))/length(value)) %>% ungroup(.)
@@ -441,6 +456,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
         df2$sample_name<-str_split_fixed(df2$sample_name[1],"_",7)[,4]
       }
     }
+    df2<-df2 %>% distinct(.)
     return(df2)
     
   }
@@ -482,11 +498,11 @@ clean_cetsa <- function(df, temperatures = NULL, samples = NULL,Peptide=FALSE,so
   }
   df <- df %>% dplyr::ungroup(.)
   if(any(ncol(df.temps)>2)){
-    if(any(names(df)=="dataset")){
-      df <- df %>% dplyr::select(-dataset,-sample_name)
-    }else{
-      df <- df %>% dplyr::select(-sample_name)
-    }
+    # if(any(names(df)=="dataset")){
+    #   df <- df %>% dplyr::select(-dataset,-sample_name)
+    # }else{
+    #   df <- df %>% dplyr::select(-sample_name)
+    # }
     col_n<-dplyr::intersect(names(df),names(temperatures))
     df<-data.table(df)
     temperatures<-data.table(temperatures)
@@ -494,9 +510,10 @@ clean_cetsa <- function(df, temperatures = NULL, samples = NULL,Peptide=FALSE,so
     setkeyv(temperatures,cols=col_n)
     #right_join
     df_ <- data.frame(merge(df,temperatures, all.y=TRUE))
-    
-    df$sample_name<-df$dataset
-    df<-df %>% dplyr::mutate(dataset=ifelse(df$sample_name==solvent,"vehicle","treated"))
+    if(!any(names(df)=="sample_name")){
+      df$sample_name<-df$dataset
+      df<-df %>% dplyr::mutate(dataset=ifelse(df$sample_name==solvent,"vehicle","treated"))
+    }
   }else if(!is.na(samples)){
     df <- df %>%
       dplyr::left_join(samples, by = intersect(names(df),names(samples)))
@@ -595,8 +612,9 @@ clean_cetsa <- function(df, temperatures = NULL, samples = NULL,Peptide=FALSE,so
       #dplyr::select(Accession, sample_id, temperature,value,rank,missing,missing_pct,sample_name) %>% 
       dplyr::filter(!is.na(temperature),!is.na(value)) %>%
       dplyr::group_by(Accession,sample_id) %>%
+      
       dplyr::mutate(rank=rank,missing=missing,
-                    value = value / value[temperature == min(temperatures,na.rm=TRUE)]) %>% distinct(.) %>%  ungroup(.)
+                    value = value / value[temperature == min(temperatures$temperature,na.rm=TRUE)]) %>% distinct(.) %>%  ungroup(.)
     
     if(any(names(df)=="sample_id") & !isTRUE(any(names(df)=="sample"))){
       df<-df %>% dplyr::rename("sample"="sample_id")
@@ -608,14 +626,14 @@ clean_cetsa <- function(df, temperatures = NULL, samples = NULL,Peptide=FALSE,so
     if(str_detect(unique(df$sample_name),"Fraction")){
       df$Fraction<-str_extract(df$sample_name,"Fraction_[[:digit:]]+")
       df$Fraction<-str_extract(df$sample_name,"[[:digit:]]+")
-      df$sample_name<-str_remove(df$sample_name,"Fraction_[[:digit:]]+")
+      
+      df$data<-df$sample_name
+      df$dataset<-str_extract(df$sample_name,paste0(solvent,"_[[:digit:]]+"))
+      df$sample_name<-str_remove(df$sample_name,paste0(solvent,"_[[:digit:]]+"))
+      df$dataset<-str_extract(df$dataset,solvent)
+      df$dataset<-ifelse(!is.na(df$dataset),"vehicle","treated")
+      df$sample_name<-str_split_fixed(df$sample_name[1],"_",7)[,4]
     }
-    df$data<-df$sample_name
-    df$dataset<-str_extract(df$sample_name,paste0(solvent,"_[[:digit:]]+"))
-    df$sample_name<-str_remove(df$sample_name,paste0(solvent,"_[[:digit:]]+"))
-    df$dataset<-str_extract(df$dataset,solvent)
-    df$dataset<-ifelse(!is.na(df$dataset),"vehicle","treated")
-    df$sample_name<-str_split_fixed(df$sample_name[1],"_",7)[,4]
   }
   if(any(names(df)=="uniqueID")){
     df<-df %>% dplyr::rename("Accession"="uniqueID")
@@ -693,7 +711,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     df$Accession<-as.factor(df$Accession)
     #rank by intensity at the lowest temperature channel
     df_filt<-df %>% dplyr::filter(temp_ref=="126") %>% dplyr::mutate(rank=dplyr::ntile(dplyr::desc(I),3)) %>%
-      dplyr::select(Accession,Annotated_Sequence,I,sample,dataset,sample_name,rank)
+      dplyr::select(Accession,Annotated_Sequence,I,sample,dataset,sample_name,rank,-temp_ref)
     df_filt$rank<-as.factor(df_filt$rank)
     
     #select top3 top5 and top10 peptides according to rank
@@ -841,8 +859,8 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
                                        algorithm = "port",
                                        lower = c(0.0,1e-5,1e-5),
                                        upper = c(1.5,15000,300),
-                                       control = nls.control(maxiter = 50))
-      )))
+                                       control = nls.control(maxiter = 50)
+      ))))
     df.fit3<-df.fit3 %>% dplyr::group_by(sample) %>% dplyr::group_split()
     df.fit3<-df.fit3 %>% purrr::keep(function(x) class(x$fit[[1]])=='nls')
     df.fit3<-df.fit3 %>% purrr::keep(function(x) class(x$fit[[1]])=='nls')
@@ -860,8 +878,8 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
                                        algorithm = "port",
                                        lower = c(0.0,1e-5,1e-5),
                                        upper = c(1.5,15000,300),
-                                       control = nls.control(maxiter = 50))
-      )))
+                                       control = nls.control(maxiter = 50)
+      ))))
     df.fit5<-df.fit5 %>% dplyr::group_by(sample) %>% dplyr::group_split()
     df.fit5<-df.fit5 %>% purrr::keep(function(x) class(x$fit[[1]])=='nls')
     df.fit5<-dplyr::bind_rows(df.fit5)
@@ -878,8 +896,8 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
                                        algorithm = "port",
                                        lower = c(0.0,1e-5,1e-5),
                                        upper = c(1.5,15000,300),
-                                       control = nls.control(maxiter = 50))
-      )))
+                                       control = nls.control(maxiter = 50)
+      ))))
     df.fit10<-df.fit10 %>% dplyr::group_by(sample) %>% dplyr::group_split()
     df.fit10<-df.fit10 %>% purrr::keep(function(x) class(x$fit[[1]])=='nls')
     df.fit10<-dplyr::bind_rows(df.fit10)
@@ -1010,21 +1028,31 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     df.median <- df %>%
       dplyr::group_by(temperature) %>%
       dplyr::mutate(value = median(I,na.rm=TRUE)) %>% dplyr::ungroup(.)
+    #
+    # nls3 = purrr::quietly(.f = nls)
+    # qtwolevel_fun = function(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl
+    #                          start = c(Pl=0, a = 550, b = 10)
+    #                          data = list(x=temperature,y=value)
+    #                          na.action = na.exclude
+    #                          algorithm = "port"
+    #                          lower = c(0.0,1e-5,1e-5)
+    #                          upper = c(1.5,15000,300)
+    #                          control = nls.control(maxiter = 50))
     
     
     ## fit curves to the median data for each sample (F1 through FN)
     df.fit <- df.median %>%
       dplyr::group_by(sample) %>% 
-      dplyr::mutate(fit = list(try(nls(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl,
-                                       start = c(Pl=0, a = 550, b = 10),
-                                       data = list(x=temperature,y=value),
-                                       na.action = na.exclude,
-                                       algorithm = "port",
-                                       lower = c(0.0,1e-5,1e-5),
-                                       upper = c(1.5,15000,300),
-                                       control = nls.control(maxiter = 50))
-      )))
-    
+      dplyr::mutate(fit=list(try(cetsa_fit(.,norm=FALSE))))
+    # dplyr::mutate(fit = list(try(nls(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl,
+    #                                  start = c(Pl=0, a = 550, b = 10),
+    #                                  data = list(x=temperature,y=value),
+    #                                  na.action = na.exclude,
+    #                                  algorithm = "port",
+    #                                  lower = c(0.0,1e-5,1e-5),
+    #                                  upper = c(1.5,15000,300),
+    #                                  control = nls.control(maxiter = 50))
+    #)))
     df.fit<-df.fit %>% dplyr::group_by(sample) %>% dplyr::group_split()
     df.fit<-df.fit %>% purrr::keep(function(x) class(x$fit[[1]])=='nls')
     df.fit<-dplyr::bind_rows(df.fit)
@@ -1035,7 +1063,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     d<-df.fit %>% dplyr::group_split(sample)
     check <-purrr::map(d,function(x) x [1:10,])
     
-    check<-purrr::map(check,function(x) x %>% unnest(c(fitted_values)) %>% unique(.))#check<-purrr::map(d,function(x) x %>% unnest(c(fitted_values)) %>% unique(.) %>% dplyr::mutate(temperature=temperatures))
+    check<-purrr::map(check,function(x) x %>% unnest(fitted_values) %>% unique(.))#check<-purrr::map(d,function(x) x %>% unnest(c(fitted_values)) %>% unique(.) %>% dplyr::mutate(temperature=temperatures))
     check<-dplyr::bind_rows(check) %>% unique(.) 
     
     test<-df %>% dplyr::right_join(check,c('sample','temperature'))
@@ -1043,6 +1071,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     
     ## calculate ratios between the fitted curves and the median values
     df.out <- test %>% dplyr::group_by(sample,temperature) %>% 
+      dplyr::rowwise() %>% 
       dplyr::mutate(correction = ifelse(is.na(fitted_values/I),NA,fitted_values/I)) %>%
       dplyr::select('temperature','correction','sample') %>% unique(.) %>% dplyr::ungroup(.) %>% 
       dplyr::group_by(sample) %>% 
@@ -1058,8 +1087,9 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     
     
     df3 <- dplyr::bind_rows(df3)%>% 
-      dplyr::mutate(norm_value= ifelse(is.na(correction),I,I*correction)) %>% dplyr::ungroup(.) %>% dplyr::select(-I)
-    df3<-df3 %>% dplyr::mutate(norm_value=ifelse(is.na(norm_value)),NA,I)
+      dplyr::mutate(norm_value= ifelse(is.na(.$correction),.$I,.$I*correction)) %>% dplyr::ungroup(.) 
+    df3<-df3 %>% dplyr::mutate(norm_value=ifelse(is.na(.$norm_value),"NA",I)) %>% 
+      dplyr::select(-I)
     df3 <- df3 %>% 
       dplyr::rename("uniqueID"="Accession", "C"="temperature","I"="norm_value")
     df3<-df3 %>% dplyr::ungroup(.) %>% dplyr::select(-correction)
@@ -1487,7 +1517,7 @@ upPSM_SN<-function(df_){
   df_1<-dplyr::bind_rows(df_1)
   
   rank<-df_1 %>% dplyr::filter(C=="126") %>% dplyr::mutate(rank=dplyr::ntile(I,3)) %>% 
-    dplyr::select("uniqueID","dataset","sample_name","rank","Annotated_Sequence")
+    dplyr::select("uniqueID","dataset","sample_name","rank","Annotated_Sequence",-temp_ref)
   df_1<-df_1 %>% dplyr::right_join(rank,by=c("uniqueID","dataset","sample_name","Annotated_Sequence"))
   df_1$SNrank<-dplyr::ntile(df_1$S_N,3)
   minSNrank<-min(df_1[df_1$SNrank==3,'S_N'],na.rm=TRUE)
@@ -1651,7 +1681,7 @@ upMV <- function(df_,condition,N,plot_multiple=FALSE,PSMs=FALSE){
       df_1<-dplyr::bind_rows(df_1)
       
       rank<-df_1 %>% dplyr::filter(C=="126") %>% dplyr::mutate(rank=dplyr::ntile(I,3)) %>% 
-        dplyr::select("uniqueID","dataset","sample_name","rank","Annotated_Sequence")
+        dplyr::select("uniqueID","dataset","sample_name","rank","Annotated_Sequence",-temp_ref)
       df_1<-df_1 %>% dplyr::right_join(rank,by=c("uniqueID","dataset","sample_name","Annotated_Sequence"))
       df_1$SNrank<-dplyr::ntile(df_1$S_N,3)
       minSNrank<-min(df_1[df_1$SNrank==3,'S_N'],na.rm=TRUE)
@@ -8853,7 +8883,7 @@ hi<-purrr::map(df_norm1[7],function(x) runTPP(x,df.temps))
 # f<-"C:/Users/figue/OneDrive - Northeastern University/CETSA R/CP_Exploris_20200811_DMSOvsMEKi_carrier_FAIMS_PhiSDM_PEPTIDES.xlsx"
 #df_raw <- read_cetsa("~/Files/Scripts/Files/Zebra","~/Files/Scripts/Files/Zebra","_Proteins",Peptide=TRUE,Batch=TRUE,CFS=FALSE,solvent="Control")     
 #df_raw <- read_cetsa("~/Files/Scripts/Files/Covid","~/Files/Scripts/Files/Covid","_Proteins",Peptide=FALSE,CFS=FALSE,Batch=FALSE)                                                              
-df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS/Shared","~/Files/Scripts/Files/CONSENSUS/Shared","_Proteins",Peptide=FALSE,Batch=FALSE,solvent="DMSO")                                                              
+df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS/Shared+ProcessedBulk","~/Files/Scripts/Files/CONSENSUS/Shared+ProcessedBulk","_Proteins",Peptide=FALSE,Batch=FALSE,solvent="DMSO",CARRIER=TRUE)                                                              
 #df_raw <- read_cetsa("~/CONSENSUS11","~/CONSENSUS11","_Proteins",Peptide=FALSE,Batch=FALSE,solvent="DMSO")                                                              
 
 #saveRDS(df_raw,"df_raw.RDS")
@@ -9049,7 +9079,7 @@ df.s <- function(data_path,n,rep_,bio_,vehicle_name,treated_name,Batch=FALSE,PSM
 df.samples<-df.s(f,dplyr::bind_rows(df_raw),3,2,"DMSO","TREATED",Batch=TRUE,PSM=TRUE)
 #Peptides
 df_raw<-dplyr::bind_rows(df_raw) %>% group_split(sample_name)
-df_clean <- furrr::future_map(df_raw1,function(x) try(clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=TRUE,solvent="DMSO",CFS=TRUE,CARRIER=TRUE)))#assgns temperature and replicate values
+df_clean <- furrr::future_map(df_raw,function(x) try(clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=FALSE,solvent="DMSO",CFS=TRUE,CARRIER=TRUE)))#assgns temperature and replicate values
 
 #Covid data
 #df_clean<-purrr::map(seq_along(df_clean),function(x) rbind(df_clean[[1]],x))
@@ -9057,7 +9087,7 @@ df_clean <- furrr::future_map(df_raw1,function(x) try(clean_cetsa(x, temperature
 #df_clean<-dplyr::bind_rows(df_clean) %>% dplyr::group_split(sample_name)
 
 #normalize data
-df_norm <- furrr::future_map(df_clean,function(x) try(normalize_cetsa(x, temperatures=df.temps$temperature,Peptide=TRUE,filters=FALSE,CARRIER=TRUE))) #normalizes according to Franken et. al. without R-squared filter
+df_norm <- furrr::future_map(df_clean,function(x) try(normalize_cetsa(x, temperatures=df.temps$temperature,Peptide=FALSE,filters=FALSE,CARRIER=TRUE))) #normalizes according to Franken et. al. without R-squared filter
 
 # rm(df_raw,df_clean)
 
