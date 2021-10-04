@@ -8426,7 +8426,7 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
       f<-f %>% 
         dplyr::select(uniqueID,sample,sample_name,Tm,AUC,rsq,Fvals,pValue,pAdj,dataset,fStatistic,dTm,p_dTm,dRSS)
       f$sample_name<-str_replace(f$sample_name,"S","\u03A6")
-      f<-f %>% dplyr::group_split(uniqueID)
+      f<-dplyr::bind_rows(f)
       
       f$diffexpressed <- "Not Shifted"
       f$diffexpressed[f$dTm > 0] <- "Stabilized Tm"
@@ -8544,8 +8544,6 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
       f<-f %>% purrr::keep(function(x) nrow(x)>0)
       
       f<-dplyr::bind_rows(f)
-      f<-f %>% dplyr::group_split(uniqueID)
-      #f<-f %>% purrr::keep(function(x) any(x$dataset %in% c("vehicle")) & any(x$dataset%in% c("treated")))
       
       
     }else if (isTRUE(Trilinear)){#if this is a trilinear result
@@ -8619,8 +8617,6 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
       distinct(.) %>% dplyr::group_split(uniqueID,sample_name)
     
     f<-purrr::map(f,function(x) x %>% dplyr::mutate(stabilized=as.factor(ifelse(dTm>0 & ptest<0.01,"Stabilized Shift",ifelse(dTm<0 & ptest<0.01,"Destabilized Shift","No")))))
-    
-    f<-purrr::map(f,function(x) x[1,])
     
     f<-dplyr::bind_rows(f) 
     f$sample_name<-str_replace(f$sample_name,"S","\u03A6")
@@ -9389,7 +9385,7 @@ dev.off()
 
 #plot Number of curves
 Check<-UpSet_curves(plotS2,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,filter=TRUE)
-pdf("Number_of_curves_upset_splines_PEPTIDE_FILTERED.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
+pdf("CFS_Number_of_curves_upset_splines_PROTEIN.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
 Check[[1]]
 dev.off()
 
