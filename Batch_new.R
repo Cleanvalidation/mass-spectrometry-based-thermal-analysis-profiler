@@ -7083,17 +7083,15 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
       dplyr::select(-C,-I,-temp_ref,-CV_pct,-missing_pct) %>% dplyr::filter(!is.na(sample_name)) %>%
       dplyr::group_split(uniqueID,dataset,sample_name,sample)
     
-    f<-purrr::map(f,function(x) x %>%
-                    group_by(sample,dataset) %>%
-                    dplyr::summarise(uniqueID=uniqueID,
-                                     dataset=dataset,
-                                     sample_name=sample_name,
-                                     p_dTm=p_dTm,
-                                     sample=sample,
-                                     Tm=dTm,#for peptide groups, caculate averages for parameters
-                                     rss=mean(rss,na.rm=TRUE),
-                                     rsq=mean(rsq,na.rm=TRUE),
-                                     AUC=mean(AUC,na.rm=TRUE)) %>% 
+    f<-purrr::map(f,function(x) x %>% group_by(sample,dataset) %>% dplyr::summarise(uniqueID=uniqueID,
+                                                                                    dataset=dataset,
+                                                                                    sample_name=sample_name,
+                                                                                    p_dTm=p_dTm,
+                                                                                    sample=sample,
+                                                                                    Tm=mean(Tm,na.rm=TRUE),#for peptide groups, caculate averages for parameters
+                                                                                    rss=mean(rss,na.rm=TRUE),
+                                                                                    rsq=mean(rsq,na.rm=TRUE),
+                                                                                    AUC=mean(AUC,na.rm=TRUE)) %>% 
                     ungroup(.) %>% distinct(.))
   }else if(!isTRUE(Peptide)){
     f<-dplyr::bind_rows(f)%>% dplyr::mutate(sample_name=sample_name,dataset=as.factor(dataset)) %>% 
@@ -7109,7 +7107,7 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
                                      sample=sample,
                                      Coverage=Coverage,
                                      MW_kDa=MW_kDa,
-                                     Tm=dTm,
+                                     Tm=mean(Tm,na.rm=TRUE),#for peptide groups, caculate averages for parameters
                                      rss=mean(rss,na.rm=TRUE),
                                      rsq=mean(rsq,na.rm=TRUE),
                                      AUC=mean(AUC,na.rm=TRUE)) %>%
@@ -7127,7 +7125,7 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
     f<-purrr::map(f,function(x) x %>% dplyr::summarise(uniqueID=uniqueID,
                                                        dataset=dataset,
                                                        M1=M1,
-                                                       Tm=dTm,#for peptide groups, caculate averages for parameters
+                                                       Tm=mean(Tm,na.rm=TRUE),#for peptide groups, caculate averages for parameters
                                                        rss=sum(rss,na.rm=TRUE),
                                                        rsq=mean(rsq,na.rm=TRUE),
                                                        AUC=mean(AUC,na.rm=TRUE),
@@ -7167,7 +7165,7 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
     
     f<-purrr::map(f,function(x) x %>% dplyr::mutate(stabilized=ifelse(x$Tm>0 & p_dTm<0.01,"Stabilized","Destabilized")))
     
-    
+    f<-purrr::map(f,function(x) x[1,])
     
     f<-dplyr::bind_rows(f) 
     f$sample_name<-str_replace(f$sample_name,"S","\u03A6")
@@ -7198,7 +7196,6 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
         ggplot2::geom_label(mapping=aes(x=colors$x,y=colors$y,label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
         ggtitle("Number of fitted curves")+
         theme(legend.position="bottom", legend.box = "horizontal")
-      return(check1)
     }else{
       check1<-df_1 %>% count(sample_name) %>%
         mutate(focus = ifelse(sample_name == "C_F_E", 0.2, 0)) %>%
@@ -8257,7 +8254,6 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
   
 }
 
-
 volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FALSE,benchmark=TRUE,Fhist=TRUE,labels=FALSE,type=NA){
   f<-data.frame(f)
   
@@ -8422,12 +8418,12 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
       
       
     }else if(!isTRUE(Peptide)){
-      f<-data.frame(f) %>% distinct(.)
-      f<-f %>% 
-        dplyr::select(uniqueID,sample,sample_name,Tm,AUC,rsq,Fvals,pValue,pAdj,dataset,fStatistic,dTm,p_dTm,dRSS)
-      f$sample_name<-str_replace(f$sample_name,"S","\u03A6")
-      f<-dplyr::bind_rows(f)
       
+      f<-f %>% 
+        dplyr::select(uniqueID,sample,sample_name,dTm,AUC,rsq,fStatistic,pValue,pAdj,dataset,Fvals,p_dTm,dRSS,d1,d2,rss1,RSS)
+      f$sample_name<-str_replace(f$sample_name,"S","\u03A6")
+      
+      f<-dplyr::bind_rows(f)
       f$diffexpressed <- "Not Shifted"
       f$diffexpressed[f$dTm > 0] <- "Stabilized Tm"
       f$diffexpressed[f$dTm < 0] <- "Destabilized Tm"
@@ -8436,24 +8432,29 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
       f$diffexpressed<-as.factor(f$diffexpressed)
       f$targets<-NA
       f$delabel <- NA
-      others<-as.character(f$uniqueID[which(!f$diffexpressed=="Not Shifted")])
+      others<-as.character(f$uniqueID[which(f$pAdj < 0.05)])
       f$targets[f$uniqueID %in%c("P36507","Q02750")] <- as.character(f$uniqueID[f$uniqueID %in%c("P36507","Q02750")])
       f$delabel[f$uniqueID %in%c("P36507","Q02750",others)] <- as.character(f$uniqueID[f$uniqueID %in%c("P36507","Q02750",others)])
       flevels<-data.frame(colors=c("#762a83","#af8dc3","#b35806","#7fbf7b","#1b7837"),
                           labels=c("Destabilized Shift","Destabilized Tm","Not Shifted","Stabilized Tm","Stabilized Shift"))
       flevels<-flevels %>% dplyr::filter(labels %in% unique(f$diffexpressed))
       
+      
       f<-data.frame(f)
       if(isTRUE(benchmark)){
         if(!isTRUE(Fhist)){
           check<-ggplot(data=f,mapping=aes(x=Fvals,y=-log10(pAdj),color=diffexpressed))+geom_point()+
-            geom_hline(yintercept=-log10(0.01), col="red")+
+            geom_hline(yintercept=-log10(0.05), col="red")+
             scale_color_manual("Stabilization",values=as.character(flevels$colors),labels = flevels$labels)+
             labs(x=expression(RSS["0"]-RSS["1"]),y=expression(-log["10"]*p["adj"]-value))+
+            #geom_label(aes(dTm, pAdj, label = delabel), data = f,color="black")+
+            # geom_text_repel(df_,mapping=aes(dTm, -log10(p_dTm),label=targets),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 30),
+            #                 nudge_x = 1,
+            #                 force = 2,
+            #                 box.padding = 2,
+            #                 segment.alpha = .5)+
             ggtitle(f$sample_name[1])+
-            theme(legend.position="bottom", legend.box = "horizontal")+
-            xlim(0,max(f$Fvals,na.rm=TRUE))+
-            ylim(0,4)
+            theme(legend.position="bottom", legend.box = "horizontal")
           if(isTRUE(labels)){
             if(type=="targets" | is.na(type)){
               check<-check+
@@ -8471,6 +8472,7 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
                                  segment.alpha = .5)
             }
           }
+          
         }else{
           
           check<-ggplot(f)+
@@ -8482,42 +8484,92 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
         }
       }else{
         f$sig<-sign(f$dTm)
+        # #p-val
+        # f<-f %>%
+        #   dplyr::mutate(pV = (1-stats::pf(sig*sqrt(dRSS),df1=as.numeric(f$d1[1]),df2=as.numeric(f$d2[1]))))
+        # f<-f %>% dplyr::mutate(pAdj = p.adjust(.$pV,method="BH"))
+        # 
+        # M<-median(f$dRSS,na.rm=TRUE)
+        # V<-mad(f$dRSS,na.rm=TRUE)
+        # #alternative scaling factor sig0-sq
+        # altScale<-0.5*V/M
+        # #filter out negative delta rss
+        # f<-f %>% dplyr::filter(dRSS>0)
+        # #effective degrees of freedom
+        # ed1<-MASS::fitdistr(x=f$dRSS, densfun = "chi-squared", start = list(df=1))[["estimate"]]
+        # ed2<-MASS::fitdistr(x=f$rss1, densfun = "chi-squared", start = list(df=1))[["estimate"]]
+        # #scale data
+        # f <-f %>% 
+        #   dplyr::mutate(rssDiff = .$dRSS/altScale,
+        #                 rss1 =.$rss1/altScale,
+        #                 d1=ed1,
+        #                 d2=ed2)
+        # #
+        # #new F-test
+        # f<-f %>% dplyr::mutate(Fvals=(rssDiff/rss1)*(d2/d1))
+        # 
+        # d1<-f$d1
+        # d2<-f$d2
+        # 
+        # #RSS1 numerator
+        # f$fNum<-f$dRSS/d1
+        # #Rss denominator
+        # f$fDen<-f$RSS/d2
+        # #     
+        # f$fStatistic=f$fNum/f$fDen
+        f$diffexpressed <- "Not Shifted"
+        f$diffexpressed[f$dTm > 0] <- "Stabilized Tm"
+        f$diffexpressed[f$dTm < 0] <- "Destabilized Tm"
+        f$diffexpressed[f$Fvals < f$fStatistic & f$pAdj < 0.05 & f$dTm > 0] <- "Stabilized Shift"
+        f$diffexpressed[f$Fvals < f$fStatistic & f$pAdj < 0.05 & f$dTm < 0] <- "Destabilized Shift"
+        f$diffexpressed<-as.factor(f$diffexpressed)
+        f$targets<-NA
+        f$delabel <- NA
+        others<-as.character(f$uniqueID[which(f$pAdj < 0.05)])
+        f$targets[f$uniqueID %in%c("P36507","Q02750",others)] <- as.character(f$uniqueID[f$uniqueID %in%c("P36507","Q02750",others)])
+        f$delabel[f$uniqueID %in%others] <- as.character(f$uniqueID[f$uniqueID %in%others])
+        flevels<-data.frame(colors=c("#762a83","#af8dc3","#b35806","#7fbf7b","#1b7837"),
+                            labels=c("Destabilized Shift","Destabilized Tm","Not Shifted","Stabilized Tm","Stabilized Shift"))
+        flevels<-flevels %>% dplyr::filter(labels %in% unique(f$diffexpressed))
+        f<-data.frame(f)
         if(!isTRUE(Fhist)){
           check<-ggplot(data=f,mapping=aes(y=log2(Fvals+1),x=sig*sqrt(dRSS),color=diffexpressed))+geom_point()+
-            scale_color_manual("Stabilization",values=as.character(flevels$colors),labels = flevels$labels)+
+            #geom_hline(yintercept=-log10(0.01), col="red")+ 
             labs(y=expression(-log["2"]*F["vals"]+1),x=expression(sign("k")*sqrt(RSS["0"]-RSS["1"])))+
+            scale_color_manual("Stabilization",values=as.character(flevels$colors),labels = flevels$labels)+
             ggtitle(f$sample_name[1])+
-            theme(legend.position="bottom", legend.box = "horizontal")+
-            xlim(0,max(f$Fvals,na.rm=TRUE))+
-            ylim(0,4)
+            theme(legend.position="bottom", legend.box = "horizontal")
           if(isTRUE(labels)){
-            if(type=="targets"){
+            if(type=="targets" | is.na(type)){
               check<-check+
-                geom_label_repel(f,mapping=aes(y=log2(Fvals+1),x=sig*sqrt(dRSS),label=targets),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 50),
+                geom_label_repel(f,mapping=aes(Fvals, -log10(pAdj),label=targets),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 50),
                                  nudge_x = 1,
                                  force = 3,
                                  box.padding = 3,
                                  segment.alpha = .5)
             }else{
               check<-check+
-                geom_label_repel(f,mapping=aes(y=log2(Fvals+1),x=sig*sqrt(dRSS),label=delabel),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 50),
+                geom_label_repel(f,mapping=aes(Fvals, -log10(pAdj),label=delabel),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 50),
                                  nudge_x = 1,
                                  force = 3,
                                  box.padding = 3,
                                  segment.alpha = .5)
             }
           }
+          
+          return(check)
         }else{
           check<-ggplot(f)+
-            geom_density(aes(x=Fvals),fill = "black",alpha = 0.5) +
+            geom_density(aes(x=Fvals),fill = "black",alpha = 0.5) + 
+            geom_line(aes(x=Fvals,y= df(Fvals,df1=d1,df2=d2)),color="darkred",size = 1.5) +
             theme_bw() +
             coord_cartesian(xlim=c(0,10))+
-            ggplot2::xlab("F-values")+
-            xlim(0,max(f$Fvals))
+            ggplot2::xlab("F-values")
         }
         
       }
       return(check)
+      
     }
   }else{
     if(isTRUE(Peptide)){
@@ -9384,8 +9436,8 @@ P2
 dev.off()
 
 #plot Number of curves
-Check<-UpSet_curves(plotS2,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,filter=TRUE)
-pdf("CFS_Number_of_curves_upset_splines_PROTEIN.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
+Check<-UpSet_curves(plotS2,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=TRUE,filter=TRUE)
+pdf("CFS_Number_of_curves_upset_splines_PEPTIDE_UNFILTERED.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
 Check[[1]]
 dev.off()
 
@@ -9541,7 +9593,7 @@ P3<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = 
 # check<-dplyr::bind_rows(df_norm) %>% dplyr::group_split(time_point)
 # plotS2 <- purrr::map(check,function(x) try(plot_Splines(x,"P0DTC2",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
 
-plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=TRUE,show_results=TRUE,Peptide=FALSE,simulations=FALSE,CARRIER=TRUE)))
+plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=TRUE,show_results=TRUE,Peptide=TRUE,simulations=FALSE,CARRIER=TRUE)))
 saveRDS(plotS2,"CFS_Peptide_Shared_Bulk_unfiltered_Consensus_data.RDS")
 check<-ggplot2::ggplot_build(plotS2[[2]])
 y<-get_legend(check$plot)
@@ -9584,18 +9636,18 @@ P1
 P2
 dev.off()
 #plot volcano for unfiltered data
-check<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,benchmark=TRUE,Fhist=TRUE,labels=TRUE)))
+check<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=TRUE,benchmark=TRUE,Fhist=TRUE,labels=TRUE)))
 check_<-ggplot2::ggplot_build(check[[1]])#fT is tied to benchmark
 y<-get_legend(check_$plot)
 
 P1<-ggarrange(plotlist=check,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-check2<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,benchmark=TRUE,Fhist=FALSE,labels=TRUE,type="targets")))
+check2<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=TRUE,benchmark=TRUE,Fhist=FALSE,labels=TRUE,type="targets")))
 check_<-ggplot2::ggplot_build(check2[[1]])
 y<-get_legend(check_$plot)
 P2<-ggarrange(plotlist=check2,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-pdf("CFS_volcano_splines_hist_protein_targets.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+pdf("CFS_volcano_splines_hist_peptide_unfiltered_targets.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 P1
 P2
 dev.off()
@@ -9628,8 +9680,8 @@ pdf("volcano_TPP_Protein_panels_Protein_iMAATSA_Filters.pdf",encoding="CP1253.en
 P1
 dev.off()
 #ot Number of curves
-Check<-UpSet_curves(plotS2,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,filter=FALSE)
-pdf("CFS_Number_of_curves_upset_splines_PROTEIN_unfiltered.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+Check<-UpSet_curves(plotS2,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=TRUE,filter=FALSE)
+pdf("CFS_Number_of_curves_upset_splines_PEPTIDE_filtered.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 Check
 dev.off()
 ###################################################                                                                                                                                                                                                                                                                                                                            ##################################################
