@@ -7083,15 +7083,17 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
       dplyr::select(-C,-I,-temp_ref,-CV_pct,-missing_pct) %>% dplyr::filter(!is.na(sample_name)) %>%
       dplyr::group_split(uniqueID,dataset,sample_name,sample)
     
-    f<-purrr::map(f,function(x) x %>% group_by(sample,dataset) %>% dplyr::summarise(uniqueID=uniqueID,
-                                                                                    dataset=dataset,
-                                                                                    sample_name=sample_name,
-                                                                                    p_dTm=p_dTm,
-                                                                                    sample=sample,
-                                                                                    Tm=mean(Tm,na.rm=TRUE),#for peptide groups, caculate averages for parameters
-                                                                                    rss=mean(rss,na.rm=TRUE),
-                                                                                    rsq=mean(rsq,na.rm=TRUE),
-                                                                                    AUC=mean(AUC,na.rm=TRUE)) %>% 
+    f<-purrr::map(f,function(x) x %>%
+                    group_by(sample,dataset) %>%
+                    dplyr::summarise(uniqueID=uniqueID,
+                                     dataset=dataset,
+                                     sample_name=sample_name,
+                                     p_dTm=p_dTm,
+                                     sample=sample,
+                                     Tm=dTm,#for peptide groups, caculate averages for parameters
+                                     rss=mean(rss,na.rm=TRUE),
+                                     rsq=mean(rsq,na.rm=TRUE),
+                                     AUC=mean(AUC,na.rm=TRUE)) %>% 
                     ungroup(.) %>% distinct(.))
   }else if(!isTRUE(Peptide)){
     f<-dplyr::bind_rows(f)%>% dplyr::mutate(sample_name=sample_name,dataset=as.factor(dataset)) %>% 
@@ -7107,7 +7109,7 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
                                      sample=sample,
                                      Coverage=Coverage,
                                      MW_kDa=MW_kDa,
-                                     Tm=mean(Tm,na.rm=TRUE),#for peptide groups, caculate averages for parameters
+                                     Tm=dTm,
                                      rss=mean(rss,na.rm=TRUE),
                                      rsq=mean(rsq,na.rm=TRUE),
                                      AUC=mean(AUC,na.rm=TRUE)) %>%
@@ -7125,7 +7127,7 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
     f<-purrr::map(f,function(x) x %>% dplyr::summarise(uniqueID=uniqueID,
                                                        dataset=dataset,
                                                        M1=M1,
-                                                       Tm=mean(Tm,na.rm=TRUE),#for peptide groups, caculate averages for parameters
+                                                       Tm=dTm,#for peptide groups, caculate averages for parameters
                                                        rss=sum(rss,na.rm=TRUE),
                                                        rsq=mean(rsq,na.rm=TRUE),
                                                        AUC=mean(AUC,na.rm=TRUE),
@@ -7165,7 +7167,7 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
     
     f<-purrr::map(f,function(x) x %>% dplyr::mutate(stabilized=ifelse(x$Tm>0 & p_dTm<0.01,"Stabilized","Destabilized")))
     
-    f<-purrr::map(f,function(x) x[1,])
+    
     
     f<-dplyr::bind_rows(f) 
     f$sample_name<-str_replace(f$sample_name,"S","\u03A6")
@@ -7196,6 +7198,7 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
         ggplot2::geom_label(mapping=aes(x=colors$x,y=colors$y,label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
         ggtitle("Number of fitted curves")+
         theme(legend.position="bottom", legend.box = "horizontal")
+      return(check1)
     }else{
       check1<-df_1 %>% count(sample_name) %>%
         mutate(focus = ifelse(sample_name == "C_F_E", 0.2, 0)) %>%
@@ -9385,8 +9388,8 @@ P2
 dev.off()
 
 #plot Number of curves
-Check<-UpSet_curves(plotS2,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=TRUE,filter=TRUE)
-pdf("CFS_Number_of_curves_upset_splines_PEPTIDE_FILTERED.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
+Check<-UpSet_curves(plotS2,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,filter=TRUE)
+pdf("Number_of_curves_upset_splines_PEPTIDE_FILTERED.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
 Check[[1]]
 dev.off()
 
@@ -9542,7 +9545,7 @@ P3<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = 
 # check<-dplyr::bind_rows(df_norm) %>% dplyr::group_split(time_point)
 # plotS2 <- purrr::map(check,function(x) try(plot_Splines(x,"P0DTC2",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
 
-plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=TRUE,show_results=TRUE,Peptide=TRUE,simulations=FALSE,CARRIER=TRUE)))
+plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=TRUE,show_results=TRUE,Peptide=FALSE,simulations=FALSE,CARRIER=TRUE)))
 saveRDS(plotS2,"CFS_Peptide_Shared_Bulk_unfiltered_Consensus_data.RDS")
 check<-ggplot2::ggplot_build(plotS2[[2]])
 y<-get_legend(check$plot)
@@ -9585,18 +9588,18 @@ P1
 P2
 dev.off()
 #plot volcano for unfiltered data
-check<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=TRUE,benchmark=TRUE,Fhist=TRUE,labels=TRUE)))
+check<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,benchmark=TRUE,Fhist=TRUE,labels=TRUE)))
 check_<-ggplot2::ggplot_build(check[[1]])#fT is tied to benchmark
 y<-get_legend(check_$plot)
 
 P1<-ggarrange(plotlist=check,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-check2<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=TRUE,benchmark=TRUE,Fhist=FALSE,labels=TRUE,type="targets")))
+check2<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,benchmark=TRUE,Fhist=FALSE,labels=TRUE,type="targets")))
 check_<-ggplot2::ggplot_build(check2[[1]])
 y<-get_legend(check_$plot)
 P2<-ggarrange(plotlist=check2,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-pdf("CFS_volcano_splines_hist_peptide_unfiltered_targets.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+pdf("CFS_volcano_splines_hist_protein_targets.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 P1
 P2
 dev.off()
@@ -9629,8 +9632,8 @@ pdf("volcano_TPP_Protein_panels_Protein_iMAATSA_Filters.pdf",encoding="CP1253.en
 P1
 dev.off()
 #ot Number of curves
-Check<-UpSet_curves(plotS2,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=TRUE,filter=FALSE)
-pdf("Number_of_curves_upset_splines_PEPTIDE_unfiltered.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+Check<-UpSet_curves(plotS2,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,filter=FALSE)
+pdf("CFS_Number_of_curves_upset_splines_PROTEIN_unfiltered.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 Check
 dev.off()
 ###################################################                                                                                                                                                                                                                                                                                                                            ##################################################
