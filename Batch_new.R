@@ -7078,9 +7078,9 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
 #CV<-his_sp(res_sp[[3]],df.temps,MD=FALSE)
 UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,filter=FALSE){
   
-  if(isTRUE(Peptide) & any(names(f)=="rank_l")){
+  if(isTRUE(Peptide)){
     f<-dplyr::bind_rows(f) %>% dplyr::mutate(sample_name=as.factor(sample_name),dataset=as.factor(dataset)) %>%
-      dplyr::select(-rank,-rank_l,-C,-I,-temp_ref,-CV_pct,-missing_pct) %>% dplyr::filter(!is.na(sample_name)) %>%
+      dplyr::select(-C,-I,-temp_ref,-CV_pct,-missing_pct) %>% dplyr::filter(!is.na(sample_name)) %>%
       dplyr::group_split(uniqueID,dataset,sample_name,sample)
     
     f<-purrr::map(f,function(x) x %>% group_by(sample,dataset) %>% dplyr::summarise(uniqueID=uniqueID,
@@ -7180,21 +7180,34 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
     colors<-data.frame(sample_name=as.character(unique(dplyr::bind_rows(df_TPP)$sample_name)))
     colors$sample_name<-as.factor(colors$sample_name)
     colors$sample_name<-levels(colors$sample_name)
-    colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')
-    
+    colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')[1:length(unique(colors$sample_name))]
+    colors$x=c(1.1,1.2,1.1,0.7,-0.8,-1,-1.1,-0.75)[1:length(unique(colors$sample_name))]
+    colors$y=c(1,0.42,-0.48,-0.88,-0.78,-0.48,0.42,1)[1:length(unique(colors$sample_name))]
     df_1<-df_1[!duplicated(df_1),]
     
-    check1<-df_1 %>% count(sample_name) %>%
-      mutate(focus = ifelse(sample_name == "C_F_E", 0.2, 0)) %>%
-      ggplot() +
-      ggforce::geom_arc_bar(aes(x0 = 0, y0 = 0, r0 = 0.7, r = 1, amount = n, fill = sample_name, explode = focus), stat = "pie") +
-      ggforce::theme_no_axes()+
-      scale_fill_manual(values = colors$hex,aesthetics="fill")+
-      xlim(-1.1,1.45)+
-      ggplot2::geom_label(mapping=aes(x=c(1.1,1.2,1.1,0.7,-0.8,-1,-1.1,-0.75),y=c(1,0.42,-0.48,-0.88,-0.78,-0.48,0.42,1),label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
-      ggtitle("Number of fitted curves")+
-      theme(legend.position="bottom", legend.box = "horizontal")
-    
+    if(length(unique(df_1$sample_name))==1){
+      check1<-df_1 %>% count(sample_name) %>%
+        mutate(focus = 0) %>%
+        ggplot() +
+        ggforce::geom_arc_bar(aes(x0 = 0, y0 = 0, r0 = 0.7, r = 1, amount = n, fill = sample_name, explode = focus), stat = "pie") +
+        ggforce::theme_no_axes()+
+        scale_fill_manual(values = colors$hex,aesthetics="fill")+
+        xlim(-1.1,1.45)+
+        ggplot2::geom_label(mapping=aes(x=colors$x,y=colors$y,label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
+        ggtitle("Number of fitted curves")+
+        theme(legend.position="bottom", legend.box = "horizontal")
+    }else{
+      check1<-df_1 %>% count(sample_name) %>%
+        mutate(focus = ifelse(sample_name == "C_F_E", 0.2, 0)) %>%
+        ggplot() +
+        ggforce::geom_arc_bar(aes(x0 = 0, y0 = 0, r0 = 0.7, r = 1, amount = n, fill = sample_name, explode = focus), stat = "pie") +
+        ggforce::theme_no_axes()+
+        scale_fill_manual(values = colors$hex,aesthetics="fill")+
+        xlim(-1.1,1.45)+
+        ggplot2::geom_label(mapping=aes(x=c(1.1,1.2,1.1,0.7,-0.8,-1,-1.1,-0.75),y=c(1,0.42,-0.48,-0.88,-0.78,-0.48,0.42,1),label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
+        ggtitle("Number of fitted curves")+
+        theme(legend.position="bottom", legend.box = "horizontal")
+    }
     # pdf("Number_of_curves_upset_splines_Protein.pdf",encoding="CP1253.enc",compress=FALSE,width=6.12,height=4.02)
     # check1
     # dev.off()
@@ -7465,9 +7478,88 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
       df_<-df_[apply(df_!=0, 1, all),]
       return(list(check,check1,df_))
     }else{
+      
+      f<-dplyr::bind_rows(f) %>% dplyr::select(-sample) %>% 
+        distinct(.) %>% dplyr::group_split(uniqueID,sample_name)
+      
+      f<-purrr::map(f,function(x) x %>% dplyr::mutate(stabilized=ifelse(x$Tm>0 & p_dTm<0.01,"Stabilized","Destabilized")))
+      
+      f<-purrr::map(f,function(x) x[1,])
+      
+      f<-dplyr::bind_rows(f) 
+      f$sample_name<-str_replace(f$sample_name,"S","\u03A6")
+      
+      df_TPP<-dplyr::bind_rows(f) %>% dplyr::filter(!is.na(sample_name)) %>% 
+        dplyr::select(uniqueID,sample_name,Tm,rss,AUC,p_dTm,stabilized) %>% 
+        distinct(.)
+      
+      df_1<-df_TPP %>% dplyr::select(p_dTm,uniqueID,sample_name,Tm) %>% distinct(.)
+      df_1<-dplyr::bind_rows(df_1)
+      df_2<-df_1
+      colors<-data.frame(sample_name=as.character(unique(dplyr::bind_rows(df_TPP)$sample_name)))
+      colors$sample_name<-as.factor(colors$sample_name)
+      colors$sample_name<-levels(colors$sample_name)
+      colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')[1:length(unique(colors$sample_name))]
+      colors$x=c(1.1,1.2,1.1,0.7,-0.8,-1,-1.1,-0.75)[1:length(unique(colors$sample_name))]
+      colors$y=c(1,0.42,-0.48,-0.88,-0.78,-0.48,0.42,1)[1:length(unique(colors$sample_name))]
+      df_1<-df_1[!duplicated(df_1),]
+      if(length(unique(df_1$sample_name))==1){
+        check1<-df_1 %>% count(sample_name) %>%
+          mutate(focus = 0) %>%
+          ggplot() +
+          ggforce::geom_arc_bar(aes(x0 = 0, y0 = 0, r0 = 0.7, r = 1, amount = n, fill = sample_name, explode = focus), stat = "pie") +
+          ggforce::theme_no_axes()+
+          scale_fill_manual(values = colors$hex,aesthetics="fill")+
+          xlim(-1.1,1.45)+
+          ggplot2::geom_label(mapping=aes(x=colors$x,y=colors$y,label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
+          ggtitle("Number of fitted curves")+
+          theme(legend.position="bottom", legend.box = "horizontal")
+        return(check1)
+      }else{
+        check1<-df_1 %>% count(sample_name) %>%
+          mutate(focus = ifelse(sample_name == "C_F_E", 0.2, 0)) %>%
+          ggplot() +
+          ggforce::geom_arc_bar(aes(x0 = 0, y0 = 0, r0 = 0.7, r = 1, amount = n, fill = sample_name, explode = focus), stat = "pie") +
+          ggforce::theme_no_axes()+
+          scale_fill_manual(values = colors$hex,aesthetics="fill")+
+          xlim(-1.1,1.45)+
+          ggplot2::geom_label(mapping=aes(x=c(1.1,1.2,1.1,0.7,-0.8,-1,-1.1,-0.75),y=c(1,0.42,-0.48,-0.88,-0.78,-0.48,0.42,1),label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
+          ggtitle("Number of fitted curves")+
+          theme(legend.position="bottom", legend.box = "horizontal")
+      }
+      
+      df_1<-dplyr::bind_rows(df_1) %>% dplyr::select(uniqueID,sample_name,Tm) %>% 
+        pivot_wider(names_from=sample_name,values_from=c(Tm)) %>% distinct(.)
+      
+      df_1<-df_1 %>% dplyr::mutate(uniqueID=as.character(uniqueID))
+      df_1 <- df_1 %>%
+        mutate_if(sapply(df_, is.factor), as.numeric)
+      df_1$uniqueID<-as.factor(df_1$uniqueID)
+      df_1<-mutate_all(df_1, ~replace(., !is.na(.) & is.numeric(.), "TRUE"))
+      df_1 <- mutate_all(df_1, ~replace(., is.na(.), "FALSE"))
+      df_1 <- mutate_all(df_1, ~replace(., is.character(.), as.logical(.)))
+      
+      #keep the first row out of redundant peptide group data
+      
+      #f<-purrr::map(f,function(x) x %>% dplyr::mutate(stabilized=ifelse(x$Tm[x$dataset=="treated"]>x$Tm[x$dataset=="vehicle"],1,0)))
+      # f<-lapply(f,function(x) x %>% dplyr::group_by(uniqueID,dataset) %>% 
+      #             dplyr::mutate(RSS=sum(rss,na.rm=TRUE),
+      #                           RSQ=mean(Rsq,na.rm=TRUE)))
+      # f<-dplyr::bind_rows(f) 
+      # f<-f %>% dplyr::mutate(rss_a=ifelse(dataset=="vehicle"|dataset=="treated",RSS,NA),
+      #                        rss_n=ifelse(dataset=="null",RSS,NA))
+      # f<-f %>% dplyr::ungroup(.) %>% dplyr::group_by(uniqueID) %>% dplyr::mutate(rss_a=sum(unique(rss_a),na.rm=TRUE))
+      
+      #select columns of interest
+      
+      
+      #,rsq_greater_than_0.8,stabilized
+      rating_scale = scale_fill_manual(name="Stabilization (Tm-based)",
+                                       values=c("Stabilized" ='#fee6ce', "Destabilized" ='#fdae6b', "NA"  = '#e6550d'))
+      
       check<-list()
       
-      check<-upset(df_1,colnames(df_1)[!colnames(df_1) %in% c("sample_name","stabilized","uniqueID")],
+      check<-upset(df_1,colnames(df_1)[!colnames(df_1) %in% "uniqueID"],
                    #min_degree=6,
                    set_sizes=FALSE,
                    n_intersections=10,
@@ -7717,20 +7809,35 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
     colors<-data.frame(sample_name=as.character(unique(dplyr::bind_rows(df_TPP)$sample_name)))
     colors$sample_name<-as.factor(colors$sample_name)
     colors$sample_name<-levels(colors$sample_name)
-    colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')
+    colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')[1:length(unique(colors$sample_name))]
+    colors$x=c(1.1,1.2,1.1,0.7,-0.8,-1,-1.1,-0.75)[1:length(unique(colors$sample_name))]
+    colors$y=c(1,0.42,-0.48,-0.88,-0.78,-0.48,0.42,1)[1:length(unique(colors$sample_name))]
     
-    df_1<-df_1[!duplicated(df_1),]
-    
-    check1<-df_1 %>% count(sample_name) %>%
-      mutate(focus = ifelse(sample_name == "C_F_E", 0.2, 0)) %>%
-      ggplot() +
-      ggforce::geom_arc_bar(aes(x0 = 0, y0 = 0, r0 = 0.7, r = 1, amount = n, fill = sample_name, explode = focus), stat = "pie") +
-      ggforce::theme_no_axes()+
-      scale_fill_manual(values = colors$hex,aesthetics="fill")+
-      xlim(-1.1,1.45)+
-      ggplot2::geom_label(mapping=aes(x=c(1.1,1.2,1.1,0.7,-0.8,-1,-1.1,-0.75),y=c(1,0.42,-0.48,-0.88,-0.78,-0.48,0.42,1),label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
-      ggtitle("Number of fitted curves")+
-      theme(legend.position="bottom", legend.box = "horizontal")
+    df_1<-df_2[!duplicated(df_2),]
+    if(length(unique(df_1$sample_name))==1){
+      check1<-df_1 %>% count(sample_name) %>%
+        mutate(focus = 0) %>%
+        ggplot() +
+        ggforce::geom_arc_bar(aes(x0 = 0, y0 = 0, r0 = 0.7, r = 1, amount = n, fill = sample_name, explode = focus), stat = "pie") +
+        ggforce::theme_no_axes()+
+        scale_fill_manual(values = colors$hex,aesthetics="fill")+
+        xlim(-1.1,1.45)+
+        ggplot2::geom_label(mapping=aes(x=colors$x,y=colors$y,label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
+        ggtitle("Number of fitted curves")+
+        theme(legend.position="bottom", legend.box = "horizontal")
+      return(check1)
+    }else{
+      check1<-df_1 %>% count(sample_name) %>%
+        mutate(focus = ifelse(sample_name == "C_F_E", 0.2, 0)) %>%
+        ggplot() +
+        ggforce::geom_arc_bar(aes(x0 = 0, y0 = 0, r0 = 0.7, r = 1, amount = n, fill = sample_name, explode = focus), stat = "pie") +
+        ggforce::theme_no_axes()+
+        scale_fill_manual(values = colors$hex,aesthetics="fill")+
+        xlim(-1.1,1.45)+
+        ggplot2::geom_label(mapping=aes(x=c(1.1,1.2,1.1,0.7,-0.8,-1,-1.1,-0.75),y=c(1,0.42,-0.48,-0.88,-0.78,-0.48,0.42,1),label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
+        ggtitle("Number of fitted curves")+
+        theme(legend.position="bottom", legend.box = "horizontal")
+    }
     
     
     # pdf("Number of fitted_curves_Peptide_filt.pdf",encoding="CP1253.enc",compress=TRUE,width=5.31,height=4.02)
@@ -7850,8 +7957,10 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
     colors<-data.frame(sample_name=as.factor(unique(dplyr::bind_rows(df_TPP)$sample_name)))
     colors$sample_name<-levels(colors$sample_name)
     colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')
+    colors$x=c(1.1,1.2,1.1,0.7,-0.8,-1,-1.1,-0.75)[1:length(unique(colors$sample_name))]
+    colors$y=c(1,0.42,-0.48,-0.88,-0.78,-0.48,0.42,1)[1:length(unique(colors$sample_name))]
     
-    colors<-dplyr::bind_rows(colors) %>% dplyr::filter(sample_name %in% level_data)
+    
     if(!isTRUE(filter)){
       check<-upset(df_,colnames(df_)[!colnames(df_) %in% c("sample_name","stabilized","uniqueID")],
                    #min_degree=6,
@@ -8883,7 +8992,7 @@ hi<-purrr::map(df_norm1[7],function(x) runTPP(x,df.temps))
 # f<-"C:/Users/figue/OneDrive - Northeastern University/CETSA R/CP_Exploris_20200811_DMSOvsMEKi_carrier_FAIMS_PhiSDM_PEPTIDES.xlsx"
 #df_raw <- read_cetsa("~/Files/Scripts/Files/Zebra","~/Files/Scripts/Files/Zebra","_Proteins",Peptide=TRUE,Batch=TRUE,CFS=FALSE,solvent="Control")     
 #df_raw <- read_cetsa("~/Files/Scripts/Files/Covid","~/Files/Scripts/Files/Covid","_Proteins",Peptide=FALSE,CFS=FALSE,Batch=FALSE)                                                              
-df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS/Shared+ProcessedBulk","~/Files/Scripts/Files/CONSENSUS/Shared+ProcessedBulk","_Proteins",Peptide=FALSE,Batch=FALSE,solvent="DMSO",CARRIER=TRUE)                                                              
+df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS/Shared+ProcessedBulk/CFS","~/Files/Scripts/Files/CONSENSUS/Shared+ProcessedBulk/CFS","_Proteins",Peptide=FALSE,Batch=FALSE,solvent="DMSO",CARRIER=TRUE)                                                              
 #df_raw <- read_cetsa("~/CONSENSUS11","~/CONSENSUS11","_Proteins",Peptide=FALSE,Batch=FALSE,solvent="DMSO")                                                              
 
 #saveRDS(df_raw,"df_raw.RDS")
@@ -9277,7 +9386,7 @@ dev.off()
 
 #plot Number of curves
 Check<-UpSet_curves(plotS2,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=TRUE,filter=TRUE)
-pdf("Number_of_curves_upset_splines_PEPTIDE_FILTERED.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
+pdf("CFS_Number_of_curves_upset_splines_PEPTIDE_FILTERED.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
 Check[[1]]
 dev.off()
 
@@ -9434,7 +9543,7 @@ P3<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = 
 # plotS2 <- purrr::map(check,function(x) try(plot_Splines(x,"P0DTC2",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
 
 plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=TRUE,show_results=TRUE,Peptide=TRUE,simulations=FALSE,CARRIER=TRUE)))
-saveRDS(plotS2,"CFS_Peptide_unfiltered_Consensus_data.RDS")
+saveRDS(plotS2,"CFS_Peptide_Shared_Bulk_unfiltered_Consensus_data.RDS")
 check<-ggplot2::ggplot_build(plotS2[[2]])
 y<-get_legend(check$plot)
 # data<-unlist(lapply(plotS2,function(x) x$labels$title))
@@ -9487,7 +9596,7 @@ check_<-ggplot2::ggplot_build(check2[[1]])
 y<-get_legend(check_$plot)
 P2<-ggarrange(plotlist=check2,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-pdf("volcano_splines_hist_peptide_unfiltered_targets.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+pdf("CFS_volcano_splines_hist_peptide_unfiltered_targets.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 P1
 P2
 dev.off()
