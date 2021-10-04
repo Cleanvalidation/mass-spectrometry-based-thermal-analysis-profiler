@@ -7336,6 +7336,61 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
       colors$sample_name<-levels(colors$sample_name)
       colors<-dplyr::bind_rows(colors) %>% dplyr::filter(sample_name %in% level_data)
       
+      queries=list(
+        upset_query(
+          intersect=colors$sample_name[1],
+          color=colors$hex[1],
+          fill=colors$hex[1],
+          only_components='# of fitted curves'
+        ),
+        upset_query(
+          intersect=colors$sample_name[2],
+          color=colors$hex[2],
+          fill=colors$hex[2],
+          only_components='# of fitted curves'
+        )
+        ,
+        upset_query(
+          intersect=as.character(colors$sample_name[3]),
+          color=colors$hex[3],
+          fill=colors$hex[3],
+          only_components='# of fitted curves'
+        )
+        ,
+        upset_query(
+          intersect=colors$sample_name[4],
+          color=colors$hex[4],
+          fill=colors$hex[4],
+          only_components='# of fitted curves'
+        )
+        ,
+        upset_query(
+          intersect=colors$sample_name[5],
+          color=colors$hex[5],
+          fill=colors$hex[5],
+          only_components='# of fitted curves'
+        )
+        ,
+        upset_query(
+          intersect=colors$sample_name[6],
+          color=colors$hex[6],
+          fill=colors$hex[6],
+          only_components='# of fitted curves'
+        ),
+        upset_query(
+          intersect= as.character(colors$sample_name[7]),
+          color=as.character(colors$hex[7]),
+          fill=as.character(colors$hex[7]),
+          only_components='# of fitted curves'
+        )
+        ,
+        upset_query(
+          intersect=as.character(colors$sample_name[8]),
+          color=as.character(colors$hex[8]),
+          fill=as.character(colors$hex[8]),
+          only_components='# of fitted curves'
+        ))[1:length(colors$sample_name)]
+      
       check<-upset(df_1,colnames(df_1)[!colnames(df_1) %in% c("sample_name","stabilized","uniqueID","IDs")],
                    #min_degree=6,
                    set_sizes=FALSE,
@@ -7409,68 +7464,14 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
                    #),
                    width_ratio=0.1,
                    height_ratio=0.8,
-                   queries=list(
+                   queries=c(queries,list(
                      upset_query(
                        intersect=c('C_F_Φ', 'nC_F_Φ','nC_F_E',"C_nF_Φ",'nC_nF_Φ','C_nF_E','nC_nF_E'),
                        color='black',
                        fill='black',
                        only_components='# of fitted curves'
-                     ),
-                     upset_query(
-                       intersect=as.character(colors$sample_name[1]),
-                       color=colors$hex[1],
-                       fill=colors$hex[1],
-                       only_components='# of fitted curves'
-                     ),
-                     upset_query(
-                       intersect=as.character(colors$sample_name[2]),
-                       color=colors$hex[2],
-                       fill=colors$hex[2],
-                       only_components='# of fitted curves'
-                     )
-                     # ,
-                     # upset_query(
-                     #   intersect=as.character(colors$sample_name[3]),
-                     #   color=colors$hex[3],
-                     #   fill=colors$hex[3],
-                     #   only_components='# of fitted curves'
-                     # )
-                     # ,
-                     # upset_query(
-                     #   intersect=colors$sample_name[4],
-                     #   color=colors$hex[4],
-                     #   fill=colors$hex[4],
-                     #   only_components='# of fitted curves'
-                     # ),
-                     # upset_query(
-                     #   intersect=colors$sample_name[5],
-                     #   color=colors$hex[5],
-                     #   fill=colors$hex[5],
-                     #   only_components='# of fitted curves'
-                     # ),
-                     # upset_query(
-                     #   intersect=colors$sample_name[6],
-                     #   color=colors$hex[6],
-                     #   fill=colors$hex[6],
-                     #   only_components='# of fitted curves'
-                     # ),
-                     # upset_query(
-                     #   intersect= as.character(colors$sample_name[7]),
-                     #   color=as.character(colors$hex[7]),
-                     #   fill=as.character(colors$hex[7]),
-                     #   only_components='# of fitted curves'
-                     # )
-                     # ,
-                     # upset_query(
-                     #   intersect=as.character(colors$sample_name[8]),
-                     #   color=as.character(colors$hex[8]),
-                     #   fill=as.character(colors$hex[8]),
-                     #   only_components='# of fitted curves'
-                     # )
-                     
-                     
-                     
-                   )
+                     )))
+                   
       )+ggtitle(paste0("Top 10 number of fitted curves ", ifelse(isTRUE(Splines),"splines","trilinear")
                        ,ifelse(isTRUE(Peptide),"(peptide","(protein"),"-level ",
                        ifelse(isTRUE(filter),"filtered)","unfiltered)")))
@@ -7502,6 +7503,61 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
       colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')[1:length(unique(colors$sample_name))]
       colors$x=c(1.1,1.2,1.1,0.7,-0.8,-1,-1.1,-0.75)[1:length(unique(colors$sample_name))]
       colors$y=c(1,0.42,-0.48,-0.88,-0.78,-0.48,0.42,1)[1:length(unique(colors$sample_name))]
+      queries=list(
+        upset_query(
+          intersect=colors$sample_name[1],
+          color=colors$hex[1],
+          fill=colors$hex[1],
+          only_components='# of fitted curves'
+        ),
+        upset_query(
+          intersect=colors$sample_name[2],
+          color=colors$hex[2],
+          fill=colors$hex[2],
+          only_components='# of fitted curves'
+        )
+        ,
+        upset_query(
+          intersect=as.character(colors$sample_name[3]),
+          color=colors$hex[3],
+          fill=colors$hex[3],
+          only_components='# of fitted curves'
+        )
+        ,
+        upset_query(
+          intersect=colors$sample_name[4],
+          color=colors$hex[4],
+          fill=colors$hex[4],
+          only_components='# of fitted curves'
+        )
+        ,
+        upset_query(
+          intersect=colors$sample_name[5],
+          color=colors$hex[5],
+          fill=colors$hex[5],
+          only_components='# of fitted curves'
+        )
+        ,
+        upset_query(
+          intersect=colors$sample_name[6],
+          color=colors$hex[6],
+          fill=colors$hex[6],
+          only_components='# of fitted curves'
+        ),
+        upset_query(
+          intersect= as.character(colors$sample_name[7]),
+          color=as.character(colors$hex[7]),
+          fill=as.character(colors$hex[7]),
+          only_components='# of fitted curves'
+        )
+        ,
+        upset_query(
+          intersect=as.character(colors$sample_name[8]),
+          color=as.character(colors$hex[8]),
+          fill=as.character(colors$hex[8]),
+          only_components='# of fitted curves'
+        ))[1:length(colors$sample_name)]
+      
       df_1<-df_1[!duplicated(df_1),]
       if(length(unique(df_1$sample_name))==1){
         check1<-df_1 %>% count(sample_name) %>%
@@ -7533,7 +7589,7 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
       
       df_1<-df_1 %>% dplyr::mutate(uniqueID=as.character(uniqueID))
       df_1 <- df_1 %>%
-        mutate_if(sapply(df_, is.factor), as.numeric)
+        mutate_if(sapply(df_1, is.factor), as.numeric)
       df_1$uniqueID<-as.factor(df_1$uniqueID)
       df_1<-mutate_all(df_1, ~replace(., !is.na(.) & is.numeric(.), "TRUE"))
       df_1 <- mutate_all(df_1, ~replace(., is.na(.), "FALSE"))
@@ -7644,6 +7700,61 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
       
       colors<-dplyr::bind_rows(colors) %>% dplyr::filter(sample_name %in% level_data)
       
+      queries=list(
+        upset_query(
+          intersect=colors$sample_name[1],
+          color=colors$hex[1],
+          fill=colors$hex[1],
+          only_components='# of fitted curves'
+        ),
+        upset_query(
+          intersect=colors$sample_name[2],
+          color=colors$hex[2],
+          fill=colors$hex[2],
+          only_components='# of fitted curves'
+        )
+        ,
+        upset_query(
+          intersect=as.character(colors$sample_name[3]),
+          color=colors$hex[3],
+          fill=colors$hex[3],
+          only_components='# of fitted curves'
+        )
+        ,
+        upset_query(
+          intersect=colors$sample_name[4],
+          color=colors$hex[4],
+          fill=colors$hex[4],
+          only_components='# of fitted curves'
+        )
+        ,
+        upset_query(
+          intersect=colors$sample_name[5],
+          color=colors$hex[5],
+          fill=colors$hex[5],
+          only_components='# of fitted curves'
+        )
+        ,
+        upset_query(
+          intersect=colors$sample_name[6],
+          color=colors$hex[6],
+          fill=colors$hex[6],
+          only_components='# of fitted curves'
+        ),
+        upset_query(
+          intersect= as.character(colors$sample_name[7]),
+          color=as.character(colors$hex[7]),
+          fill=as.character(colors$hex[7]),
+          only_components='# of fitted curves'
+        )
+        ,
+        upset_query(
+          intersect=as.character(colors$sample_name[8]),
+          color=as.character(colors$hex[8]),
+          fill=as.character(colors$hex[8]),
+          only_components='# of fitted curves'
+        ))[1:length(colors$sample_name)]
+      
       check<-upset(df_1,colnames(df_1)[!colnames(df_1) %in% c("sample_name","stabilized","uniqueID","IDs")],
                    #min_degree=6,
                    set_sizes=FALSE,
@@ -7717,69 +7828,16 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
                    #),
                    width_ratio=0.1,
                    height_ratio=0.8,
-                   queries=list(
+                   queries=c(queries,list(
                      upset_query(
                        intersect=c('C_F_Φ', 'nC_F_Φ','nC_F_E',"C_nF_Φ",'nC_nF_Φ','C_nF_E','nC_nF_E'),
                        color='black',
                        fill='black',
                        only_components='# of fitted curves'
-                     ),
-                     upset_query(
-                       intersect=as.character(colors$sample_name[1]),
-                       color=colors$hex[1],
-                       fill=colors$hex[1],
-                       only_components='# of fitted curves'
-                     ),
-                     upset_query(
-                       intersect=as.character(colors$sample_name[2]),
-                       color=colors$hex[2],
-                       fill=colors$hex[2],
-                       only_components='# of fitted curves'
-                     )
-                     ,
-                     upset_query(
-                       intersect=as.character(colors$sample_name[3]),
-                       color=colors$hex[3],
-                       fill=colors$hex[3],
-                       only_components='# of fitted curves'
-                     )
-                     ,
-                     upset_query(
-                       intersect=as.character(colors$sample_name[4]),
-                       color=colors$hex[4],
-                       fill=colors$hex[4],
-                       only_components='# of fitted curves'
-                     ),
-                     upset_query(
-                       intersect=as.character(colors$sample_name[5]),
-                       color=colors$hex[5],
-                       fill=colors$hex[5],
-                       only_components='# of fitted curves'
-                     )
-                     #,
-                     # upset_query(
-                     #   intersect=colors$sample_name[6],
-                     #   color=colors$hex[6],
-                     #   fill=colors$hex[6],
-                     #   only_components='# of fitted curves'
-                     # ),
-                     # upset_query(
-                     #   intersect= as.character(colors$sample_name[7]),
-                     #   color=as.character(colors$hex[7]),
-                     #   fill=as.character(colors$hex[7]),
-                     #   only_components='# of fitted curves'
-                     # )
-                     # ,
-                     # upset_query(
-                     #   intersect=as.character(colors$sample_name[8]),
-                     #   color=as.character(colors$hex[8]),
-                     #   fill=as.character(colors$hex[8]),
-                     #   only_components='# of fitted curves'
-                     # )
-                     
-                     
-                     
-                   )
+                     )))
+                   
+                   
+                   
       )+ggtitle(paste0("Top 10 number of fitted curves ", ifelse(isTRUE(Splines),"splines","trilinear")
                        ,ifelse(isTRUE(Peptide),"(peptide","(protein"),"-level ",
                        ifelse(isTRUE(filter),"filtered)","unfiltered)")))
@@ -7813,6 +7871,60 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
     colors$x=c(1.1,1.2,1.1,0.7,-0.8,-1,-1.1,-0.75)[1:length(unique(colors$sample_name))]
     colors$y=c(1,0.42,-0.48,-0.88,-0.78,-0.48,0.42,1)[1:length(unique(colors$sample_name))]
     
+    queries=list(
+      upset_query(
+        intersect=colors$sample_name[1],
+        color=colors$hex[1],
+        fill=colors$hex[1],
+        only_components='# of fitted curves'
+      ),
+      upset_query(
+        intersect=colors$sample_name[2],
+        color=colors$hex[2],
+        fill=colors$hex[2],
+        only_components='# of fitted curves'
+      )
+      ,
+      upset_query(
+        intersect=as.character(colors$sample_name[3]),
+        color=colors$hex[3],
+        fill=colors$hex[3],
+        only_components='# of fitted curves'
+      )
+      ,
+      upset_query(
+        intersect=colors$sample_name[4],
+        color=colors$hex[4],
+        fill=colors$hex[4],
+        only_components='# of fitted curves'
+      )
+      ,
+      upset_query(
+        intersect=colors$sample_name[5],
+        color=colors$hex[5],
+        fill=colors$hex[5],
+        only_components='# of fitted curves'
+      )
+      ,
+      upset_query(
+        intersect=colors$sample_name[6],
+        color=colors$hex[6],
+        fill=colors$hex[6],
+        only_components='# of fitted curves'
+      ),
+      upset_query(
+        intersect= as.character(colors$sample_name[7]),
+        color=as.character(colors$hex[7]),
+        fill=as.character(colors$hex[7]),
+        only_components='# of fitted curves'
+      )
+      ,
+      upset_query(
+        intersect=as.character(colors$sample_name[8]),
+        color=as.character(colors$hex[8]),
+        fill=as.character(colors$hex[8]),
+        only_components='# of fitted curves'
+      ))[1:length(colors$sample_name)]
     df_1<-df_2[!duplicated(df_2),]
     if(length(unique(df_1$sample_name))==1){
       check1<-df_1 %>% count(sample_name) %>%
@@ -7851,9 +7963,9 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
     df_ <- df_ %>%
       mutate_if(sapply(df_, is.factor), as.numeric)
     df_$uniqueID<-as.factor(df_$uniqueID)
-    df_1<-mutate_all(df_, ~replace(., !is.na(.) & is.numeric(.), "TRUE"))
-    df_ <- mutate_all(df_1, ~replace(., is.na(.), "FALSE"))
-    df_ <- mutate_all(df_1, ~replace(., is.character(.), as.logical(.)))
+    df_<-mutate_all(df_, ~replace(., !is.na(.) & is.numeric(.), "TRUE"))
+    df_ <- mutate_all(df_, ~replace(., is.na(.), "FALSE"))
+    df_ <- mutate_all(df_, ~replace(., is.character(.), as.logical(.)))
     
     #keep the first row out of redundant peptide group data
     
@@ -7960,6 +8072,61 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
     colors$x=c(1.1,1.2,1.1,0.7,-0.8,-1,-1.1,-0.75)[1:length(unique(colors$sample_name))]
     colors$y=c(1,0.42,-0.48,-0.88,-0.78,-0.48,0.42,1)[1:length(unique(colors$sample_name))]
     
+    colors<-colors %>% dplyr::filter(sample_name %in% level_data)
+    queries=list(
+      upset_query(
+        intersect=colors$sample_name[1],
+        color=colors$hex[1],
+        fill=colors$hex[1],
+        only_components='# of fitted curves'
+      ),
+      upset_query(
+        intersect=colors$sample_name[2],
+        color=colors$hex[2],
+        fill=colors$hex[2],
+        only_components='# of fitted curves'
+      )
+      ,
+      upset_query(
+        intersect=as.character(colors$sample_name[3]),
+        color=colors$hex[3],
+        fill=colors$hex[3],
+        only_components='# of fitted curves'
+      )
+      ,
+      upset_query(
+        intersect=colors$sample_name[4],
+        color=colors$hex[4],
+        fill=colors$hex[4],
+        only_components='# of fitted curves'
+      )
+      ,
+      upset_query(
+        intersect=colors$sample_name[5],
+        color=colors$hex[5],
+        fill=colors$hex[5],
+        only_components='# of fitted curves'
+      )
+      ,
+      upset_query(
+        intersect=colors$sample_name[6],
+        color=colors$hex[6],
+        fill=colors$hex[6],
+        only_components='# of fitted curves'
+      ),
+      upset_query(
+        intersect= as.character(colors$sample_name[7]),
+        color=as.character(colors$hex[7]),
+        fill=as.character(colors$hex[7]),
+        only_components='# of fitted curves'
+      )
+      ,
+      upset_query(
+        intersect=as.character(colors$sample_name[8]),
+        color=as.character(colors$hex[8]),
+        fill=as.character(colors$hex[8]),
+        only_components='# of fitted curves'
+      ))[1:length(colors$sample_name)]
     
     if(!isTRUE(filter)){
       check<-upset(df_,colnames(df_)[!colnames(df_) %in% c("sample_name","stabilized","uniqueID")],
@@ -8035,70 +8202,16 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
                    #),
                    width_ratio=0.1,
                    height_ratio=0.8,
-                   queries=list(
+                   queries=c(queries,list(
                      upset_query(
                        intersect=c('C_F_Φ', 'nC_F_Φ','nC_F_E',"C_nF_Φ",'nC_nF_Φ','C_nF_E','nC_nF_E','C_F_E'),
                        color='black',
                        fill='black',
                        only_components='# of fitted curves'
-                     ),
-                     upset_query(
-                       intersect=colors$sample_name[1],
-                       color=colors$hex[1],
-                       fill=colors$hex[1],
-                       only_components='# of fitted curves'
-                     ),
-                     upset_query(
-                       intersect=colors$sample_name[2],
-                       color=colors$hex[2],
-                       fill=colors$hex[2],
-                       only_components='# of fitted curves'
                      )
-                     ,
-                     upset_query(
-                       intersect=as.character(colors$sample_name[3]),
-                       color=colors$hex[3],
-                       fill=colors$hex[3],
-                       only_components='# of fitted curves'
-                     )
-                     ,
-                     upset_query(
-                       intersect=colors$sample_name[4],
-                       color=colors$hex[4],
-                       fill=colors$hex[4],
-                       only_components='# of fitted curves'
-                     )
-                     ,
-                     upset_query(
-                       intersect=colors$sample_name[5],
-                       color=colors$hex[5],
-                       fill=colors$hex[5],
-                       only_components='# of fitted curves'
-                     )
-                     #,
-                     # upset_query(
-                     #   intersect=colors$sample_name[6],
-                     #   color=colors$hex[6],
-                     #   fill=colors$hex[6],
-                     #   only_components='# of fitted curves'
-                     # ),
-                     # upset_query(
-                     #   intersect= as.character(colors$sample_name[7]),
-                     #   color=as.character(colors$hex[7]),
-                     #   fill=as.character(colors$hex[7]),
-                     #   only_components='# of fitted curves'
-                     # )
-                     # ,
-                     # upset_query(
-                     #   intersect=as.character(colors$sample_name[8]),
-                     #   color=as.character(colors$hex[8]),
-                     #   fill=as.character(colors$hex[8]),
-                     #   only_components='# of fitted curves'
-                     # )
-                     
-                     
-                     
                    )
+                   )
+                   
       )+ggtitle(paste0("Top 10 number of fitted curves ", ifelse(isTRUE(Splines),"splines ","trilinear ")
                        ,ifelse(isTRUE(Peptide),"(peptide","(protein"),"-level ",
                        ifelse(isTRUE(filter),"filtered)","unfiltered)")))
@@ -8180,69 +8293,13 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
                    #),
                    width_ratio=0.1,
                    height_ratio=0.8,
-                   queries=list(
+                   queries=c(queries,list(
                      upset_query(
                        intersect=c('C_F_Φ', 'nC_F_Φ','nC_F_E',"C_nF_Φ",'nC_nF_Φ','C_nF_E','nC_nF_E','C_F_E'),
                        color='black',
                        fill='black',
                        only_components='# of fitted curves'
-                     ),
-                     upset_query(
-                       intersect=colors$sample_name[1],
-                       color=colors$hex[1],
-                       fill=colors$hex[1],
-                       only_components='# of fitted curves'
-                     ),
-                     upset_query(
-                       intersect=colors$sample_name[2],
-                       color=colors$hex[2],
-                       fill=colors$hex[2],
-                       only_components='# of fitted curves'
-                     )
-                     ,
-                     upset_query(
-                       intersect=as.character(colors$sample_name[3]),
-                       color=colors$hex[3],
-                       fill=colors$hex[3],
-                       only_components='# of fitted curves'
-                     )
-                     ,
-                     upset_query(
-                       intersect=colors$sample_name[4],
-                       color=colors$hex[4],
-                       fill=colors$hex[4],
-                       only_components='# of fitted curves'
-                     )
-                     #,
-                     # upset_query(
-                     #   intersect=colors$sample_name[5],
-                     #   color=colors$hex[5],
-                     #   fill=colors$hex[5],
-                     #   only_components='# of fitted curves'
-                     # ),
-                     # upset_query(
-                     #   intersect=colors$sample_name[6],
-                     #   color=colors$hex[6],
-                     #   fill=colors$hex[6],
-                     #   only_components='# of fitted curves'
-                     # ),
-                     # upset_query(
-                     #   intersect= as.character(colors$sample_name[7]),
-                     #   color=as.character(colors$hex[7]),
-                     #   fill=as.character(colors$hex[7]),
-                     #   only_components='# of fitted curves'
-                     # )
-                     # ,
-                     # upset_query(
-                     #   intersect=as.character(colors$sample_name[8]),
-                     #   color=as.character(colors$hex[8]),
-                     #   fill=as.character(colors$hex[8]),
-                     #   only_components='# of fitted curves'
-                     # )
-                     
-                     
-                     
-                   )
+                     )))
       )+ggtitle(paste0("Top 10 number of fitted curves ", ifelse(isTRUE(Splines),"splines ","trilinear ")
                        ,ifelse(isTRUE(Peptide),"(peptide","(protein"),"-level ",
                        ifelse(isTRUE(filter),"filtered)","unfiltered)")))
@@ -9436,12 +9493,12 @@ P2
 dev.off()
 
 #plot Number of curves
-Check<-UpSet_curves(plotS2,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=TRUE,filter=TRUE)
-pdf("CFS_Number_of_curves_upset_splines_PEPTIDE_UNFILTERED.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
+Check<-UpSet_curves(plotS2,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,filter=FALSE)
+pdf("BULK_Number_of_curves_upset_splines_PROTEIN.pdf",encoding="CP1253.enc",compress=FALSE,width=12.13,height=7.93)
 Check[[1]]
 dev.off()
 
-pdf("Number_of_curves_splines_PEPTIDE_FILTERED.pdf",encoding="CP1253.enc",compress=FALSE,width=6.02,height=6.02)
+pdf("BULK_Number_of_curves_splines_PROTEIN.pdf",encoding="CP1253.enc",compress=FALSE,width=6.02,height=6.02)
 Check[[2]]
 dev.off()
 
@@ -9593,7 +9650,7 @@ P3<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = 
 # check<-dplyr::bind_rows(df_norm) %>% dplyr::group_split(time_point)
 # plotS2 <- purrr::map(check,function(x) try(plot_Splines(x,"P0DTC2",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
 
-plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=TRUE,show_results=TRUE,Peptide=TRUE,simulations=FALSE,CARRIER=TRUE)))
+plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=TRUE,show_results=TRUE,Peptide=FALSE,simulations=FALSE,CARRIER=TRUE)))
 saveRDS(plotS2,"CFS_Peptide_Shared_Bulk_unfiltered_Consensus_data.RDS")
 check<-ggplot2::ggplot_build(plotS2[[2]])
 y<-get_legend(check$plot)
@@ -9647,7 +9704,7 @@ check_<-ggplot2::ggplot_build(check2[[1]])
 y<-get_legend(check_$plot)
 P2<-ggarrange(plotlist=check2,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-pdf("CFS_volcano_splines_hist_peptide_unfiltered_targets.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+pdf("volcano_splines_hist_peptide_unfiltered_targets.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 P1
 P2
 dev.off()
@@ -9681,7 +9738,7 @@ P1
 dev.off()
 #ot Number of curves
 Check<-UpSet_curves(plotS2,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=TRUE,filter=FALSE)
-pdf("CFS_Number_of_curves_upset_splines_PEPTIDE_filtered.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+pdf("Number_of_curves_upset_splines_PEPTIDE_unfiltered.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 Check
 dev.off()
 ###################################################                                                                                                                                                                                                                                                                                                                            ##################################################
