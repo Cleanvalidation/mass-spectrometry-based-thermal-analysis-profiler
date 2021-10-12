@@ -6407,7 +6407,7 @@ TPPbenchmark<-function(f,overlaps=NA,volcano=TRUE,filters="TPP"){
     ggforce::theme_no_axes()+
     scale_fill_manual(values = colors$hex,aesthetics="fill")+
     xlim(-1.1,1.45)+
-    ggplot2::geom_label(mapping=aes(x=c(1.1,1.2,1.1,0.7,-0.8,-1,-1.1,-0.75),y=c(1,0.42,-0.48,-0.88,-0.78,-0.48,0.42,1),label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
+    ggplot2::geom_label(mapping=aes(x=colors$x,y=colors$y,label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
     ggtitle("Number of fitted curves")
   if(!isTRUE(filters)){
     pdf("Number_of_fitted_curves_TPP_Protein_only_converging.pdf",encoding="CP1253.enc",compress=TRUE,width=6.12,height=4.02)
@@ -6702,7 +6702,7 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
   
   #select columns of interest
   if(filters=="HQ"){
-    df_TPP1<-dplyr::bind_rows(df_TPP) %>% 
+    df_TPP<-dplyr::bind_rows(df_TPP) %>% 
       dplyr::select(Protein_ID,fulfills_all_4_requirements,
                     minSlopes_less_than_0.06,
                     R_sq_Treatment_2,R_sq_Treatment_1,R_sq_Vehicle_2,R_sq_Vehicle_1,
@@ -6716,7 +6716,7 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
                       minSlopes_less_than_0.06=="Yes"
                     & R_sq_Treatment_2 >0.8 & R_sq_Treatment_1 >0.8 & R_sq_Treatment_2>0.8 &R_sq_Vehicle_1>0.8 &
                       plateau_Treatment_2<0.3 & plateau_Treatment_1<0.3 & plateau_Treatment_2<0.3 & plateau_Vehicle_1<0.3)
-    df_TPP$sample_name<-str_replace(df_TPP$sample_name,"S","\u03A6")
+    
   }else if(filters=="Sigmoidal"){
     df_TPP<-dplyr::bind_rows(df_TPP) %>% 
       dplyr::select(Protein_ID,fulfills_all_4_requirements,
@@ -6730,6 +6730,7 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
                     sample_name,
                     pVal_adj_Treatment_1_vs_Vehicle_1,pVal_adj_Treatment_2_vs_Vehicle_2)%>%
       dplyr::filter(model_converged_Vehicle_1=="Yes",model_converged_Treatment_2=="Yes",model_converged_Treatment_1=="Yes",model_converged_Treatment_2=="Yes")
+    
   }else{
     df_TPP<-dplyr::bind_rows(df_TPP) %>% 
       dplyr::select(Protein_ID,fulfills_all_4_requirements,
@@ -6811,7 +6812,7 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
   
   df_1<-dplyr::bind_rows(df_TPP1)
   
-  df_1$sample_name<-str_replace(df_1$sample_name,"S","\u03A6")
+  
   df_1<-dplyr::bind_rows(df_1) 
   df_1$sample_name<-as.factor(df_1$sample_name)
   df_1$uniqueID<-df_1$Protein_ID
@@ -6827,6 +6828,8 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
   colors<-data.frame(sample_name=as.character(unique(dplyr::bind_rows(df_1)$sample_name)))
   colors$sample_name<-as.character(colors$sample_name)[1:length(unique(colors$sample_name))]
   colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')[1:length(unique(colors$sample_name))]
+  colors$x<-c(1,1.2,1.1,0.7,-0.8,-1,-1.1,-0.75)[1:length(unique(colors$sample_name))]
+  colors$y<-c(1,0.42,-0.38,-0.88,-0.88,-0.38,0.42,1)[1:length(unique(colors$sample_name))]
   
   check1<-df_1 %>% count(sample_name) %>%
     mutate(focus = ifelse(sample_name == "C_F_Φ", 0.2, 0)) %>%
@@ -6835,7 +6838,7 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
     ggforce::theme_no_axes()+
     scale_fill_manual(values = colors$hex,aesthetics="fill")+
     xlim(-1.1,1.45)+
-    ggplot2::geom_label(mapping=aes(x=c(1,1.2,1.1,0.7,-0.8,-1,-1.1,-0.75),y=c(1,0.42,-0.38,-0.88,-0.88,-0.38,0.42,1),label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
+    ggplot2::geom_label(mapping=aes(x=colors$x,y=colors$y,label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
     ggtitle("Number of fitted curves")
   
   # 
@@ -6867,9 +6870,7 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
   df_1 <- mutate_all(df_1[,2:length(df_1)], ~replace(., !is.na(.), "TRUE"))
   df_1 <- mutate_all(df_1[,2:length(df_1)], ~replace(., is.na(.), "FALSE"))
   df_1<-cbind(IDs,df_1)
-  colors<-data.frame(sample_name=as.character(unique(dplyr::bind_rows(df_1)$sample_name)))
-  colors$sample_name<-as.character(colors$sample_name)
-  colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')[1:length(unique(colors$sample_name))]
+  
   rating_scale = scale_fill_manual(name="Stabilization (Tm-based)",
                                    values=c("Stabilized" ='#fee6ce', "Destabilized" ='#fdae6b', "NA"  = '#e6550d'))
   df_1<-na.omit(df_1)
@@ -6959,6 +6960,12 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
   check_intersections<-data.frame(IDs=check[[1]]$data$intersection,inclusive=check[[1]]$data$inclusive_intersection_size) %>% distinct(.) %>% dplyr::arrange(inclusive) %>% head(10)
   #filter exclusive intersection colors
   colors<-colors %>% dplyr::filter(sample_name %in% check_intersections$IDs)
+  level_data=rev(levels(check$data$intersection))
+  #colors$sample_name<-as.character(levels(colors$sample))
+  colors<-data.frame(sample_name=as.factor(unique(dplyr::bind_rows(df_TPP)$sample_name)))
+  colors$sample_name<-as.factor(colors$sample_name)
+  colors$sample_name<-levels(colors$sample_name)
+  colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')[1:length(unique(colors$sample_name))]
   queries=list(
     upset_query(
       intersect=colors$sample_name[1],
@@ -7013,7 +7020,17 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
       fill=as.character(colors$hex[8]),
       only_components='# of fitted curves'
     ))[1:length(colors$sample_name)]
-  
+  if(str_count(check_intersections$IDs[1],"-")<7){
+    queries=queries
+  }else{
+    c(queries,list(
+      upset_query(
+        intersect=c('C_F_Φ', 'nC_F_Φ','nC_F_E',"C_nF_Φ",'nC_nF_Φ','C_nF_E','nC_nF_E'),
+        color='black',
+        fill='black',
+        only_components='# of fitted curves'
+      )))
+  }
   #add query
   check<-upset(df_1,colnames(df_1)[!colnames(df_1) %in% c("sample_name","stabilized","uniqueID")],
                #min_degree=6,
@@ -7088,13 +7105,7 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
                #),
                width_ratio=0.1,
                height_ratio=0.8,
-               queries=c(queries,list(
-                 upset_query(
-                   intersect=c('C_F_Φ', 'nC_F_Φ','nC_F_E',"C_nF_Φ",'nC_nF_Φ','C_nF_E','nC_nF_E'),
-                   color='black',
-                   fill='black',
-                   only_components='# of fitted curves'
-                 )))
+               queries=queries
                # ,
                # upset_query(
                #   intersect=colors$sample_name[4],
@@ -7243,7 +7254,7 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
     colors$sample_name<-as.factor(colors$sample_name)
     colors$sample_name<-levels(colors$sample_name)
     colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')[1:length(unique(colors$sample_name))]
-    colors$x=c(1.1,1.2,1.1,0.7,-0.8,-1,-1.1,-0.75)[1:length(unique(colors$sample_name))]
+    colors$x=c(1.1,1.3,1.3,0.7,-0.8,-1,-1.1,-0.75)[1:length(unique(colors$sample_name))]
     colors$y=c(1,0.42,-0.48,-0.88,-0.78,-0.48,0.42,1)[1:length(unique(colors$sample_name))]
     df_1<-df_1[!duplicated(df_1),]
     
@@ -7452,7 +7463,20 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
           fill=as.character(colors$hex[8]),
           only_components='# of fitted curves'
         ))[1:length(colors$sample_name)]
+      #check upset plots for intersections
+      check_intersections<-data.frame(IDs=check[[1]]$data$intersection,inclusive=check[[1]]$data$inclusive_intersection_size) %>% distinct(.) %>% dplyr::arrange(inclusive) %>% head(10)
       
+      if(str_count(check_intersections$IDs[1],"-")<7){
+        queries=queries
+      }else{
+        c(queries,list(
+          upset_query(
+            intersect=c('C_F_Φ', 'nC_F_Φ','nC_F_E',"C_nF_Φ",'nC_nF_Φ','C_nF_E','nC_nF_E'),
+            color='black',
+            fill='black',
+            only_components='# of fitted curves'
+          )))
+      }
       check<-upset(df_1,colnames(df_1)[!colnames(df_1) %in% c("sample_name","stabilized","uniqueID","IDs")],
                    #min_degree=6,
                    set_sizes=FALSE,
@@ -7526,13 +7550,7 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
                    #),
                    width_ratio=0.1,
                    height_ratio=0.8,
-                   queries=c(queries,list(
-                     upset_query(
-                       intersect=c('C_F_Φ', 'nC_F_Φ','nC_F_E',"C_nF_Φ",'nC_nF_Φ','C_nF_E','nC_nF_E'),
-                       color='black',
-                       fill='black',
-                       only_components='# of fitted curves'
-                     )))
+                   queries=queries
                    
       )+ggtitle(paste0("Top 10 number of fitted curves ", ifelse(isTRUE(Splines),"splines","trilinear")
                        ,ifelse(isTRUE(Peptide),"(peptide","(protein"),"-level ",
@@ -7563,7 +7581,7 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
       colors$sample_name<-as.factor(colors$sample_name)
       colors$sample_name<-levels(colors$sample_name)
       colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')[1:length(unique(colors$sample_name))]
-      colors$x=c(1.1,1.2,1.1,0.7,-0.8,-1,-1.1,-0.75)[1:length(unique(colors$sample_name))]
+      colors$x=c(1.1,1.3,1.3,0.7,-0.8,-1,-1.1,-0.75)[1:length(unique(colors$sample_name))]
       colors$y=c(1,0.42,-0.48,-0.88,-0.78,-0.48,0.42,1)[1:length(unique(colors$sample_name))]
       queries=list(
         upset_query(
@@ -7641,7 +7659,7 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
           ggforce::theme_no_axes()+
           scale_fill_manual(values = colors$hex,aesthetics="fill")+
           xlim(-1.1,1.45)+
-          ggplot2::geom_label(mapping=aes(x=c(1.1,1.2,1.1,0.7,-0.8,-1,-1.1,-0.75),y=c(1,0.42,-0.48,-0.88,-0.78,-0.48,0.42,1),label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
+          ggplot2::geom_label(mapping=aes(x=colors$x,y=colors$y,label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
           ggtitle("Number of fitted curves")+
           theme(legend.position="bottom", legend.box = "horizontal")
       }
@@ -7816,7 +7834,20 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
           fill=as.character(colors$hex[8]),
           only_components='# of fitted curves'
         ))[1:length(colors$sample_name)]
+      #check upset plots for intersections
+      check_intersections<-data.frame(IDs=check[[1]]$data$intersection,inclusive=check[[1]]$data$inclusive_intersection_size) %>% distinct(.) %>% dplyr::arrange(inclusive) %>% head(10)
       
+      if(str_count(check_intersections$IDs[1],"-")<7){
+        queries=queries
+      }else{
+        c(queries,list(
+          upset_query(
+            intersect=c('C_F_Φ', 'nC_F_Φ','nC_F_E',"C_nF_Φ",'nC_nF_Φ','C_nF_E','nC_nF_E'),
+            color='black',
+            fill='black',
+            only_components='# of fitted curves'
+          )))
+      }
       check<-upset(df_1,colnames(df_1)[!colnames(df_1) %in% c("sample_name","stabilized","uniqueID","IDs")],
                    #min_degree=6,
                    set_sizes=FALSE,
@@ -7890,13 +7921,7 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
                    #),
                    width_ratio=0.1,
                    height_ratio=0.8,
-                   queries=c(queries,list(
-                     upset_query(
-                       intersect=c('C_F_Φ', 'nC_F_Φ','nC_F_E',"C_nF_Φ",'nC_nF_Φ','C_nF_E','nC_nF_E'),
-                       color='black',
-                       fill='black',
-                       only_components='# of fitted curves'
-                     )))
+                   queries=queries
                    
                    
                    
@@ -7930,7 +7955,7 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
     colors$sample_name<-as.factor(colors$sample_name)
     colors$sample_name<-levels(colors$sample_name)
     colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')[1:length(unique(colors$sample_name))]
-    colors$x=c(1.1,1.2,1.1,0.7,-0.8,-1,-1.1,-0.75)[1:length(unique(colors$sample_name))]
+    colors$x=c(1.1,1.3,1.3,0.7,-0.8,-1,-1.1,-0.75)[1:length(unique(colors$sample_name))]
     colors$y=c(1,0.42,-0.48,-0.88,-0.78,-0.48,0.42,1)[1:length(unique(colors$sample_name))]
     
     queries=list(
@@ -7987,6 +8012,8 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
         fill=as.character(colors$hex[8]),
         only_components='# of fitted curves'
       ))[1:length(colors$sample_name)]
+    
+    
     df_1<-df_2[!duplicated(df_2),]
     if(length(unique(df_1$sample_name))==1){
       check1<-df_1 %>% count(sample_name) %>%
@@ -8008,7 +8035,7 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
         ggforce::theme_no_axes()+
         scale_fill_manual(values = colors$hex,aesthetics="fill")+
         xlim(-1.1,1.45)+
-        ggplot2::geom_label(mapping=aes(x=c(1.1,1.2,1.1,0.7,-0.8,-1,-1.1,-0.75),y=c(1,0.42,-0.48,-0.88,-0.78,-0.48,0.42,1),label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
+        ggplot2::geom_label(mapping=aes(x=colors$x,y=colors$y,label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
         ggtitle("Number of fitted curves")+
         theme(legend.position="bottom", legend.box = "horizontal")
     }
@@ -8131,7 +8158,7 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
     colors<-data.frame(sample_name=as.factor(unique(dplyr::bind_rows(df_TPP)$sample_name)))
     colors$sample_name<-levels(colors$sample_name)
     colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')
-    colors$x=c(1.1,1.2,1.1,0.7,-0.8,-1,-1.1,-0.75)[1:length(unique(colors$sample_name))]
+    colors$x=c(1.1,1.3,1.3,0.7,-0.8,-1,-1.1,-0.75)[1:length(unique(colors$sample_name))]
     colors$y=c(1,0.42,-0.48,-0.88,-0.78,-0.48,0.42,1)[1:length(unique(colors$sample_name))]
     
     colors<-colors %>% dplyr::filter(sample_name %in% level_data)
@@ -8189,7 +8216,20 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
         fill=as.character(colors$hex[8]),
         only_components='# of fitted curves'
       ))[1:length(colors$sample_name)]
+    #check upset plots for intersections
+    check_intersections<-data.frame(IDs=check[[1]]$data$intersection,inclusive=check[[1]]$data$inclusive_intersection_size) %>% distinct(.) %>% dplyr::arrange(inclusive) %>% head(10)
     
+    if(str_count(check_intersections$IDs[1],"-")<7){
+      queries=queries
+    }else{
+      c(queries,list(
+        upset_query(
+          intersect=c('C_F_Φ', 'nC_F_Φ','nC_F_E',"C_nF_Φ",'nC_nF_Φ','C_nF_E','nC_nF_E'),
+          color='black',
+          fill='black',
+          only_components='# of fitted curves'
+        )))
+    }
     if(!isTRUE(filter)){
       check<-upset(df_,colnames(df_)[!colnames(df_) %in% c("sample_name","stabilized","uniqueID")],
                    #min_degree=6,
@@ -8264,15 +8304,7 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
                    #),
                    width_ratio=0.1,
                    height_ratio=0.8,
-                   queries=c(queries,list(
-                     upset_query(
-                       intersect=c('C_F_Φ', 'nC_F_Φ','nC_F_E',"C_nF_Φ",'nC_nF_Φ','C_nF_E','nC_nF_E','C_F_E'),
-                       color='black',
-                       fill='black',
-                       only_components='# of fitted curves'
-                     )
-                   )
-                   )
+                   queries=queries
                    
       )+ggtitle(paste0("Top 10 number of fitted curves ", ifelse(isTRUE(Splines),"splines ","trilinear ")
                        ,ifelse(isTRUE(Peptide),"(peptide","(protein"),"-level ",
@@ -8355,13 +8387,7 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
                    #),
                    width_ratio=0.1,
                    height_ratio=0.8,
-                   queries=c(queries,list(
-                     upset_query(
-                       intersect=c('C_F_Φ', 'nC_F_Φ','nC_F_E',"C_nF_Φ",'nC_nF_Φ','C_nF_E','nC_nF_E','C_F_E'),
-                       color='black',
-                       fill='black',
-                       only_components='# of fitted curves'
-                     )))
+                   queries=queries
       )+ggtitle(paste0("Top 10 number of fitted curves ", ifelse(isTRUE(Splines),"splines ","trilinear ")
                        ,ifelse(isTRUE(Peptide),"(peptide","(protein"),"-level ",
                        ifelse(isTRUE(filter),"filtered)","unfiltered)")))
