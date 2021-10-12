@@ -57,6 +57,7 @@ theme_set(theme_bw())
 #' @importFrom tidyr gather
 #' @importFrom stringr stringr::str_extract
 #' @export
+#' 
 read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batch=TRUE,CFS=TRUE,solvent="DMSO",CARRIER=TRUE){
   
   file.list<-protein_path
@@ -64,7 +65,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
   peptide_path<-as.character(peptide_path)
   protein_path<-as.character(protein_path)
   
-  find<-c('[:digit:][:digit:][:digit:][N|C]|[:digit:][:digit:][:digit:]')
+  find<-c('[:digit:][:digit:][:digit:][N|C]|126')
   df<-list()
   df1<-list()
   df3<-data.frame()
@@ -81,6 +82,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
   Proteins<-parallel::mclapply(f,read_xl,mc.cores = availableCores())
   Proteins<-lapply(Proteins,function(x) x %>% dplyr::select(-tidyr::starts_with("Found")))
   PSMs<-parallel::mclapply(h,read_xl,mc.cores = availableCores())
+  
   
   if (isTRUE(Peptide)){ #if this is a PSM of peptide group file
     if(length(list.files(peptide_path,pattern="PeptideGroups.xlsx"))>0){
@@ -209,7 +211,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
                                tidyr::unnest(cols=c("temp_ref","sample_id")) %>% 
                                dplyr::select(-id,Accession,Spectrum_File,tidyr::contains("Sequence"),temp_ref,value,Modifications,Charge,"Average_Reporter_S/N",XCorr,"Isolation_Interference_[%]","MissedCleavages","Percolator_PEP","Ion_Inject_Time_[ms]","DeltaM"))
       
-      df2<-dplyr::bind_rows(df2)
+      df2<-dplyr::bind_rows(df2) %>% distinct(.)
     }
     
     #check names for peptide group file
@@ -250,30 +252,45 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
     df3<-parallel::mclapply(df3,cols_PD,mc.cores=availableCores())
     
     if(isTRUE(Batch)){
-      df3<-purrr::map(df3,function(x) x %>% dplyr::select(Accession,Annotated_Sequence))
+      df3<-purrr::map(df3,function(x) x %>% dplyr::select(Accession,Annotated_Sequence,Fraction))
       names<-dplyr::intersect(names(df3[[1]]),names(df2[[1]]))
       #df3 is Peptide groups df2 is PSM file
-      df3<-dplyr::bind_rows(df3) %>% dplyr::group_split()
-      Batch<-df2
+      
+      
     }else{
       
       PSMs<-PSMs %>% dplyr::rename("sample_name"="Spectrum.File") 
       if(any(names(PSMs)=="File.ID")){
-        PSMs<-PSMs %>% dplyr::mutate(sample_id=str_extract(File.ID,"F[[:digit:]]+"))
-        PSMs<-PSMs%>% dplyr::select(sample_id,sample_name,File.ID) %>% unique(.)
+        PSMs<-PSMs %>% dplyr::mutate(sample_id=stringr::str_extract(File.ID,"F[[:digit:]]+"),
+                                     sample_name=stringr::str_remove(Spectrum.File,"[[:digit:]]+.raw")) %>% 
+          distinct(.)
+        PSMs<-PSMs%>% dplyr::select(sample_id,sample_name) %>% unique(.)
       }else{
         PSMs<-PSMs%>% dplyr::select(sample_id,sample_name) %>% unique(.)
       }
       df3<-dplyr::bind_rows(df3) 
-      if(!any(names(PSMs)=="sample_id")){
-        PSMs<-PSMs%>% dplyr::rename("sample_id"="File.ID")
+      
+      name<-dplyr::intersect(names(dplyr::bind_rows(PSMs)),names(dplyr::bind_rows(df3)))
+      PSMs<-dplyr::bind_rows(PSMs) %>% dplyr::group_split(sample_id)
+      df3<-dplyr::bind_rows(df3) %>% dplyr::group_split(sample_id)
+      
+      df2<-purrr::map2(df3,PSMs,function(x,y) {
+        x<-x%>% dplyr::right_join(y,by=name)
+        if(any(isTRUE(stringr::str_detect(x$sample_name,".raw")))){
+          x<-dplyr::mutate(sample_name=ifelse(!is.na(sample_name),str_remove(.$sample_name,"[[:digit:]]+.raw"),NA)) %>%
+            distinct(.)
+        }
+        return(x) 
+      })
+      
+      mutate_missing<-function(x) {
+        x<-x %>%  dplyr::group_by(Accession,Annotated_Sequence,sample_id) %>%
+          dplyr::mutate(missing_pct=ifelse(all(is.na(value)),100,(100*sum(as.numeric(is.na(value)))/nrow(.))))%>% ungroup(.)
       }
-      names<-dplyr::intersect(names(PSMs),names(df3))
-      df2<-df3 %>% dplyr::right_join(PSMs,by=names)
       if(isTRUE(Peptide)){
-        df2<-df2 %>% dplyr::group_by(Accession,Annotated_Sequence,sample_id) %>%  dplyr::mutate(missing_pct=(100*sum(as.numeric(is.na(value)))/length(value)))%>% ungroup(.)
+        df2<-parallel::mclapply(df2,mutate_missing,mc.cores=availableCores())
       }else{
-        df2<-df2 %>% dplyr::group_by(Accession,sample_id) %>%  dplyr::mutate(missing_pct=(100*sum(as.numeric(is.na(value)))/length(value)))%>% ungroup(.)
+        df2<-parallel::mclapply(df2,mutate_missing,mc.cores=availableCores())
       }
       
     }
@@ -312,22 +329,20 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
         
       }
     }
+    
     df2<-df2 %>% distinct(.)
     return(df2)
   }else{ #if this is a protein file
-    PSMs<-dplyr::bind_rows(PSMs)
+    PSMs<-dplyr::bind_rows(PSMs) %>% as.data.frame(.)
     PSMs$dataset<-"treated"
     PSMs[str_detect(PSMs$Spectrum.File,solvent),"dataset"]<-"vehicle"
     i<-1
     #Select protein columns
-    if(any(names(Proteins)=="File.ID")){
-      Proteins<-dplyr::bind_rows(Proteins) %>% dplyr::select("Accession","File.ID","MW.kDa.","Biological.Process","Molecular.Function","Cellular.Component","Coverage.",tidyselect::starts_with('Abundance.')|tidyselect::starts_with('1'),"Modifications") %>% 
-        dplyr::rename("Cell_Component"="Cellular.Component","MW_kDa"="MW.kDa.","Bio_Process"="Biological.Process","Coverage"="Coverage.")
-    }else{
-      Proteins<-dplyr::bind_rows(Proteins) %>% dplyr::select("Accession","MW.kDa.","Biological.Process","Molecular.Function","Cellular.Component","Coverage.",tidyselect::starts_with('Abundance.')|tidyselect::starts_with('1'),"Modifications") %>% 
-        dplyr::rename("Cell_Component"="Cellular.Component","MW_kDa"="MW.kDa.","Bio_Process"="Biological.Process","Coverage"="Coverage.")
-      
-    }
+    
+    Proteins<-dplyr::bind_rows(Proteins) %>% dplyr::select("Accession","MW.kDa.","Biological.Process","Molecular.Function","Cellular.Component","Coverage.",tidyselect::starts_with('Abundance.')|tidyselect::starts_with('1'),"Modifications") %>% 
+      dplyr::rename("Cell_Component"="Cellular.Component","MW_kDa"="MW.kDa.","Bio_Process"="Biological.Process","Coverage"="Coverage.")
+    
+    
     #Wide to long for proteins
     df2<-data.table(dplyr::bind_rows(Proteins))
     
@@ -343,8 +358,8 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
     #Wide to long for peptides
     if(any(names(dplyr::bind_rows(PSMs))=="File.ID")){
       dfP<-data.table(dplyr::bind_rows(PSMs) %>% dplyr::rename("Accession"="Protein.Accessions","sample_name"="Spectrum.File","sample_id"="File.ID"))
-      if(any("." %in% dfP$sample_id)){
-        dfP$sample_id<-stringr::str_split_fixed(dfP$sample_id,".",n=2)
+      if(any(str_detect(dfP$sample_id,"."))){
+        dfP$sample_id<-stringr::str_extract(dfP$sample_id,"F[[:digit:]]+")
       }
       
     }else{
@@ -361,38 +376,47 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
     
     dfP<-dfP[, id:=as.character(id)]
     dfP<-data.frame(dfP) %>% 
-      dplyr::mutate(temp_ref=stringr::str_extract(id,find)) %>%
-      dplyr::select(-id,-value)
+      dplyr::mutate(temp_ref=stringr::str_extract(id,find),
+                    sample_name=str_remove_all(sample_name,"[[:digit:]]+.raw")) %>%
+      dplyr::select(-id,-value) %>% distinct(.)
     if(isTRUE(CARRIER)){
       dfP<-dfP %>% dplyr::filter(!temp_ref=="131C") %>%
         dplyr::select(-temp_ref) %>% distinct(.)
       df3<-df3 %>% dplyr::filter(!temp_ref=="131C")
     }
-    names<-dplyr::intersect(names(dfP),names(df3))
-    #round up values for missing data
-    num<-length(unique(dfP$temp_ref))
+    
+    name<-dplyr::intersect(names(dfP),names(df3))#dfP is PSMs df3 is proteins
+    
     #Join protein and PSM file
-    Protein<-df3 %>% dplyr::right_join(dfP,by=names)
-    Protein<-Protein %>% dplyr::mutate(sample_name=str_remove(sample_name,"[[:digit]]+[:punct:][[:digit]]+.raw"))
-    Protein<-Protein %>% dplyr::group_split(Accession,sample_id,sample_name)
-    Protein<-purrr::map(Protein,function(x){ x %>% dplyr::group_by(Accession,sample_id,sample_name) %>% distinct(.) %>% dplyr::mutate(missing=is.na(value),
-                                                                                                                                      missing_pct=100*sum(is.na(value),na.rm=TRUE)/nrow(.))})
+    Protein<-df3 %>% dplyr::right_join(dfP,by=name) %>% dplyr::filter(!is.na(temp_ref))
     
-    df_raw_D_R<-dplyr::bind_rows(Protein) %>% dplyr::filter(temp_ref=="126") %>%
-      dplyr::mutate(rank=dplyr::ntile(value,3))%>%
-      dplyr::select(sample_id,Accession,rank,-temp_ref) %>% distinct(.)
     
-    Protein<-data.table(dplyr::bind_rows(Protein))
+    Protein<-Protein %>% dplyr::group_split(Accession,sample_id)
+    missing_label<-function(x) {
+      x<-x %>% dplyr::group_by(Accession,sample_id,sample_name) %>%
+        distinct(.) %>% dplyr::mutate(missing=is.na(value),
+                                      missing_pct=100*sum(is.na(value),na.rm=TRUE)/nrow(.))
+      return(x)
+    }
+    Protein<-parallel::mclapply(Protein,missing_label,mc.cores=availableCores())
+    rank_label<-function(x){
+      x<-x%>% dplyr::filter(temp_ref=="126") %>%
+        dplyr::mutate(rank=dplyr::ntile(value,3))%>%
+        dplyr::select(sample_id,sample_name,Accession,rank,-temp_ref)%>%
+        dplyr::filter(!is.na(rank),!is.na(id)) %>% distinct(.)
+      return(x)
+    }
     
-    df_raw_D_R<-data.table(df_raw_D_R) %>% dplyr::filter(!is.na(rank)) %>% distinct(.)
-    #remove shared protein accessions
-    df_raw_D_R<-df_raw_D_R[!grepl(";", df_raw_D_R$Accession),]
+    df_raw_D_R<-mclapply(Protein,rank_label,mc.cores=availableCores())
     
-    Protein<-Protein %>% dplyr::filter(!is.na(id)) %>% distinct(.)
-    names<-dplyr::intersect(names(df_raw_D_R),names(Protein))
-    setkeyv(df_raw_D_R,cols=names)
-    setkeyv(Protein,cols=names)
-    df2<-data.frame(data.table::merge.data.table(Protein,df_raw_D_R))
+    Protein<-dplyr::bind_rows(Protein)
+    
+    name<-dplyr::intersect(names(df_raw_D_R),names(Protein))
+    df_raw_D_R<-data.table(df_raw_D_R)
+    Proteins<-data.table(Protein)
+    setkeyv(df_raw_D_R,cols=name)
+    setkeyv(Protein,cols=name)
+    df2<-data.frame(merge(Protein,df_raw_D_R))
     
     
     
@@ -431,7 +455,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
     
   }else{
     
-    if(any(stringr::str_detect(df2$sample_name,solvent)==TRUE) & isTRUE(CFS)){#if the preset solvent is present under sample name
+    if(any(stringr::str_detect(df2$sample_name,solvent)==TRUE)){#if the preset solvent is present under sample name
       df2$CC<-ifelse(stringr::str_detect(df2$sample_name,solvent)==TRUE,0,1)
       df2$dataset<-ifelse(df2$CC==0,"vehicle","treated")
     }else{#if doing a time_point experiment
@@ -6372,9 +6396,9 @@ TPPbenchmark<-function(f,overlaps=NA,volcano=TRUE,filters="TPP"){
   df_1<-purrr::map(df_1,function(x) x[1,])
   df_1<-dplyr::bind_rows(df_1)
   
-  colors<-data.frame(sample_name=as.character(unique(dplyr::bind_rows(df_TPP)$sample_name)))
+  colors<-data.frame(sample_name=as.character(unique(dplyr::bind_rows(df_1)$sample_name)))
   colors$sample_name<-as.character(colors$sample_name)
-  colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')
+  colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')[1:length(unique(colors$sample_name))]
   
   check1<-df_1 %>% count(sample_name) %>%
     mutate(focus = ifelse(sample_name == "C_F_Φ", 0.2, 0)) %>%
@@ -6423,7 +6447,7 @@ TPPbenchmark<-function(f,overlaps=NA,volcano=TRUE,filters="TPP"){
   df_1<-cbind(IDs,df_1)
   colors<-data.frame(sample_name=as.character(unique(dplyr::bind_rows(df_TPP)$sample_name)))
   colors$sample_name<-as.character(colors$sample_name)
-  colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')
+  colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')[1:length(unique(colors$sample_name))]
   rating_scale = scale_fill_manual(name="Stabilization (Tm-based)",
                                    values=c("Stabilized" ='#fee6ce', "Destabilized" ='#fdae6b', "NA"  = '#e6550d'))
   df_1<-na.omit(df_1)
@@ -6678,7 +6702,7 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
   
   #select columns of interest
   if(filters=="HQ"){
-    df_TPP<-dplyr::bind_rows(df_TPP) %>% 
+    df_TPP1<-dplyr::bind_rows(df_TPP) %>% 
       dplyr::select(Protein_ID,fulfills_all_4_requirements,
                     minSlopes_less_than_0.06,
                     R_sq_Treatment_2,R_sq_Treatment_1,R_sq_Vehicle_2,R_sq_Vehicle_1,
@@ -6692,6 +6716,7 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
                       minSlopes_less_than_0.06=="Yes"
                     & R_sq_Treatment_2 >0.8 & R_sq_Treatment_1 >0.8 & R_sq_Treatment_2>0.8 &R_sq_Vehicle_1>0.8 &
                       plateau_Treatment_2<0.3 & plateau_Treatment_1<0.3 & plateau_Treatment_2<0.3 & plateau_Vehicle_1<0.3)
+    df_TPP$sample_name<-str_replace(df_TPP$sample_name,"S","\u03A6")
   }else if(filters=="Sigmoidal"){
     df_TPP<-dplyr::bind_rows(df_TPP) %>% 
       dplyr::select(Protein_ID,fulfills_all_4_requirements,
@@ -6799,9 +6824,9 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
   df_1<-purrr::map(df_1,function(x) x[1,])
   df_1<-dplyr::bind_rows(df_1)
   
-  colors<-data.frame(sample_name=as.character(unique(dplyr::bind_rows(df_TPP)$sample_name)))
-  colors$sample_name<-as.character(colors$sample_name)
-  colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')
+  colors<-data.frame(sample_name=as.character(unique(dplyr::bind_rows(df_1)$sample_name)))
+  colors$sample_name<-as.character(colors$sample_name)[1:length(unique(colors$sample_name))]
+  colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')[1:length(unique(colors$sample_name))]
   
   check1<-df_1 %>% count(sample_name) %>%
     mutate(focus = ifelse(sample_name == "C_F_Φ", 0.2, 0)) %>%
@@ -6827,8 +6852,10 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
   # 
   df_1<-dplyr::bind_rows(df_TPP)
   df_1$uniqueID<-df_1$Protein_ID
+  
   df_1<-dplyr::bind_rows(df_1) %>% dplyr::select(uniqueID,sample_name) %>% 
     pivot_wider(names_from=sample_name,values_from=sample_name) %>% distinct(.)
+  
   
   
   
@@ -6840,9 +6867,9 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
   df_1 <- mutate_all(df_1[,2:length(df_1)], ~replace(., !is.na(.), "TRUE"))
   df_1 <- mutate_all(df_1[,2:length(df_1)], ~replace(., is.na(.), "FALSE"))
   df_1<-cbind(IDs,df_1)
-  colors<-data.frame(sample_name=as.character(unique(dplyr::bind_rows(df_TPP)$sample_name)))
+  colors<-data.frame(sample_name=as.character(unique(dplyr::bind_rows(df_1)$sample_name)))
   colors$sample_name<-as.character(colors$sample_name)
-  colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')
+  colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')[1:length(unique(colors$sample_name))]
   rating_scale = scale_fill_manual(name="Stabilization (Tm-based)",
                                    values=c("Stabilized" ='#fee6ce', "Destabilized" ='#fdae6b', "NA"  = '#e6550d'))
   df_1<-na.omit(df_1)
@@ -6932,6 +6959,60 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
   check_intersections<-data.frame(IDs=check[[1]]$data$intersection,inclusive=check[[1]]$data$inclusive_intersection_size) %>% distinct(.) %>% dplyr::arrange(inclusive) %>% head(10)
   #filter exclusive intersection colors
   colors<-colors %>% dplyr::filter(sample_name %in% check_intersections$IDs)
+  queries=list(
+    upset_query(
+      intersect=colors$sample_name[1],
+      color=colors$hex[1],
+      fill=colors$hex[1],
+      only_components='# of fitted curves'
+    ),
+    upset_query(
+      intersect=colors$sample_name[2],
+      color=colors$hex[2],
+      fill=colors$hex[2],
+      only_components='# of fitted curves'
+    )
+    ,
+    upset_query(
+      intersect=as.character(colors$sample_name[3]),
+      color=colors$hex[3],
+      fill=colors$hex[3],
+      only_components='# of fitted curves'
+    )
+    ,
+    upset_query(
+      intersect=colors$sample_name[4],
+      color=colors$hex[4],
+      fill=colors$hex[4],
+      only_components='# of fitted curves'
+    )
+    ,
+    upset_query(
+      intersect=colors$sample_name[5],
+      color=colors$hex[5],
+      fill=colors$hex[5],
+      only_components='# of fitted curves'
+    )
+    ,
+    upset_query(
+      intersect=colors$sample_name[6],
+      color=colors$hex[6],
+      fill=colors$hex[6],
+      only_components='# of fitted curves'
+    ),
+    upset_query(
+      intersect= as.character(colors$sample_name[7]),
+      color=as.character(colors$hex[7]),
+      fill=as.character(colors$hex[7]),
+      only_components='# of fitted curves'
+    )
+    ,
+    upset_query(
+      intersect=as.character(colors$sample_name[8]),
+      color=as.character(colors$hex[8]),
+      fill=as.character(colors$hex[8]),
+      only_components='# of fitted curves'
+    ))[1:length(colors$sample_name)]
   
   #add query
   check<-upset(df_1,colnames(df_1)[!colnames(df_1) %in% c("sample_name","stabilized","uniqueID")],
@@ -7007,65 +7088,46 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
                #),
                width_ratio=0.1,
                height_ratio=0.8,
-               queries=list(
+               queries=c(queries,list(
                  upset_query(
                    intersect=c('C_F_Φ', 'nC_F_Φ','nC_F_E',"C_nF_Φ",'nC_nF_Φ','C_nF_E','nC_nF_E'),
                    color='black',
                    fill='black',
                    only_components='# of fitted curves'
-                 ),
-                 upset_query(
-                   intersect=colors$sample_name[1],
-                   color=colors$hex[1],
-                   fill=colors$hex[1],
-                   only_components='# of fitted curves'
-                 ),
-                 upset_query(
-                   intersect=colors$sample_name[2],
-                   color=colors$hex[2],
-                   fill=colors$hex[2],
-                   only_components='# of fitted curves'
-                 )
-                 ,
-                 upset_query(
-                   intersect=colors$sample_name[3],
-                   color=colors$hex[3],
-                   fill=colors$hex[3],
-                   only_components='# of fitted curves'
-                 )
-                 # ,
-                 # upset_query(
-                 #   intersect=colors$sample_name[4],
-                 #   color=colors$hex[4],
-                 #   fill=colors$hex[4],
-                 #   only_components='# of fitted curves'
-                 # ),
-                 # upset_query(
-                 #   intersect=colors$sample_name[5],
-                 #   color=colors$hex[5],
-                 #   fill=colors$hex[5],
-                 #   only_components='# of fitted curves'
-                 # ),
-                 # upset_query(
-                 #   intersect=colors$sample_name[6],
-                 #   color=colors$hex[6],
-                 #   fill=colors$hex[6],
-                 #   only_components='# of fitted curves'
-                 # ),
-                 # upset_query(
-                 #   intersect= as.character(colors$sample_name[7]),
-                 #   color=as.character(colors$hex[7]),
-                 #   fill=as.character(colors$hex[7]),
-                 #   only_components='# of fitted curves'
-                 # )
-                 # ,
-                 # upset_query(
-                 #   intersect=as.character(colors$sample_name[8]),
-                 #   color=as.character(colors$hex[8]),
-                 #   fill=as.character(colors$hex[8]),
-                 #   only_components='# of fitted curves'
-                 # )
-               )
+                 )))
+               # ,
+               # upset_query(
+               #   intersect=colors$sample_name[4],
+               #   color=colors$hex[4],
+               #   fill=colors$hex[4],
+               #   only_components='# of fitted curves'
+               # ),
+               # upset_query(
+               #   intersect=colors$sample_name[5],
+               #   color=colors$hex[5],
+               #   fill=colors$hex[5],
+               #   only_components='# of fitted curves'
+               # ),
+               # upset_query(
+               #   intersect=colors$sample_name[6],
+               #   color=colors$hex[6],
+               #   fill=colors$hex[6],
+               #   only_components='# of fitted curves'
+               # ),
+               # upset_query(
+               #   intersect= as.character(colors$sample_name[7]),
+               #   color=as.character(colors$hex[7]),
+               #   fill=as.character(colors$hex[7]),
+               #   only_components='# of fitted curves'
+               # )
+               # ,
+               # upset_query(
+               #   intersect=as.character(colors$sample_name[8]),
+               #   color=as.character(colors$hex[8]),
+               #   fill=as.character(colors$hex[8]),
+               #   only_components='# of fitted curves'
+               # )
+               
                
                
                
@@ -7696,7 +7758,7 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
       colors<-data.frame(sample_name=as.factor(unique(dplyr::bind_rows(df_TPP)$sample_name)))
       colors$sample_name<-as.factor(colors$sample_name)
       colors$sample_name<-levels(colors$sample_name)
-      colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')
+      colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')[1:length(unique(colors$sample_name))]
       
       colors<-dplyr::bind_rows(colors) %>% dplyr::filter(sample_name %in% level_data)
       
@@ -8476,7 +8538,7 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
       
     }else if(!isTRUE(Peptide)){
       
-      f<-f %>% 
+      f<-dplyr::bind_rows(f) %>% 
         dplyr::select(uniqueID,sample,sample_name,dTm,AUC,rsq,fStatistic,pValue,pAdj,dataset,Fvals,p_dTm,dRSS,d1,d2,rss1,RSS)
       f$sample_name<-str_replace(f$sample_name,"S","\u03A6")
       
@@ -8497,10 +8559,10 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
       flevels<-flevels %>% dplyr::filter(labels %in% unique(f$diffexpressed))
       
       
-      f<-data.frame(f)
+      f<-data.frame(f) %>% distinct(.)
       if(isTRUE(benchmark)){
         if(!isTRUE(Fhist)){
-          check<-ggplot(data=f,mapping=aes(x=Fvals,y=-log10(pAdj),color=diffexpressed))+geom_point()+
+          check<-ggplot(data=f,mapping=aes(x=dRSS,y=-log10(pAdj),color=diffexpressed))+geom_point()+
             geom_hline(yintercept=-log10(0.05), col="red")+
             scale_color_manual("Stabilization",values=as.character(flevels$colors),labels = flevels$labels)+
             labs(x=expression(RSS["0"]-RSS["1"]),y=expression(-log["10"]*p["adj"]-value))+
@@ -8511,18 +8573,19 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
             #                 box.padding = 2,
             #                 segment.alpha = .5)+
             ggtitle(f$sample_name[1])+
-            theme(legend.position="bottom", legend.box = "horizontal")
+            theme(legend.position="bottom", legend.box = "horizontal")+
+            coord_cartesian(xlim=c(0,max(f$dRSS,na.rm=TRUE)),ylim=c(0,max(-log10(f$pAdj),na.rm=TRUE)))
           if(isTRUE(labels)){
             if(type=="targets" | is.na(type)){
               check<-check+
-                geom_label_repel(f,mapping=aes(Fvals, -log10(pAdj),label=targets),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 50),
+                geom_label_repel(f,mapping=aes(dRSS, -log10(pAdj),label=targets),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 50),
                                  nudge_x = 1,
                                  force = 3,
                                  box.padding = 3,
                                  segment.alpha = .5)
             }else{
               check<-check+
-                geom_label_repel(f,mapping=aes(Fvals, -log10(pAdj),label=delabel),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 50),
+                geom_label_repel(f,mapping=aes(dRSS, -log10(pAdj),label=delabel),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 50),
                                  nudge_x = 1,
                                  force = 3,
                                  box.padding = 3,
@@ -8538,7 +8601,9 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
             coord_cartesian(xlim=c(0,10))+
             ggplot2::xlab("F-values")+
             xlim(0,max(f$Fvals))
+          return(check)
         }
+        
       }else{
         f$sig<-sign(f$dTm)
         # #p-val
@@ -8595,26 +8660,27 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
             labs(y=expression(-log["2"]*F["vals"]+1),x=expression(sign("k")*sqrt(RSS["0"]-RSS["1"])))+
             scale_color_manual("Stabilization",values=as.character(flevels$colors),labels = flevels$labels)+
             ggtitle(f$sample_name[1])+
-            theme(legend.position="bottom", legend.box = "horizontal")
-          if(isTRUE(labels)){
-            if(type=="targets" | is.na(type)){
-              check<-check+
-                geom_label_repel(f,mapping=aes(Fvals, -log10(pAdj),label=targets),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 50),
-                                 nudge_x = 1,
-                                 force = 3,
-                                 box.padding = 3,
-                                 segment.alpha = .5)
-            }else{
-              check<-check+
-                geom_label_repel(f,mapping=aes(Fvals, -log10(pAdj),label=delabel),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 50),
-                                 nudge_x = 1,
-                                 force = 3,
-                                 box.padding = 3,
-                                 segment.alpha = .5)
+            theme(legend.position="bottom", legend.box = "horizontal")+
+            
+            if(isTRUE(labels)){
+              if(type=="targets" | is.na(type)){
+                check<-check+
+                  geom_label_repel(f,mapping=aes(Fvals, -log10(pAdj),label=targets),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 50),
+                                   nudge_x = 1,
+                                   force = 3,
+                                   box.padding = 3,
+                                   segment.alpha = .5)
+              }else{
+                check<-check+
+                  geom_label_repel(f,mapping=aes(Fvals, -log10(pAdj),label=delabel),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 50),
+                                   nudge_x = 1,
+                                   force = 3,
+                                   box.padding = 3,
+                                   segment.alpha = .5)
+              }
             }
-          }
           
-          return(check)
+          
         }else{
           check<-ggplot(f)+
             geom_density(aes(x=Fvals),fill = "black",alpha = 0.5) + 
@@ -8623,7 +8689,7 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FA
             coord_cartesian(xlim=c(0,10))+
             ggplot2::xlab("F-values")
         }
-        
+        return(check)
       }
       return(check)
       
@@ -9064,11 +9130,15 @@ runTPP<-function(x,df.temps){
   
   resultPath<-file.path(getwd())
   #sort data
-  TPPconfig<-TPP %>% dplyr::select(Experiment,Condition,ComparisonVT2,ComparisonVT2,tidyr::starts_with("126"),tidyr::starts_with("127L"),tidyr::starts_with("127H"),tidyr::starts_with("128L"),tidyr::starts_with("128H"),tidyr::starts_with("129L"),tidyr::starts_with("129H"),tidyr::starts_with("130"),tidyr::starts_with("130H"),tidyr::starts_with("131L")) %>% distinct(.)
+  TPPconfig<-TPP %>% dplyr::select(Experiment,Condition,ComparisonVT1,ComparisonVT2,tidyr::starts_with("126"),tidyr::starts_with("127L"),tidyr::starts_with("127H"),tidyr::starts_with("128L"),tidyr::starts_with("128H"),tidyr::starts_with("129L"),tidyr::starts_with("129H"),tidyr::starts_with("130"),tidyr::starts_with("130H"),tidyr::starts_with("131L")) %>% distinct(.)
   TPPdata<-TPPdata[order(unique(TPPconfig$Experiment))]
-  TPPdata<-lapply(TPPdata,function(x) as.data.frame(x) %>% dplyr::ungroup(.) %>% dplyr::select(-n,-Experiment))
+  TPPdata<-lapply(TPPdata,function(x) as.data.frame(x) %>%
+                    dplyr::ungroup(.) %>% dplyr::select(-n,-Experiment))
   
   #import TPPtr
+  if(any(!isTRUE(TPPconfig$Experiment==names(TPPdata)))){
+    TPPdata<-TPPdata[order(TPPconfig$Experiment)]
+  }
   trData <- tpptrImport(configTable = TPPconfig, data = TPPdata)
   TRresults <- analyzeTPPTR(configTable = TPPconfig, 
                             methods = "meltcurvefit",
@@ -9079,7 +9149,7 @@ runTPP<-function(x,df.temps){
                             normalize = FALSE)
   return(TRresults)
 }
-hi<-purrr::map(df_norm1[7],function(x) runTPP(x,df.temps))
+hi<-purrr::map(df_norm1[6],function(x) runTPP(x,df.temps))
 #df_raw<-df_raw %>% dplyr::left_join(df.samples,by=c("temp_ref",))
 
 
@@ -9100,7 +9170,7 @@ hi<-purrr::map(df_norm1[7],function(x) runTPP(x,df.temps))
 # f<-"C:/Users/figue/OneDrive - Northeastern University/CETSA R/CP_Exploris_20200811_DMSOvsMEKi_carrier_FAIMS_PhiSDM_PEPTIDES.xlsx"
 #df_raw <- read_cetsa("~/Files/Scripts/Files/Zebra","~/Files/Scripts/Files/Zebra","_Proteins",Peptide=TRUE,Batch=TRUE,CFS=FALSE,solvent="Control")     
 #df_raw <- read_cetsa("~/Files/Scripts/Files/Covid","~/Files/Scripts/Files/Covid","_Proteins",Peptide=FALSE,CFS=FALSE,Batch=FALSE)                                                              
-df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS/Shared+ProcessedBulk/CFS","~/Files/Scripts/Files/CONSENSUS/Shared+ProcessedBulk/CFS","_Proteins",Peptide=FALSE,Batch=FALSE,solvent="DMSO",CARRIER=TRUE)                                                              
+df_raw <- read_cetsa("~/Files/Scripts/Files/2.5/Technical_reps_as_fractions_Cliff","~/Files/Scripts/Files/2.5/Technical_reps_as_fractions_Cliff","_Proteins",Peptide=FALSE,Batch=FALSE,solvent="DMSO",CARRIER=TRUE)                                                              
 #df_raw <- read_cetsa("~/CONSENSUS11","~/CONSENSUS11","_Proteins",Peptide=FALSE,Batch=FALSE,solvent="DMSO")                                                              
 
 #saveRDS(df_raw,"df_raw.RDS")
@@ -9650,7 +9720,7 @@ P3<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = 
 # check<-dplyr::bind_rows(df_norm) %>% dplyr::group_split(time_point)
 # plotS2 <- purrr::map(check,function(x) try(plot_Splines(x,"P0DTC2",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
 
-plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=TRUE,show_results=TRUE,Peptide=FALSE,simulations=FALSE,CARRIER=TRUE)))
+plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE,simulations=FALSE,CARRIER=TRUE)))
 saveRDS(plotS2,"CFS_Peptide_Shared_Bulk_unfiltered_Consensus_data.RDS")
 check<-ggplot2::ggplot_build(plotS2[[2]])
 y<-get_legend(check$plot)
@@ -9699,12 +9769,12 @@ y<-get_legend(check_$plot)
 
 P1<-ggarrange(plotlist=check,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-check2<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=TRUE,benchmark=TRUE,Fhist=FALSE,labels=TRUE,type="targets")))
+check2<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,benchmark=TRUE,Fhist=FALSE,labels=TRUE,type="targets")))
 check_<-ggplot2::ggplot_build(check2[[1]])
 y<-get_legend(check_$plot)
 P2<-ggarrange(plotlist=check2,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-pdf("volcano_splines_hist_peptide_unfiltered_targets.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+pdf("BULK_volcano_splines_hist_protein_targets.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 P1
 P2
 dev.off()
