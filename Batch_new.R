@@ -262,7 +262,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
       PSMs<-PSMs %>% dplyr::rename("sample_name"="Spectrum.File") 
       if(any(names(PSMs)=="File.ID")){
         PSMs<-PSMs %>% dplyr::mutate(sample_id=stringr::str_extract(File.ID,"F[[:digit:]]+"),
-                                     sample_name=stringr::str_remove(Spectrum.File,"[[:digit:]]+.raw")) %>% 
+                                     sample_name=stringr::str_remove(sample_name,"[[:digit:]]+.raw")) %>% 
           distinct(.)
         PSMs<-PSMs%>% dplyr::select(sample_id,sample_name) %>% unique(.)
       }else{
@@ -6825,20 +6825,22 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
   df_1<-purrr::map(df_1,function(x) x[1,])
   df_1<-dplyr::bind_rows(df_1)
   
-  colors<-data.frame(sample_name=as.character(unique(dplyr::bind_rows(df_1)$sample_name)))
-  colors$sample_name<-as.character(colors$sample_name)[1:length(unique(colors$sample_name))]
-  colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')[1:length(unique(colors$sample_name))]
-  colors$x<-c(1,1.2,1.1,0.7,-0.8,-1,-1.1,-0.75)[1:length(unique(colors$sample_name))]
-  colors$y<-c(1,0.42,-0.38,-0.88,-0.88,-0.38,0.42,1)[1:length(unique(colors$sample_name))]
-  
-  check1<-df_1 %>% count(sample_name) %>%
+  colors1<-data.frame(sample_name=as.character(unique(dplyr::bind_rows(df_1)$sample_name)))
+  colors1$sample_name<-as.character(colors1$sample_name)[1:length(unique(colors1$sample_name))]
+  colors1$sample_name<-as.factor(colors1$sample_name)
+  colors1$sample_name<-levels(colors1$sample_name)
+  colors1$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')[1:length(unique(colors1$sample_name))]
+  colors1$x<-c(1,1.3,1.3,0.7,-0.8,-1,-1.1,-0.75)[1:length(unique(colors1$sample_name))]
+  colors1$y<-c(1,0.42,-0.38,-0.88,-0.88,-0.38,0.42,1)[1:length(unique(colors1$sample_name))]
+  df_TPP1<-df_1
+  check1<-df_TPP1 %>% count(sample_name) %>%
     mutate(focus = ifelse(sample_name == "C_F_Φ", 0.2, 0)) %>%
     ggplot() +
     ggforce::geom_arc_bar(aes(x0 = 0, y0 = 0, r0 = 0.7, r = 1, amount = n, fill = sample_name, explode = focus), stat = "pie") +
     ggforce::theme_no_axes()+
-    scale_fill_manual(values = colors$hex,aesthetics="fill")+
+    scale_fill_manual(values = colors1$hex,aesthetics="fill")+
     xlim(-1.1,1.45)+
-    ggplot2::geom_label(mapping=aes(x=colors$x,y=colors$y,label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
+    ggplot2::geom_label(mapping=aes(x=colors1$x,y=colors1$y,label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
     ggtitle("Number of fitted curves")
   
   # 
@@ -6960,13 +6962,10 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
   check_intersections<-data.frame(IDs=check[[1]]$data$intersection,inclusive=check[[1]]$data$inclusive_intersection_size) %>% distinct(.) %>% dplyr::arrange(inclusive) %>% head(10)
   #filter exclusive intersection colors
   colors<-colors %>% dplyr::filter(sample_name %in% check_intersections$IDs)
+  
   level_data=rev(levels(check$data$intersection))
   #colors$sample_name<-as.character(levels(colors$sample))
-  colors<-data.frame(sample_name=as.factor(unique(dplyr::bind_rows(df_TPP)$sample_name)))
-  colors$sample_name<-as.factor(colors$sample_name)
-  colors$sample_name<-levels(colors$sample_name)
-  colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')[1:length(unique(colors$sample_name))]
-  queries=list(
+  queries<-list(
     upset_query(
       intersect=colors$sample_name[1],
       color=colors$hex[1],
@@ -7019,11 +7018,11 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
       color=as.character(colors$hex[8]),
       fill=as.character(colors$hex[8]),
       only_components='# of fitted curves'
-    ))[1:length(colors$sample_name)]
-  if(str_count(check_intersections$IDs[1],"-")<7){
-    queries=queries
+    ))[1:length(unique(colors$sample_name))]
+  if(stringr::str_count(check_intersections$IDs[1],"-")<7){
+    queries<-queries
   }else{
-    c(queries,list(
+    queries<-c(queries,list(
       upset_query(
         intersect=c('C_F_Φ', 'nC_F_Φ','nC_F_E',"C_nF_Φ",'nC_nF_Φ','C_nF_E','nC_nF_E'),
         color='black',
@@ -7032,7 +7031,7 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
       )))
   }
   #add query
-  check<-upset(df_1,colnames(df_1)[!colnames(df_1) %in% c("sample_name","stabilized","uniqueID")],
+  check<-upset(df_1,colnames(df_1)[!colnames(df_1) %in% c("sample_name","stabilized","uniqueID","IDs")],
                #min_degree=6,
                set_sizes=FALSE,
                n_intersections=10,
@@ -9017,7 +9016,9 @@ rename_TPP<-function(x,temps=df.temps){#rename script data to run TPP
     TPP_Cliff$gene_name<-as.character(TPP_Cliff$gene_name)
     
     TPP_Cliff<-dplyr::bind_rows(TPP_Cliff) %>% 
-      dplyr::select(sample,Condition,Annotated_Sequence,gene_name,temp_ref,I) %>%
+      dplyr::select(sample,Condition,Annotated_Sequence,gene_name,temp_ref,I,sample_name) %>%
+      distinct(.) %>% dplyr::group_by(gene_name,Condition,sample_name) %>% 
+      dplyr::mutate(I=sum(I,na.rm=TRUE)) %>% dplyr::ungroup(.) %>% 
       distinct(.)
     data<-TPP_Cliff %>% 
       dplyr::select(sample,Condition,gene_name,Annotated_Sequence) %>% 
@@ -9175,7 +9176,7 @@ runTPP<-function(x,df.temps){
                             normalize = FALSE)
   return(TRresults)
 }
-hi<-purrr::map(df_norm1[6],function(x) runTPP(x,df.temps))
+hi<-purrr::map(df_norm1[1],function(x) runTPP(x,df.temps))
 #df_raw<-df_raw %>% dplyr::left_join(df.samples,by=c("temp_ref",))
 
 
@@ -9196,7 +9197,7 @@ hi<-purrr::map(df_norm1[6],function(x) runTPP(x,df.temps))
 # f<-"C:/Users/figue/OneDrive - Northeastern University/CETSA R/CP_Exploris_20200811_DMSOvsMEKi_carrier_FAIMS_PhiSDM_PEPTIDES.xlsx"
 #df_raw <- read_cetsa("~/Files/Scripts/Files/Zebra","~/Files/Scripts/Files/Zebra","_Proteins",Peptide=TRUE,Batch=TRUE,CFS=FALSE,solvent="Control")     
 #df_raw <- read_cetsa("~/Files/Scripts/Files/Covid","~/Files/Scripts/Files/Covid","_Proteins",Peptide=FALSE,CFS=FALSE,Batch=FALSE)                                                              
-df_raw <- read_cetsa("~/Files/Scripts/Files/2.5/Technical_reps_as_fractions_Cliff","~/Files/Scripts/Files/2.5/Technical_reps_as_fractions_Cliff","_Proteins",Peptide=FALSE,Batch=FALSE,solvent="DMSO",CARRIER=TRUE)                                                              
+df_raw <- read_cetsa("~/Files/Scripts/Files/2.5/Technical_reps_as_fractions_Cliff","~/Files/Scripts/Files/2.5/Technical_reps_as_fractions_Cliff","_Proteins",Peptide=TRUE,Batch=FALSE,solvent="DMSO",CARRIER=TRUE)                                                              
 #df_raw <- read_cetsa("~/CONSENSUS11","~/CONSENSUS11","_Proteins",Peptide=FALSE,Batch=FALSE,solvent="DMSO")                                                              
 
 #saveRDS(df_raw,"df_raw.RDS")
@@ -9219,7 +9220,7 @@ filter_Peptides<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm,
   #set new names
   names(df_)<-ch
   #filter
-  if(any("S_N" %in% names(df))==TRUE){
+  if(any("S_N" %in% names(df_))==TRUE){
     df_<-df_ %>% dplyr::filter(Average_Reporter_S_N>S_N,Percolator_PEP<PEP,Charge<Charg,Missed_Cleavages<Missed_C,abs(DeltaMppm_)<DeltaM_ppm)
     df_<-df_%>% dplyr::rename("uniqueID"="Accession","I"="value","S_N"="Average_Reporter_S_N","PEP"="Percolator_PEP",
                               "DeltaM"="DeltaMppm_","IonInjTime"="Ion_Inject_Timems_",
@@ -9228,7 +9229,8 @@ filter_Peptides<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm,
     rank<-df_%>% dplyr::filter(temp_ref=="126") %>% 
       dplyr::mutate(rank=dplyr::ntile(.$S_N,3)) %>% dplyr::select(uniqueID,Spectrum_File,Annotated_Sequence,Charge,rank,S_N,PEP,Missed_Cleavages,DeltaM,sample_id,Protein_value)
     #remove na values in uniqueID's
-    rank<-rank %>% dplyr::filter(!is.na(uniqueID))
+    rank<-rank %>%dplyr::filter(!is.na(rank),!is.na(uniqueID)) %>%  dplyr::select(uniqueID,Modifications,sample_id,sample_name,dataset,rank) %>% distinct(.)
+    
     #convert to data.table
     rank<-data.table(rank)
     df_<-data.table(df_)
@@ -9250,18 +9252,16 @@ filter_Peptides<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm,
     #df_<-df_ %>% dplyr::rename("Missed_Cleavages"="#_Missed_Cleavages") 
     df_<-df_ %>% dplyr::filter(Percolator_PEP<PEP,Charge<Charg,MissedCleavages<Missed_C,abs(DeltaM)<DeltaMppm)
     df_<-df_%>% dplyr::rename("uniqueID"="Accession","I"="value","PEP"="Percolator_PEP")
-    
-    
     if(length(XCor)==2){
       df_<-df_ %>% dplyr::filter(XCorr>XCor[1],XCorr<XCor[2])
     }else{
       df_<-df_ %>% dplyr::mutate(XCor_l=ifelse(Charge==2 & XCorr > 1.8,TRUE,ifelse(Charge>2 & XCorr > XCor,TRUE,FALSE)))
     }
-    
+    df_<-df_ %>% distinct(.)
     #remove the carrier channel 
     rank<-df_ %>% dplyr::filter(temp_ref=="126") %>% dplyr::mutate(rank=dplyr::ntile(I,3)) %>% dplyr::select(-temp_ref,-I)
     #remove na values in uniqueID's
-    rank<-rank %>% dplyr::select(Annotated_Sequence,uniqueID,Modifications,sample_id,sample_name,dataset,rank)
+    rank<-rank %>%dplyr::filter(!is.na(rank)) %>%  dplyr::select(Annotated_Sequence,uniqueID,Modifications,sample_id,sample_name,dataset,rank) %>% distinct(.)
     #convert to data.table
     rank<-data.table(rank)
     df_<-data.table(df_)
@@ -9306,9 +9306,10 @@ Sum_Ab<-function(x){
   if(any(names(x)=="Accession")){
     x<-x %>% dplyr::rename("uniqueID"="Accession","I"="value")
   }
+  
   x<-x %>% dplyr::group_by(uniqueID,sample_id,dataset,temp_ref) %>% dplyr::mutate(I=sum(I,na.rm=TRUE)) 
   
-  x<-x %>% distinct(.)
+  x<-x %>% dplyr::ungroup(.) %>% distinct(.)
   return(x)
 }
 df_raw1<-parallel::mclapply(df_raw1,Sum_Ab,mc.cores=availableCores())
@@ -9392,7 +9393,7 @@ df.s <- function(data_path,n,rep_,bio_,vehicle_name,treated_name,Batch=FALSE,PSM
 df.samples<-df.s(f,dplyr::bind_rows(df_raw),3,2,"DMSO","TREATED",Batch=TRUE,PSM=TRUE)
 #Peptides
 df_raw<-dplyr::bind_rows(df_raw) %>% group_split(sample_name)
-df_clean <- furrr::future_map(df_raw,function(x) try(clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=FALSE,solvent="DMSO",CFS=TRUE,CARRIER=TRUE)))#assgns temperature and replicate values
+df_clean <- furrr::future_map(df_raw1,function(x) try(clean_cetsa(x, temperatures = df.temps, samples = df.samples,Peptide=TRUE,solvent="DMSO",CFS=TRUE,CARRIER=TRUE)))#assgns temperature and replicate values
 
 #Covid data
 #df_clean<-purrr::map(seq_along(df_clean),function(x) rbind(df_clean[[1]],x))
@@ -9400,7 +9401,7 @@ df_clean <- furrr::future_map(df_raw,function(x) try(clean_cetsa(x, temperatures
 #df_clean<-dplyr::bind_rows(df_clean) %>% dplyr::group_split(sample_name)
 
 #normalize data
-df_norm <- furrr::future_map(df_clean,function(x) try(normalize_cetsa(x, temperatures=df.temps$temperature,Peptide=FALSE,filters=FALSE,CARRIER=TRUE))) #normalizes according to Franken et. al. without R-squared filter
+df_norm <- furrr::future_map(df_clean,function(x) try(normalize_cetsa(x, temperatures=df.temps$temperature,Peptide=TRUE,filters=FALSE,CARRIER=TRUE))) #normalizes according to Franken et. al. without R-squared filter
 
 # rm(df_raw,df_clean)
 
@@ -9428,13 +9429,13 @@ Int_plot<-function(df_norm,Peptide=FALSE){
       theme(legend.position="bottom")+labs(colour = "Temperature (\u00B0C)")
   }
 }
-plot_I<-purrr::map(df_norm1,function(x) Int_plot(x,Peptide=FALSE))
+plot_I<-purrr::map(df_norm,function(x) try(Int_plot(x,Peptide=TRUE)))
 check<-ggplot2::ggplot_build(plot_I[[1]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plot_I,function(x) x$labels$title))
 plot_I<-plot_I[order(data)]
 P<-ggarrange(plotlist=plot_I,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
-pdf("Zebra_Intensity_values_Protein_unfilt.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+pdf("Techrep_frac_Peptide_filt.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 P
 dev.off()
 ##Generate upset plots for missing value data###
@@ -9458,7 +9459,7 @@ df_norm1<-df_norm
 
 # df_norm<-dplyr::bind_rows(df_norm) %>% dplyr::group_split(uniqueID)
 # df_norm<-df_norm %>% purrr::keep(function(x) nrow(x)>1)
-df_norm<-purrr::map(df_norm1,function(x)x %>% dplyr::filter(uniqueID %in% c("P36507","Q02750","P60033")))
+df_norm<-purrr::map(df_norm1,function(x)try(x %>% dplyr::filter(uniqueID %in% c("P36507","Q02750","P60033"))))
 #Zebra
 # df_norm<-purrr::map(df_norm1,function(x)x %>% dplyr::filter(uniqueID %in% c("Q1XB72","Q499B1","F1Q7F3",#PORA
 #                                                                             "Q90Y03","Q8QGQ1","B3DKM0",
@@ -9746,7 +9747,7 @@ P3<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = 
 # check<-dplyr::bind_rows(df_norm) %>% dplyr::group_split(time_point)
 # plotS2 <- purrr::map(check,function(x) try(plot_Splines(x,"P0DTC2",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
 
-plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE,simulations=FALSE,CARRIER=TRUE)))
+plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=TRUE,show_results=FALSE,Peptide=TRUE,simulations=FALSE,CARRIER=TRUE)))
 saveRDS(plotS2,"CFS_Peptide_Shared_Bulk_unfiltered_Consensus_data.RDS")
 check<-ggplot2::ggplot_build(plotS2[[2]])
 y<-get_legend(check$plot)
@@ -9825,12 +9826,8 @@ dev.off()
 
 check<-TPPbenchmark_generic(f,volcano=FALSE,filters="HQ",Peptide=FALSE)
 
-check1<-ggplot2::ggplot_build(check[[1]])
-y<-get_legend(check1$plot)
-P1<-ggarrange(plotlist=check,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
-
-pdf("volcano_TPP_Protein_panels_Protein_iMAATSA_Filters.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
-P1
+pdf("TPP_Protein_techreps_fractions.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+check
 dev.off()
 #ot Number of curves
 Check<-UpSet_curves(plotS2,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=TRUE,filter=FALSE)
