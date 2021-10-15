@@ -7779,7 +7779,7 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
       
       colors<-dplyr::bind_rows(colors) %>% dplyr::filter(sample_name %in% level_data)
       
-      queries=list(
+      queries<-list(
         upset_query(
           intersect=colors$sample_name[1],
           color=colors$hex[1],
@@ -7954,10 +7954,10 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
     colors$sample_name<-as.factor(colors$sample_name)
     colors$sample_name<-levels(colors$sample_name)
     colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')[1:length(unique(colors$sample_name))]
-    colors$x=c(1.1,1.3,1.3,0.7,-0.8,-1,-1.1,-0.75)[1:length(unique(colors$sample_name))]
-    colors$y=c(1,0.42,-0.48,-0.88,-0.78,-0.48,0.42,1)[1:length(unique(colors$sample_name))]
+    colors$x<-c(1.1,1.3,1.3,0.7,-0.8,-1,-1.1,-0.75)[1:length(unique(colors$sample_name))]
+    colors$y<-c(1,0.42,-0.48,-0.88,-0.78,-0.48,0.42,1)[1:length(unique(colors$sample_name))]
     
-    queries=list(
+    queries<-list(
       upset_query(
         intersect=colors$sample_name[1],
         color=colors$hex[1],
@@ -8028,7 +8028,7 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
       return(check1)
     }else{
       check1<-df_1 %>% count(sample_name) %>%
-        mutate(focus = ifelse(sample_name == "C_F_E", 0.2, 0)) %>%
+        mutate(focus = ifelse(sample_name == "C_F_Φ", 0.2, 0)) %>%
         ggplot() +
         ggforce::geom_arc_bar(aes(x0 = 0, y0 = 0, r0 = 0.7, r = 1, amount = n, fill = sample_name, explode = focus), stat = "pie") +
         ggforce::theme_no_axes()+
@@ -8157,11 +8157,11 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
     colors<-data.frame(sample_name=as.factor(unique(dplyr::bind_rows(df_TPP)$sample_name)))
     colors$sample_name<-levels(colors$sample_name)
     colors$hex<-c('#d07884','#ffb12c','#7adf68','#40bc39','#12a7c8','#404898','#ac5180','#ec5481')
-    colors$x=c(1.1,1.3,1.3,0.7,-0.8,-1,-1.1,-0.75)[1:length(unique(colors$sample_name))]
-    colors$y=c(1,0.42,-0.48,-0.88,-0.78,-0.48,0.42,1)[1:length(unique(colors$sample_name))]
+    colors$x<-c(1.1,1.3,1.3,0.7,-0.8,-1,-1.1,-0.75)[1:length(unique(colors$sample_name))]
+    colors$y<-c(1,0.42,-0.48,-0.88,-0.78,-0.48,0.42,1)[1:length(unique(colors$sample_name))]
     
     colors<-colors %>% dplyr::filter(sample_name %in% level_data)
-    queries=list(
+    queries<-list(
       upset_query(
         intersect=colors$sample_name[1],
         color=colors$hex[1],
@@ -9016,9 +9016,7 @@ rename_TPP<-function(x,temps=df.temps){#rename script data to run TPP
     TPP_Cliff$gene_name<-as.character(TPP_Cliff$gene_name)
     
     TPP_Cliff<-dplyr::bind_rows(TPP_Cliff) %>% 
-      dplyr::select(sample,Condition,Annotated_Sequence,gene_name,temp_ref,I,sample_name) %>%
-      distinct(.) %>% dplyr::group_by(gene_name,Condition,sample_name) %>% 
-      dplyr::mutate(I=sum(I,na.rm=TRUE)) %>% dplyr::ungroup(.) %>% 
+      dplyr::select(sample,Condition,Annotated_Sequence,gene_name,temp_ref,I) %>%
       distinct(.)
     data<-TPP_Cliff %>% 
       dplyr::select(sample,Condition,gene_name,Annotated_Sequence) %>% 
@@ -9176,7 +9174,7 @@ runTPP<-function(x,df.temps){
                             normalize = FALSE)
   return(TRresults)
 }
-hi<-purrr::map(df_norm1[1],function(x) runTPP(x,df.temps))
+hi<-purrr::map(df_norm1[6],function(x) runTPP(x,df.temps))
 #df_raw<-df_raw %>% dplyr::left_join(df.samples,by=c("temp_ref",))
 
 
@@ -9747,7 +9745,7 @@ P3<-ggarrange(plotlist=plotS,ncol=4,nrow=2,font.label = list(size = 14, color = 
 # check<-dplyr::bind_rows(df_norm) %>% dplyr::group_split(time_point)
 # plotS2 <- purrr::map(check,function(x) try(plot_Splines(x,"P0DTC2",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE)))
 
-plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=TRUE,show_results=FALSE,Peptide=TRUE,simulations=FALSE,CARRIER=TRUE)))
+plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"P36507",df.temps,MD=TRUE,Filters=FALSE,fT=TRUE,show_results=TRUE,Peptide=TRUE,simulations=FALSE,CARRIER=TRUE)))
 saveRDS(plotS2,"CFS_Peptide_Shared_Bulk_unfiltered_Consensus_data.RDS")
 check<-ggplot2::ggplot_build(plotS2[[2]])
 y<-get_legend(check$plot)
@@ -9801,12 +9799,12 @@ check_<-ggplot2::ggplot_build(check2[[1]])
 y<-get_legend(check_$plot)
 P2<-ggarrange(plotlist=check2,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-pdf("BULK_volcano_splines_hist_protein_targets.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+pdf("BULK_volcano_splines_hist_peptide_filt_targets.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 P1
 P2
 dev.off()
 #Volcano plots using Z-scores
-check2<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FALSE,benchmark=FALSE,Fhist=FALSE,labels=FALSE,type="targets")))
+check2<-purrr::map(plotS2,function(x) try(volcano_data(x,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=TRUE,benchmark=FALSE,Fhist=FALSE,labels=FALSE,type="targets")))
 check_<-ggplot2::ggplot_build(check2[[1]])
 y<-get_legend(check_$plot)
 P2<-ggarrange(plotlist=check2,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
@@ -9830,8 +9828,8 @@ pdf("TPP_Protein_techreps_fractions.pdf",encoding="CP1253.enc",compress=TRUE,wid
 check
 dev.off()
 #ot Number of curves
-Check<-UpSet_curves(plotS2,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=TRUE,filter=FALSE)
-pdf("Number_of_curves_upset_splines_PEPTIDE_unfiltered.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+Check<-UpSet_curves(plotS2,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=TRUE,filter=TRUE)
+pdf("Number_of_curves_upset_splines_PEPTIDE_filtered.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 Check
 dev.off()
 ###################################################                                                                                                                                                                                                                                                                                                                            ##################################################
