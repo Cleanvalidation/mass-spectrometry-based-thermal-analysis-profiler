@@ -930,15 +930,15 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
       dplyr::mutate(fitted_values10 = ifelse(!is.logical(fit[[1]]),list(data.frame(fitted_values=predict(fit[[1]]))),NA)) %>% 
       dplyr::select(sample,fitted_values10,temperature,dataset) %>% ungroup(.)
     ## calculate the fitted values
-    d3<-df.fit3 %>% dplyr::group_split(sample)
-    d5<-df.fit5 %>% dplyr::group_split(sample)
-    d10<-df.fit10 %>% dplyr::group_split(sample)
+    d3<-df.fit3 %>% dplyr::group_split(sample,dataset,temperature)
+    d5<-df.fit5 %>% dplyr::group_split(sample,dataset,temperature)
+    d10<-df.fit10 %>% dplyr::group_split(sample,dataset,temperature)
     
     
     #unnest fitted values from list and name value column and keep fitted values and temps
-    check3 <-purrr::map(d3,function(x) x [1:10,])
-    check5 <-purrr::map(d5,function(x) x [1:10,])
-    check10 <-purrr::map(d10,function(x) x [1:10,])
+    check3 <-purrr::map(d3,function(x) x [1,])
+    check5 <-purrr::map(d5,function(x) x [1,])
+    check10 <-purrr::map(d10,function(x) x [1,])
     
     check3<-purrr::map(check3,function(x) x %>% unnest(c(fitted_values3)) %>% unique(.))
     check5<-purrr::map(check5,function(x) x %>% unnest(c(fitted_values5)) %>% unique(.)) 
@@ -949,13 +949,17 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     check5<-dplyr::bind_rows(check5)
     check10<-dplyr::bind_rows(check10)
     
-    test3<-df1 %>% dplyr::group_by(temperature) %>% dplyr::right_join(check3,c('sample','temperature'))
-    test5<-df1 %>% dplyr::group_by(temperature) %>% dplyr::right_join(check5,c('sample','temperature'))
-    test10<-df1 %>% dplyr::group_by(temperature) %>% dplyr::right_join(check10,c('sample','temperature'))
+    name3<-dplyr::intersect(names(check3),names(df1))
+    
+    df1$temperature<-as.numeric(as.character(df1$temperature))
+    
+    test3<-df1 %>% dplyr::group_by(temperature) %>% dplyr::right_join(check3,name3)
+    test5<-df1 %>% dplyr::group_by(temperature) %>% dplyr::right_join(check5,name3)
+    test10<-df1 %>% dplyr::group_by(temperature) %>% dplyr::right_join(check10,name3)
     
     ## calculate ratios between the fitted curves and the median values
     df.out3 <- test3 %>%
-      dplyr::mutate(correction3 = ifelse(is.na(fitted_values /I),NA,fitted_values / I)) %>%
+      dplyr::mutate(correction3 = ifelse(is.na(fitted_values /I),NA,fitted_values/I)) %>%
       dplyr::select('sample','temperature','I','fitted_values','correction3')
     df.out3<-df.out3 %>% dplyr::select(-fitted_values,-I,-sample)
     
@@ -9776,7 +9780,8 @@ pdf("TPP_Protein_techreps_fractions.pdf",encoding="CP1253.enc",compress=TRUE,wid
 check
 dev.off()
 #ot Number of curves
-Check<-UpSet_curves(plotS2,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=TRUE,filter=TRUE)
+Check<-UpSet_curves(plotS2,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=TRUE,filter=FALSE)
+
 pdf("Number_of_curves_upset_splines_PEPTIDE_filtered.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 Check
 dev.off()
