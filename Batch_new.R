@@ -263,14 +263,23 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
       
     }else{
       
-      PSMs<-PSMs %>% dplyr::rename("sample_name"="Spectrum.File") 
+      PSMs<-dplyr::bind_rows(df2) %>% dplyr::rename("sample_name"="Spectrum_File") 
       if(any(names(PSMs)=="File.ID")){
         PSMs<-PSMs %>% dplyr::mutate(sample_id=stringr::str_extract(File.ID,"F[[:digit:]]+"),
-                                     sample_name=stringr::str_remove(sample_name,"[[:digit:]]+.raw")) %>% 
+                                     sample_name=stringr::str_remove(sample_name,"[[:digit:]]+.[[:lower:]]+")) %>% 
           distinct(.)
-        PSMs<-PSMs%>% dplyr::select(sample_id,sample_name) %>% unique(.)
+        if(any(names(PSMs)=="Fraction")){
+          PSMs<-PSMs%>% dplyr::select(sample_id,sample_name,Fraction) %>% unique(.) 
+        }else{
+          PSMs<-PSMs%>% dplyr::select(sample_id,sample_name) %>% unique(.)
+        }
       }else{
-        PSMs<-PSMs%>% dplyr::select(sample_id,sample_name) %>% unique(.)
+        if(any(names(PSMs)=="Fraction")){
+          PSMs<-PSMs%>% dplyr::select(sample_id,sample_name,Fraction) %>% unique(.) 
+        }else{
+          PSMs<-PSMs%>% dplyr::select(sample_id,sample_name) %>% unique(.)
+        }
+        
       }
       df3<-dplyr::bind_rows(df3) 
       
@@ -284,6 +293,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
           x<-dplyr::mutate(sample_name=ifelse(!is.na(sample_name),str_remove(.$sample_name,"[[:digit:]]+.raw"),NA)) %>%
             distinct(.)
         }
+        
         return(x) 
       })
       
@@ -308,9 +318,10 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
     ch<-parallel::mclapply(df2,check_PD,mc.cores=availableCores())
     
     df2<-dplyr::bind_rows(df2)
-    df2$data<-df2$sample_name
+    
     
     df2$dataset<-"treated"
+    df2$data<-df2$sample_name
     df2[str_detect(df2$data,solvent),"dataset"]<-"vehicle"
     
     
@@ -332,7 +343,8 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
       
     }
     
-    df2<-df2 %>% distinct(.)
+    df2<-df2 %>% dplyr::select(-data) 
+    df2$sample_name<-stringr::str_remove(df2$sample_name,".xlsx|.raw")
     return(df2)
   }else{ #if this is a protein file
     PSMs<-dplyr::bind_rows(PSMs) %>% as.data.frame(.)
@@ -9116,7 +9128,7 @@ runTPP<-function(x,df.temps){
   
   #import TPPtr
   if(any(!isTRUE(TPPconfig$Experiment==names(TPPdata)))){
-    TPPdata<-TPPdata[order(TPPconfig$Experiment)]
+    TPPdata<-TPPdata[order(unique(TPPconfig$Experiment))]
   }
   trData <- tpptrImport(configTable = TPPconfig, data = TPPdata)
   TRresults <- analyzeTPPTR(configTable = TPPconfig, 
@@ -9147,7 +9159,7 @@ hi<-purrr::map(df_norm1[1],function(x) runTPP(x,df.temps))
 #rename to the folder where your Protein file is located
 # f<-"~/Cliff prot pep/Proteins.xlsx"
 # f<-"C:/Users/figue/OneDrive - Northeastern University/CETSA R/CP_Exploris_20200811_DMSOvsMEKi_carrier_FAIMS_PhiSDM_PEPTIDES.xlsx"
-df_raw <- read_cetsa("~/Files/Scripts/Files/Zebra","~/Files/Scripts/Files/Zebra","_Proteins",Peptide=TRUE,Batch=TRUE,CFS=FALSE,solvent="Control",CARRIER=FALSE)     
+df_raw <- read_cetsa("~/Files/Scripts/Files/Zebra","~/Files/Scripts/Files/Zebra","_Proteins",Peptide=TRUE,Batch=FALSE,CFS=FALSE,solvent="Control",CARRIER=FALSE)     
 
 
 #df_raw <- read_cetsa("~/Files/Scripts/Files/Covid","~/Files/Scripts/Files/Covid","_Proteins",Peptide=FALSE,CFS=FALSE,Batch=FALSE)                                                              
