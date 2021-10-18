@@ -319,17 +319,17 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Batc
                               ifelse(str_detect(df2$sample_name,"NO_FAIMS")==TRUE,"nF",ifelse(str_detect(df2$sample_name,"r_FAIMS")==TRUE,"F",NA)),'_',
                               ifelse(str_detect(df2$sample_name,"S_eFT")==TRUE,"E",ifelse(str_detect(df2$sample_name,"S_Phi")==TRUE,"S",NA)))#oncentration values are defined in uM
     }else{
-      if(!any(names(df2)=="dataset")){
-        if(any(isTRUE(str_detect(unique(df2$data),solvent)))){
-          # df2$Fraction<-str_extract(df2$sample_name,"Fraction_[[:digit:]]+")
-          # df2$Fraction<-str_extract(df2$sample_name,"[[:digit:]]+")
-          df2$sample_name<-ifelse(stringr::str_detect(df2$data,solvent),
-                                  stringr::str_extract(stringr::str_to_lower(df2$data),paste0("[[:lower:]]+_[[:digit:]]+")),
-                                  stringr::str_extract(stringr::str_to_lower(df2$data),paste0("[[:lower:]]+_[[:digit:]]+")))
-        }
-        
-        
+      
+      if(any(isTRUE(str_detect(unique(df2$data),solvent)))){
+        # df2$Fraction<-str_extract(df2$sample_name,"Fraction_[[:digit:]]+")
+        # df2$Fraction<-str_extract(df2$sample_name,"[[:digit:]]+")
+        df2$sample_name<-ifelse(stringr::str_detect(df2$data,solvent),
+                                stringr::str_extract(stringr::str_to_lower(df2$data),paste0("[[:lower:]]+_[[:digit:]]+")),
+                                stringr::str_extract(stringr::str_to_lower(df2$data),paste0("[[:lower:]]+_[[:digit:]]+")))
       }
+      
+      
+      
     }
     
     df2<-df2 %>% distinct(.)
