@@ -140,7 +140,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
       dplyr::group_by(Accession,Annotated_Sequence,sample_name) %>% 
       dplyr::group_split()
     if(!is.na(subset)){
-      n<-subset
+      n<-as.numeric(subset)
       #subset a set number of PSMs
       PSMs<-PSMs[1:n]
     }
@@ -156,7 +156,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
       dplyr::group_by(Accession,Annotated_Sequence,sample_name) %>% 
       dplyr::group_split()
     if(!is.na(subset)){
-      n<-subset
+      n<-as.numeric(subset)
       #subset a small number of PSMs
       PSMs<-PSMs[1:n]
     }
@@ -250,8 +250,19 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
     df.raw<-read_PD(df.raw)#read in peptide groups
     #perform normalization and aggregation at the PSM level
     
-    df2<-purrr::map(PSMs,function(x) choose_PSM(x,Frac=Frac,NORM=NORM,CARRIER=CARRIER,subset=subset,Prot_Pattern=Prot_Pattern,solvent=solvent,Peptide=Peptide))
-    df2<-dplyr::bind_rows(df2) %>% dplyr::group_by(sample_name) %>% dplyr::group_split(.)
+    df2<-purrr::map(PSMs,function(x) choose_PSM(#Frac=TRUE,NORM="QUANTILE",CARRIER=FALSE,subset=NA
+      x,# the PSM file 
+      Frac=Frac,#is this fractionated? TRUE/FALSE
+      NORM=NORM,#what normalization is needed i.e. = c(NA,EQ_Median,QUANTILE)
+      CARRIER=CARRIER,#is a carrier channel being used? TRUE/FALSE
+      subset=subset#for debugging : use a limited number of PSM value
+      )
+    )
+    #make sure the data is ready to be processed by sample name
+    df2<-dplyr::bind_rows(df2) %>% 
+      dplyr::group_by(sample_name) %>%
+      dplyr::group_split(.)
+    
     df3<-data.table::data.table(dplyr::bind_rows(df.raw))#peptide groups
     if(any(names(df3)=="Annotated.Sequence")){
       df3<-df3 %>% dplyr::select(-Annotated.Sequence)
@@ -617,7 +628,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
 }
 #'Choose PSMs
 #'
-choose_PSM<-function(x,Frac=TRUE,NORM="QUANTILE",CARRIER=TRUE,Prot_Pattern="_Proteins",solvent="DMSO",Peptide=TRUE,subset=NA){
+choose_PSM<-function(x,Frac=TRUE,NORM="QUANTILE",CARRIER=FALSE,subset=NA){
   df2<-dplyr::bind_rows(x)
   DF2<-data.frame(dplyr::bind_rows(x)) #Keep original PSM data separate for later
   if(isTRUE(Frac)){#if this is fractionated, rank by abundance at the baseline value '126' default
@@ -695,30 +706,41 @@ choose_PSM<-function(x,Frac=TRUE,NORM="QUANTILE",CARRIER=TRUE,Prot_Pattern="_Pro
     }
     #change from wide to long and create TMT channel "temp_ref" and abundance "value" columns
     df2<-furrr::future_map(df2,function(x) x %>%  
-                             tidyr::gather('id', 'value', -Accession,-File.ID,-Spectrum_File,
-                                           -Annotated_Sequence,-Modifications,-Charge,-"Average_Reporter_S/N",
-                                           -XCorr,-"Isolation_Interference_[%]",-"MissedCleavages",-"Percolator_PEP",
-                                           -"Ion_Inject_Time_[ms]",-"DeltaM",-"sample_id",-"Fraction",-sample_name,-dataset) %>% 
-                             dplyr::mutate(temp_ref = stringr::str_extract_all(id,find),
-                                           value = as.numeric(value)) %>% 
-                             tidyr::unnest(cols=c("temp_ref"))
+                             tidyr::pivot_longer(cols=colnames(x)[stringr::str_detect(names(x),c('[:digit:][:digit:][:digit:][N|C]|126|131'))],
+                                                 names_to = "id",
+                                                 values_to = "value")%>% 
+                             dplyr::mutate(temp_ref = unlist(stringr::str_extract_all(id,find)),
+                                           value = as.numeric(value))
     )
     
     df2<-dplyr::bind_rows(df2) %>%
-      dplyr::group_split(sample_name,dataset)
+      dplyr::group_split(sample_name)
+    #Diagnose the plot after normalization uncomment for debugging
+    #ggplot(df2[[1]],mapping=aes(x=temp_ref,y=2^value))+geom_boxplot()+ylim(0,10000)
+    #
     
     #DF2 original PSM value df2 correction values
     #prepare data for "best" PSM selection
-    df2<-dplyr::bind_rows(df2) %>% dplyr::group_by(Accession,Annotated_Sequence,dataset,sample_id,sample_name) %>%
+    df2<-dplyr::bind_rows(df2) %>% 
+      dplyr::group_by(Accession,#Protein id
+                      Annotated_Sequence,#peptide sequence
+                      dataset,#vehicle/treated
+                      sample_id,#sample file # in PD
+                      sample_name) %>%#sample name in PD
       dplyr::group_split(.)
     #keep all the PSMs before selecting the best
     DF2<-df2
     #choose the "best" (rank 1) PSM for annotated sequence convert delta M to absolute values and arrange data by lowest PEP, lowest isolatoin interference, highest xcorrelation and lower delta M value
-    df2<-furrr::future_map(df2,function(x) x %>% dplyr::mutate(DeltaM=abs(DeltaM)) %>%
+    df2<-furrr::future_map(df2,function(x) x %>% dplyr::mutate(DeltaM=abs(DeltaM)) %>% 
+                             dplyr::select(-temp_ref) %>% 
                              dplyr::arrange(x,"DeltaM","Percolator_PEP",`Isolation_Interference_[%]`, desc("XCorr")) %>%
                              dplyr::mutate(rank = 1:n()) %>% 
                              dplyr::filter(rank==1) %>%
-                             dplyr::select(Accession,Annotated_Sequence,sample_name)) #after ranking, select only the peptide information needed to perform a join
+                             dplyr::select(Accession,
+                                           Annotated_Sequence,
+                                           sample_name,
+                                           sample_id)) 
+    #after ranking, select only the peptide information needed to perform a join
     #df2 only has the subset of PSMs so we need all remaining PSM information from DF2 before normalization 
     #intersect column names from the original data and the subset of PSMs
     name<-dplyr::intersect(names(df2[[1]]),names(DF2[[1]]))
@@ -730,64 +752,104 @@ choose_PSM<-function(x,Frac=TRUE,NORM="QUANTILE",CARRIER=TRUE,Prot_Pattern="_Pro
       dplyr::group_by(sample_name) %>% dplyr::group_split()
     #Perform a right join on the original PSM data
     df2<-purrr::map2(df2,DF2,function(x,y)y%>% dplyr::right_join(x,by=name))
+    ##uncomment to Diagnose the plot after normalization uncomment for debugging
+    # df2<-dplyr::bind_rows(df2) %>%
+    #   dplyr::group_split(sample_name)
+    # ggplot(df2[[1]],mapping=aes(x=temp_ref,y=2^value))+geom_boxplot()+ylim(0,100000)
+    # #
     if(isTRUE(CARRIER)){
       df2<-dplyr::bind_rows(df2) %>% dplyr::filter(!temp_ref=="131C") %>% 
         dplyr::group_by(Accession,sample_name,File.ID,dataset) %>% dplyr::group_split()
       
     }
     
-    #apply median polish to aggregate PSMs
+    #if the sample_name isn't shortened, shorten it
     if(any(stringr::str_detect(dplyr::bind_rows(df2)$sample_name,"_[[:digit:]]+_"))){
-      df2<-dplyr::bind_rows(df2) %>% dplyr::mutate(replicate=stringr::str_remove_all(stringr::str_extract(sample_name,"_[[:digit:]]+_"),"_"))
+      df2<-dplyr::bind_rows(df2) %>%#add replicate value from the name assigned in PD if it exists
+        dplyr::mutate(replicate=stringr::str_remove_all(stringr::str_extract(sample_name,"_[[:digit:]]+_"),"_"))
       df2$sample_name<-sub("_[[:digit:]]+_", "", dplyr::bind_rows(df2)$sample_name)
       df2$sample_name<-sub("[[:digit:]]+", "", dplyr::bind_rows(df2)$sample_name)
-      df2<-list(dplyr::bind_rows(df2))
-      df2<-purrr::map(df2,function(x)x%>% dplyr::group_by(Accession,sample_name,File.ID,dataset) %>%
-                        dplyr::group_split())
+      
     }
+    df2<-dplyr::bind_rows(df2) %>% 
+      dplyr::group_by(Accession,sample_name,sample_id,dataset)
     #data is grouped by  protein, bioreplicate and condition to aggregate PSMs to proteins
-    united<-dplyr::bind_rows(df2) %>%
-      dplyr::group_by(Accession,sample_name,sample_id,dataset) %>% 
+    united<-df2 %>% 
       dplyr::select(-id) %>% 
       dplyr::filter(!is.na(temp_ref)) %>%distinct(.) 
     
     #for each protein, bioreplicate and condition, nest PSM values and TMT channels
     united<-united %>%tidyr::nest(data = c(value,temp_ref))
     #Create a new variable to pivot from long to wide before aggregating PSM values
-    United1<- united %>% dplyr::mutate(data=furrr::future_map(data,function(y) tidyr::pivot_wider(y,
-                                                                                                  names_from= "temp_ref",
-                                                                                                  values_from="value",
-                                                                                                  names_repair="unique",
-                                                                                                  values_fn = "unique",
-                                                                                                  values_fill=NA)))
+    United1<- united %>% dplyr::mutate(data=furrr::future_map(data,function(y)
+      tidyr::pivot_wider(y,
+                         names_from= "temp_ref",
+                         values_from="value",
+                         names_repair="unique",
+                         values_fn = "unique",
+                         values_fill=NA)))
     United<-United1 %>%
-      dplyr::group_by(Accession,sample_id,sample_name,dataset) %>%
+      dplyr::group_by(Accession,sample_name,sample_id,dataset) %>%
       dplyr::group_split()#split the data to find PSM information
     
-    United<-United %>% purrr::keep(function(x) length(unique(x$Annotated_Sequence))>=2)#keep protein accessions with 2 or more unique peptides
-    United<-furrr::future_map(United,function(x) x %>% dplyr::mutate(data=list(as.matrix(dplyr::bind_rows(x$data)))))
-    United<-furrr::future_map(United,function(x) x %>% dplyr::mutate(data=furrr::future_map(x$data,function(y) medianPolish(y,ncol(y)))))
+    United<-United %>% purrr::keep(function(x) 
+      length(unique(x$Annotated_Sequence))>=2)#keep protein accessions with 2 or more unique peptides
+    #Merge abundances contribution from each sequence back to the data frame
+    United<-furrr::future_map(United,function(x)
+      x %>%
+        dplyr::mutate(data=list(as.matrix(dplyr::bind_rows(x$data)))))
+    #apply median polish to perform local normalization from the PSM to the protein level
+    United<-furrr::future_map(United,function(x)
+      x %>%
+        dplyr::mutate(data=furrr::future_map(x$data,function(y)
+          medianPolish(y,ncol(y)))))
     
-    #backtrack log2 transform then transpose and classify as a data frame
-    United<-purrr::map(United,function(x) x %>% dplyr::mutate(data=purrr::map(x$data,function(y)data.frame(t(2^y)))))
+    #reverse log2 transform then transpose and classify as a data frame
+    United<-purrr::map(United,function(x)
+      x %>% dplyr::mutate(data=purrr::map(x$data,function(y)
+        data.frame(t(2^y)))))
     #each accession has redundant list of data frames after aggregation, therefore we can select the aggregated abundance
-    United1<-purrr::map(United,function(x) x %>% dplyr::mutate(data=x$data[[1]]))
+    United1<-purrr::map(United,function(x)
+      x %>% dplyr::mutate(data=x$data[[1]]))
     #set TMT channels as colnames
-    United1<-purrr::map(United1,function(x) set_colnames(x$data,united$data[[1]]$temp_ref))
+    United1<-purrr::map(United1,function(x)
+      set_colnames(x$data,united$data[[1]]$temp_ref))
     #append aggregated PSM values to the data
-    United<-purrr::map2(United,United1,function(x,y) x %>% dplyr::select(-data) %>% dplyr::bind_cols(y))
+    United<-purrr::map2(United,United1,function(x,y)
+      x %>% dplyr::select(-data) %>% dplyr::bind_cols(y))
     #Join all the PSM data together with aggregated abundances and split by method or sample name
-    United<-dplyr::bind_rows(United) %>% dplyr::group_by(sample_name) %>% dplyr::group_split()
+    United<-dplyr::bind_rows(United) %>%
+      dplyr::group_by(sample_name) %>%
+      dplyr::group_split()
     #pivot data to long format after aggregating abundances
-    df2<-purrr::map(United,function(x) x %>% tidyr::pivot_longer(cols=colnames(x)[stringr::str_detect(names(x),c('[:digit:][:digit:][:digit:][N|C]|126|131'))],
+    df2<-purrr::map(United,function(x) x %>%
+                      tidyr::pivot_longer(cols=colnames(x)[stringr::str_detect(names(x),c('[:digit:][:digit:][:digit:][N|C]|126|131'))],
                                                                  names_to="temp_ref",
                                                                  values_to="value"))
-    #Scale PSM abundances from 0 to 1
+    #Keep proteins where accession is not NA and nrow of peptides has information available
     df2<-purrr::keep(df2,function(x) !is.logical(x$Accession)&nrow(x)>0)
+    #group data by sample_name
     df2<-dplyr::bind_rows(df2) %>% dplyr::group_by(sample_name) %>% dplyr::group_split(.)
-    df2<-purrr::map(df2,function(x) clean_cetsa(x, temperatures = df.temps,Peptide=Peptide,solvent,CFS=CFS,CARRIER=CARRIER,baseline=baseline))
-    df2<-purrr::keep(df2,function(x) !is.logical(x$Accession)&nrow(x)>0)
-    df2<-dplyr::bind_rows(df2) %>% dplyr::group_by(sample_name) %>% dplyr::group_split(.)
+    df2<-purrr::map(df2,function(x) clean_cetsa(x,
+                                                temperatures = df.temps,
+                                                Peptide=Peptide,
+                                                solvent,
+                                                CFS=CFS,
+                                                CARRIER=CARRIER,
+                                                baseline=baseline))
+    
+    df2<-purrr::keep(df2,function(x)
+      !is.logical(x$Accession) & nrow(x)>0
+      )
+    
+    df2<-dplyr::bind_rows(df2) %>%
+      dplyr::group_by(sample_name) %>%
+      dplyr::group_split(.)
+    # #uncomment to Diagnose the plot after normalization uncomment for debugging
+    # df2<-dplyr::bind_rows(df2) %>%
+    #   dplyr::group_split(sample_name)
+    # ggplot(df2[[1]],mapping=aes(x=temp_ref,y=value))+geom_boxplot()+ylim(0,5)
+    # #
   }else{#if this is unfractionated
     df2<-dplyr::bind_rows(PSMs)%>%
       dplyr::mutate(Ab=dplyr::ntile(Abundance.126,3)) %>%
@@ -9786,7 +9848,7 @@ df.temps<-df.t(16,temperatures=NA,sample_mapping_name="sample_mapping.xlsx")
 df_raw <- read_cetsa("~/Files/Scripts/Files/Zebra/Napabucasin/Trembl","~/Files/Scripts/Files/Zebra/Napabucasin/Trembl","_Proteins",Peptide=FALSE,Frac=TRUE,CFS=FALSE,solvent="Control",CARRIER=FALSE,rank=TRUE,subset=NA,temperatures=df.temps,baseline="max",NORM="QUANTILE")     
 df_raw <- read_cetsa("~/Files/Scripts/Files/Covid","~/Files/Scripts/Files/Covid","_Proteins",Peptide=FALSE,CFS=FALSE,Frac=TRUE,solvent="AM",CARRIER=FALSE,rank=TRUE,subset=NA,temperatures=df.temps,baseline="min",NORM="QUANTILE")                                                              
 df_raw <- read_cetsa("~/Files/Scripts/Files/2.4/replicates/CFS_vs_CFE_replicates","~/Files/Scripts/Files/2.4/replicates/CFS_vs_CFE_replicates","_Proteins",Peptide=FALSE,Frac=FALSE,solvent="DMSO",CARRIER=TRUE,rank=TRUE,subset=NA,temperatures=df.temps,baseline="min",NORM="QUANTILE")                                                              
-df_raw <- read_cetsa("~/Files/Scripts/Files/2.4/fractions/CFE_vs_CFS","~/Files/Scripts/Files/2.4/fractions/CFE_vs_CFS","_Proteins",Peptide=TRUE,Frac=TRUE,solvent="DMSO",CARRIER=TRUE,rank=TRUE,subset=NA,temperatures=df.temps,baseline="min",NORM="QUANTILE")                                       
+df_raw <- read_cetsa("~/Files/Scripts/Files/2.4/fractions/CFE_vs_CFS","~/Files/Scripts/Files/2.4/fractions/CFE_vs_CFS","_Proteins",Peptide=TRUE,Frac=TRUE,solvent="DMSO",CARRIER=TRUE,rank=TRUE,subset=1000,temperatures=df.temps,baseline="min",NORM="QUANTILE")                                       
 
 #df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS/Unshared","~/Files/Scripts/Files/CONSENSUS/Unshared","_Proteins",Peptide=FALSE,Frac=FALSE,solvent="DMSO",CARRIER=TRUE)                                                              
 #df_raw <- read_cetsa("~/CONSENSUS11","~/CONSENSUS11","_Proteins",Peptide=FALSE,Frac=FALSE,solvent="DMSO")                                                              
