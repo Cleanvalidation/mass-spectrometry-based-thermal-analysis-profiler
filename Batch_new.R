@@ -256,7 +256,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
       NORM=NORM,#what normalization is needed i.e. = c(NA,EQ_Median,QUANTILE)
       CARRIER=CARRIER,#is a carrier channel being used? TRUE/FALSE
       subset=subset#for debugging : use a limited number of PSM value
-      )
+    )
     )
     #make sure the data is ready to be processed by sample name
     df2<-dplyr::bind_rows(df2) %>% 
@@ -824,8 +824,8 @@ choose_PSM<-function(x,Frac=TRUE,NORM="QUANTILE",CARRIER=FALSE,subset=NA){
     #pivot data to long format after aggregating abundances
     df2<-purrr::map(United,function(x) x %>%
                       tidyr::pivot_longer(cols=colnames(x)[stringr::str_detect(names(x),c('[:digit:][:digit:][:digit:][N|C]|126|131'))],
-                                                                 names_to="temp_ref",
-                                                                 values_to="value"))
+                                          names_to="temp_ref",
+                                          values_to="value"))
     #Keep proteins where accession is not NA and nrow of peptides has information available
     df2<-purrr::keep(df2,function(x) !is.logical(x$Accession)&nrow(x)>0)
     #group data by sample_name
@@ -840,7 +840,7 @@ choose_PSM<-function(x,Frac=TRUE,NORM="QUANTILE",CARRIER=FALSE,subset=NA){
     
     df2<-purrr::keep(df2,function(x)
       !is.logical(x$Accession) & nrow(x)>0
-      )
+    )
     
     df2<-dplyr::bind_rows(df2) %>%
       dplyr::group_by(sample_name) %>%
@@ -9848,7 +9848,7 @@ df.temps<-df.t(16,temperatures=NA,sample_mapping_name="sample_mapping.xlsx")
 df_raw <- read_cetsa("~/Files/Scripts/Files/Zebra/Napabucasin/Trembl","~/Files/Scripts/Files/Zebra/Napabucasin/Trembl","_Proteins",Peptide=FALSE,Frac=TRUE,CFS=FALSE,solvent="Control",CARRIER=FALSE,rank=TRUE,subset=NA,temperatures=df.temps,baseline="max",NORM="QUANTILE")     
 df_raw <- read_cetsa("~/Files/Scripts/Files/Covid","~/Files/Scripts/Files/Covid","_Proteins",Peptide=FALSE,CFS=FALSE,Frac=TRUE,solvent="AM",CARRIER=FALSE,rank=TRUE,subset=NA,temperatures=df.temps,baseline="min",NORM="QUANTILE")                                                              
 df_raw <- read_cetsa("~/Files/Scripts/Files/2.4/replicates/CFS_vs_CFE_replicates","~/Files/Scripts/Files/2.4/replicates/CFS_vs_CFE_replicates","_Proteins",Peptide=FALSE,Frac=FALSE,solvent="DMSO",CARRIER=TRUE,rank=TRUE,subset=NA,temperatures=df.temps,baseline="min",NORM="QUANTILE")                                                              
-df_raw <- read_cetsa("~/Files/Scripts/Files/2.4/fractions/CFE_vs_CFS","~/Files/Scripts/Files/2.4/fractions/CFE_vs_CFS","_Proteins",Peptide=TRUE,Frac=TRUE,solvent="DMSO",CARRIER=TRUE,rank=TRUE,subset=1000,temperatures=df.temps,baseline="min",NORM="QUANTILE")                                       
+df_raw <- read_cetsa("~/Files/Scripts/Files/2.4/fractions/CFE_vs_CFS","~/Files/Scripts/Files/2.4/fractions/CFE_vs_CFS","_Proteins",Peptide=TRUE,Frac=TRUE,solvent="DMSO",CARRIER=TRUE,rank=TRUE,subset=NA,temperatures=df.temps,baseline="min",NORM="QUANTILE")                                       
 
 #df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS/Unshared","~/Files/Scripts/Files/CONSENSUS/Unshared","_Proteins",Peptide=FALSE,Frac=FALSE,solvent="DMSO",CARRIER=TRUE)                                                              
 #df_raw <- read_cetsa("~/CONSENSUS11","~/CONSENSUS11","_Proteins",Peptide=FALSE,Frac=FALSE,solvent="DMSO")                                                              
