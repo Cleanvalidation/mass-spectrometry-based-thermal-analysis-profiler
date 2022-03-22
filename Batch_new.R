@@ -44,6 +44,7 @@ library(DEqMS)
 library(limma)
 library(VGAM)
 library(flow)
+library(BiocParallel)
 requireNamespace("plyr")
 set.seed(123)
 
@@ -249,15 +250,9 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
     }
     df.raw<-read_PD(df.raw)#read in peptide groups
     #perform normalization and aggregation at the PSM level
+    #parallel::mcmapply(function(x,y){ return(func(x,y)) }, x = f1, y = f2, mc.cores=1)
+    df2<-parallel::mclapply(PSMs,choose_PSM,mc.cores=future::availableCores())
     
-    df2<-purrr::map(PSMs,function(x) choose_PSM(#Frac=TRUE,NORM="QUANTILE",CARRIER=FALSE,subset=NA
-      x,# the PSM file 
-      Frac=Frac,#is this fractionated? TRUE/FALSE
-      NORM=NORM,#what normalization is needed i.e. = c(NA,EQ_Median,QUANTILE)
-      CARRIER=CARRIER,#is a carrier channel being used? TRUE/FALSE
-      subset=subset#for debugging : use a limited number of PSM value
-    )
-    )
     #make sure the data is ready to be processed by sample name
     df2<-dplyr::bind_rows(df2) %>% 
       dplyr::group_by(sample_name) %>%
@@ -335,7 +330,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
                       sample_id,replicate,Spectrum_File,Modifications) %>% 
         dplyr::group_split(.)
     }
-  
+    
     mutate_missing<-function(x){
       if(any(names(x)=="replicate")){
         x<-x %>%  dplyr::group_by(uniqueID,Annotated_Sequence,dataset,sample_id,replicate) %>%
@@ -626,10 +621,16 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
 }
 #'Choose PSMs
 #'
-choose_PSM<-function(x,Frac=TRUE,NORM="QUANTILE",CARRIER=FALSE,subset=NA){
-  df2<-dplyr::bind_rows(x)
-  DF2<-data.frame(dplyr::bind_rows(x)) #Keep original PSM data separate for later
-  if(isTRUE(Frac)){#if this is fractionated, rank by abundance at the baseline value '126' default
+choose_PSM<-function(x,Frac=Frac,NORM=NORM,CARRIER=CARRIER,subset=subset,baseline=baseline){
+  if(isTRUE(CARRIER)){
+    df2<-dplyr::bind_rows(x)[!colnames(x) =="Abundance.131C"]
+    DF2<-data.frame(dplyr::bind_rows(x)[!colnames(x) =="Abundance.131C"]) #Keep original PSM data separate for later
+  }else{
+    df2<-dplyr::bind_rows(x)
+    DF2<-data.frame(dplyr::bind_rows(x)) #Keep original PSM data separate for later
+    
+  }
+  if(isTRUE(Frac) | !any(names(df2)=="Spectrum_File")){#if this is fractionated, rank by abundance at the baseline value '126' default
     # df2<-dplyr::bind_rows(PSMs)%>%
     #   dplyr::mutate(Ab=dplyr::ntile(Abundance.126,3)) %>%
     #   dplyr::group_by(Accession, File.ID,Annotated_Sequence)  %>% dplyr::ungroup(.) %>% 
@@ -639,409 +640,261 @@ choose_PSM<-function(x,Frac=TRUE,NORM="QUANTILE",CARRIER=FALSE,subset=NA){
                                sample_id=as.factor(stringr::str_remove(File.ID,"[:punct:][[:digit:]]+")),
                                Fraction=stringr::str_remove(File.ID,"F[[:digit:]]+."),
                                File.ID=as.factor(stringr::str_remove(File.ID,"[:punct:][[:digit:]]+")))
-    
-    
-    #collect a sub-subset of PSMs present for each protein,psm_sequence, replicate/condition and show all replicates where PSM sequences are present
-    united<-dplyr::bind_rows(df2) %>% dplyr::select(Accession,Annotated_Sequence,sample_id) %>% 
-      tidyr::pivot_wider(.,
-                         names_from="sample_id",
-                         values_from="sample_id",
-                         values_fill=NA,
-                         values_fn = "unique") %>% 
-      dplyr::filter(!is.na(Accession))#remove data with missing protein accession values
-    
-    # #determine the threshold for minimum number of replicates present for normalization > 40% default
-    # numsamples<-0.75*(ncol(united)-2)
-    # 
-    # united1<-united[rowSums(!is.na(united))-2>=numsamples,]#remove PSMs with 40% or less replicates
-    # print(paste0("Removed ",round(100*(nrow(united)-nrow(united1))/nrow(united),2), "% of PSMs where each sequence has at least 75% of the total bioreplicates present"))
-    #from the PSM subset, keep those accessions where the conditional min # of replicates are met
-    # df2<-dplyr::bind_rows(df2) %>% dplyr::filter(Accession %in%united1$Accession & Annotated_Sequence %in% united1$Annotated_Sequence)
-    #filter out the carrier channel if it exists before normalizing
-    if(isTRUE(CARRIER)){
-      mat_norm<-which(stringr::str_detect(names(df2),"Abundance")&!stringr::str_detect(names(df2),"131C"))
-      df2<-df2[,which(!stringr::str_detect(names(df2),"131C"))]
+    #calculate geometric mean for baseline temperature and get a scaling factor 
+    df2<-dplyr::bind_rows(df2) %>% dplyr::group_by(Accession,Annotated_Sequence,sample_id,dataset,Spectrum.File) 
+    if(baseline=="min"){
+      #pivt table to calculate scaling factor for each psm/protein/dataset/sample_id/sample_name
+      df2<-df2 %>% tidyr::pivot_longer(cols = colnames(df2)[stringr::str_detect(colnames(df2),"Abundance")],
+                                       names_to = "id",
+                                       values_to = "value")
+      #calculate the scaling factor for each PSM based on the geometric mean of the lowest temperature 
+      df2<-df2 %>% dplyr::group_by(Accession,Annotated_Sequence,sample_id,dataset,Spectrum.File) %>% 
+        dplyr::mutate(scal_fac = value/exp(mean(log(value[.$id=="Abundance.126" & .$value>0]),na.rm=TRUE)))
+      #pivot wider once again for subsequent calculation
+      df2<- df2 %>% dplyr::ungroup(.) %>% 
+        pivot_wider(names_from= "id",
+                    values_from = "value") 
       
     }else{
-      mat_norm<-which(stringr::str_detect(names(df2),"Abundance"))
-      
+      df2<-df2 %>% dplyr::mutate(Spectrum_File=stringr::str_replace(df2$Spectrum.File,"[:punct:][[:digit:]]+.raw",paste0(Prot_Pattern,".xlsx")),
+                                 sample_id=as.factor(stringr::str_remove(File.ID,"[:punct:][[:digit:]]+")),
+                                 File.ID=as.factor(stringr::str_remove(File.ID,"[:punct:][[:digit:]]+")))
+      df2<-df2 %>% tidyr::pivot_longer(cols = colnames(df2)[stringr::str_detect(colnames(df2),"Abundance")],
+                                       names_to = "id",
+                                       values_to = "value")
+      baseline = as.character(unique(df2$id)[length(unique(df2$id))])
+      #calculate the scaling factor for each PSM based on the geometric mean of the lowest temperature 
+      df2<-df2 %>% dplyr::group_by(Accession,Annotated_Sequence,sample_id,dataset,Spectrum.File) %>% 
+        dplyr::mutate(scal_fac = value/exp(mean(log(value[.$id==baseline & .$value>0]),na.rm=TRUE)))
+      #pivot wider once again for subsequent calculation
+      df2<- df2 %>% dplyr::ungroup(.) %>% 
+        pivot_wider(names_from= "id",
+                    values_from = "value") 
     }
-    #transform abundance to log2 abundance
-    df2_log<-log2(df2[,mat_norm])
-    #apply selected normalization method
-    if(is.na(NORM)){
-      check<-(df2_log)
-    }else if(NORM=="QUANTILE"){
-      check<-limma::normalizeQuantiles(as.matrix(df2_log),ties=FALSE)
-    }else if(NORM=="EQ_Median"){
-      check<-DEqMS::equalMedianNormalization(as.matrix(df2_log))
-    }
-    #convert log2check are now abundance values 
-    df2[,mat_norm]<-check
-    #if there is a carrier channel, assume there's also FAIMS and PhiSDM involved and tidy the names
+  }else if(!any(names(df2)=="Spectrum_File")){#if this is unfractionated
     
-    df2<-df2 %>%
-      dplyr::group_by(sample_name) %>%
-      dplyr::group_split()
-    
-    #if the column names are in PD format, change them
-    if(any(names(df2[[1]])%in%"Average.Reporter.S.N")){
-      df2<-purrr::map(df2,function(x) x %>% dplyr::rename("Average_Reporter_S/N"="Average.Reporter.S.N")%>% 
-                        dplyr::mutate(sample_id=File.ID))
-    }
-    if(any(names(df2[[1]]%in% "Isolation.Interference."))){
-      df2<-purrr::map(df2,function(x) x %>% dplyr::rename("Isolation_Interference_[%]"="Isolation.Interference.") %>% 
-                        dplyr::mutate(sample_id=File.ID))
-    }
-    if(any(names(df2[[1]]%in%"Ion.Inject.Time.ms."))){
-      df2<-purrr::map(df2,function(x) x %>% dplyr::rename("Ion_Inject_Time_[ms]"="Ion.Inject.Time.ms."))
-      
-    }
-    if(any(names(df2[[1]]%in% "Percolator.PEP."))){
-      df2<-purrr::map(df2,function(x) x %>% dplyr::rename("Percolator_PEP"="Percolator.PEP") %>% 
-                        dplyr::mutate(sample_id=File.ID))
-      
-    }
-    #change from wide to long and create TMT channel "temp_ref" and abundance "value" columns
-    df2<-furrr::future_map(df2,function(x) x %>%  
-                             tidyr::pivot_longer(cols=colnames(x)[stringr::str_detect(names(x),c('[:digit:][:digit:][:digit:][N|C]|126|131'))],
-                                                 names_to = "id",
-                                                 values_to = "value")%>% 
-                             dplyr::mutate(temp_ref = unlist(stringr::str_extract_all(id,find)),
-                                           value = as.numeric(value))
-    )
-    
-    df2<-dplyr::bind_rows(df2) %>%
-      dplyr::group_split(sample_name)
-    #Diagnose the plot after normalization uncomment for debugging
-    #ggplot(df2[[1]],mapping=aes(x=temp_ref,y=2^value))+geom_boxplot()+ylim(0,10000)
-    #
-    
-    #DF2 original PSM value df2 correction values
-    #prepare data for "best" PSM selection
-    df2<-dplyr::bind_rows(df2) %>% 
-      dplyr::group_by(Accession,#Protein id
-                      Annotated_Sequence,#peptide sequence
-                      dataset,#vehicle/treated
-                      sample_id,#sample file # in PD
-                      sample_name) %>%#sample name in PD
-      dplyr::group_split(.)
-    #keep all the PSMs before selecting the best
-    DF2<-df2
-    #choose the "best" (rank 1) PSM for annotated sequence convert delta M to absolute values and arrange data by lowest PEP, lowest isolatoin interference, highest xcorrelation and lower delta M value
-    df2<-furrr::future_map(df2,function(x) x %>% dplyr::mutate(DeltaM=abs(DeltaM)) %>% 
-                             dplyr::select(-temp_ref) %>% 
-                             dplyr::arrange(x,"DeltaM","Percolator_PEP",`Isolation_Interference_[%]`, desc("XCorr")) %>%
-                             dplyr::mutate(rank = 1:n()) %>% 
-                             dplyr::filter(rank==1) %>%
-                             dplyr::select(Accession,
-                                           Annotated_Sequence,
-                                           sample_name,
-                                           sample_id)) 
-    #after ranking, select only the peptide information needed to perform a join
-    #df2 only has the subset of PSMs so we need all remaining PSM information from DF2 before normalization 
-    #intersect column names from the original data and the subset of PSMs
-    name<-dplyr::intersect(names(df2[[1]]),names(DF2[[1]]))
-    #group PSM subset by sample name
-    df2<-dplyr::bind_rows(df2) %>% distinct(.) %>%
-      dplyr::group_by(sample_name) %>% dplyr::group_split()
-    #group original PSM data by sample name
-    DF2<-dplyr::bind_rows(DF2) %>% distinct(.) %>%
-      dplyr::group_by(sample_name) %>% dplyr::group_split()
-    #Perform a right join on the original PSM data
-    df2<-purrr::map2(df2,DF2,function(x,y)y%>% dplyr::right_join(x,by=name))
-    ##uncomment to Diagnose the plot after normalization uncomment for debugging
-    # df2<-dplyr::bind_rows(df2) %>%
-    #   dplyr::group_split(sample_name)
-    # ggplot(df2[[1]],mapping=aes(x=temp_ref,y=2^value))+geom_boxplot()+ylim(0,100000)
-    # #
-    if(isTRUE(CARRIER)){
-      df2<-dplyr::bind_rows(df2) %>% dplyr::filter(!temp_ref=="131C") %>% 
-        dplyr::group_by(Accession,sample_name,File.ID,dataset) %>% dplyr::group_split()
-      
-    }
-    
-    #if the sample_name isn't shortened, shorten it
-    if(any(stringr::str_detect(dplyr::bind_rows(df2)$sample_name,"_[[:digit:]]+_"))){
-      df2<-dplyr::bind_rows(df2) %>%#add replicate value from the name assigned in PD if it exists
-        dplyr::mutate(replicate=stringr::str_remove_all(stringr::str_extract(sample_name,"_[[:digit:]]+_"),"_"))
-      df2$sample_name<-sub("_[[:digit:]]+_", "", dplyr::bind_rows(df2)$sample_name)
-      df2$sample_name<-sub("[[:digit:]]+", "", dplyr::bind_rows(df2)$sample_name)
-      
-    }
-    df2<-dplyr::bind_rows(df2) %>% 
-      dplyr::group_by(Accession,sample_name,sample_id,dataset)
-    #data is grouped by  protein, bioreplicate and condition to aggregate PSMs to proteins
-    united<-df2 %>% 
-      dplyr::select(-id) %>% 
-      dplyr::filter(!is.na(temp_ref)) %>%distinct(.) 
-    
-    #for each protein, bioreplicate and condition, nest PSM values and TMT channels
-    united<-united %>%tidyr::nest(data = c(value,temp_ref))
-    #Create a new variable to pivot from long to wide before aggregating PSM values
-    United1<- united %>% dplyr::mutate(data=furrr::future_map(data,function(y)
-      tidyr::pivot_wider(y,
-                         names_from= "temp_ref",
-                         values_from="value",
-                         names_repair="unique",
-                         values_fn = "unique",
-                         values_fill=NA)))
-    United<-United1 %>%
-      dplyr::group_by(Accession,sample_name,sample_id,dataset) %>%
-      dplyr::group_split()#split the data to find PSM information
-    
-    United<-United %>% purrr::keep(function(x) 
-      length(unique(x$Annotated_Sequence))>=2)#keep protein accessions with 2 or more unique peptides
-    #Merge abundances contribution from each sequence back to the data frame
-    United<-furrr::future_map(United,function(x)
-      x %>%
-        dplyr::mutate(data=list(as.matrix(dplyr::bind_rows(x$data)))))
-    #apply median polish to perform local normalization from the PSM to the protein level
-    United<-furrr::future_map(United,function(x)
-      x %>%
-        dplyr::mutate(data=furrr::future_map(x$data,function(y)
-          medianPolish(y,ncol(y)))))
-    
-    #reverse log2 transform then transpose and classify as a data frame
-    United<-purrr::map(United,function(x)
-      x %>% dplyr::mutate(data=purrr::map(x$data,function(y)
-        data.frame(t(2^y)))))
-    #each accession has redundant list of data frames after aggregation, therefore we can select the aggregated abundance
-    United1<-purrr::map(United,function(x)
-      x %>% dplyr::mutate(data=x$data[[1]]))
-    #set TMT channels as colnames
-    United1<-purrr::map(United1,function(x)
-      set_colnames(x$data,united$data[[1]]$temp_ref))
-    #append aggregated PSM values to the data
-    United<-purrr::map2(United,United1,function(x,y)
-      x %>% dplyr::select(-data) %>% dplyr::bind_cols(y))
-    #Join all the PSM data together with aggregated abundances and split by method or sample name
-    United<-dplyr::bind_rows(United) %>%
-      dplyr::group_by(sample_name) %>%
-      dplyr::group_split()
-    #pivot data to long format after aggregating abundances
-    df2<-purrr::map(United,function(x) x %>%
-                      tidyr::pivot_longer(cols=colnames(x)[stringr::str_detect(names(x),c('[:digit:][:digit:][:digit:][N|C]|126|131'))],
-                                          names_to="temp_ref",
-                                          values_to="value"))
-    #Keep proteins where accession is not NA and nrow of peptides has information available
-    df2<-purrr::keep(df2,function(x) !is.logical(x$Accession)&nrow(x)>0)
-    #group data by sample_name
-    df2<-dplyr::bind_rows(df2) %>% dplyr::group_by(sample_name) %>% dplyr::group_split(.)
-    df2<-purrr::map(df2,function(x) clean_cetsa(x,
-                                                temperatures = df.temps,
-                                                Peptide=Peptide,
-                                                solvent,
-                                                CFS=CFS,
-                                                CARRIER=CARRIER,
-                                                baseline=baseline))
-    
-    df2<-purrr::keep(df2,function(x)
-      !is.logical(x$Accession) & nrow(x)>0
-    )
-    
-    df2<-dplyr::bind_rows(df2) %>%
-      dplyr::group_by(sample_name) %>%
-      dplyr::group_split(.)
-    # #uncomment to Diagnose the plot after normalization uncomment for debugging
-    # df2<-dplyr::bind_rows(df2) %>%
-    #   dplyr::group_split(sample_name)
-    # ggplot(df2[[1]],mapping=aes(x=temp_ref,y=value))+geom_boxplot()+ylim(0,5)
-    # #
-  }else{#if this is unfractionated
-    df2<-dplyr::bind_rows(PSMs)%>%
-      dplyr::mutate(Ab=dplyr::ntile(Abundance.126,3)) %>%
-      dplyr::group_by(Accession, File.ID,Annotated_Sequence)  %>% dplyr::ungroup(.) %>% 
-      dplyr::filter(!Ab==1)#discard the lowest baseline abundance
     #remove replicate values under the Spectrum.File name for grouping classes
-    df2<-df2 %>% dplyr::mutate(Spectrum_File=stringr::str_replace(Spectrum.File,"[:punct:][[:digit:]]+.raw",paste0(Prot_Pattern,".xlsx")),
+    df2<-df2 %>% dplyr::mutate(Spectrum_File=stringr::str_replace(df2$Spectrum.File,"[:punct:][[:digit:]]+.raw",paste0(Prot_Pattern,".xlsx")),
                                sample_id=as.factor(stringr::str_remove(File.ID,"[:punct:][[:digit:]]+")),
                                File.ID=as.factor(stringr::str_remove(File.ID,"[:punct:][[:digit:]]+")))
     
-    DF2<-data.frame() #Keep original PSM data separate for later
-    #collect a sub-subset of PSMs present for each protein,psm_sequence, replicate/condition and show all replicates where PSM sequences are present
-    united<-dplyr::bind_rows(df2) %>% dplyr::select(Accession,Annotated_Sequence,sample_id) %>% 
-      tidyr::pivot_wider(.,
-                         names_from="sample_id",
-                         values_from="sample_id",
-                         values_fill=NA,
-                         values_fn = "unique") %>% 
-      dplyr::filter(!is.na(Accession))#remove data with missing protein accession values
     
-    #determine the threshold for minimum number of replicates present for normalization > 40% default
-    # numsamples<-0.5*(ncol(united)-2)
-    # 
-    # united1<-united[rowSums(!is.na(united))>=numsamples,]#remove PSMs with 40% or less replicates
-    # print(paste0("Removed ",round(100*(nrow(united)-nrow(united1))/nrow(united),2), "% of PSMs where each sequence represents less than 40% of the replicates present"))
-    #from the PSM subset, keep those accessions where the conditional min # of replicates are met
-    df2<-dplyr::bind_rows(df2) %>% dplyr::filter(Accession %in%united1$Accession & Annotated_Sequence %in% united1$Annotated_Sequence)
-    #filter out the carrier channel if it exists before normalizing
-    if(isTRUE(CARRIER)){
-      mat_norm<-which(stringr::str_detect(names(df2),"Abundance")&!stringr::str_detect(names(df2),"131C"))
-      df2<-df2[,which(!stringr::str_detect(names(df2),"131C"))]
-      
-    }else{
-      mat_norm<-which(stringr::str_detect(names(df2),"Abundance"))
-      
-    }
-    #transform abundance to log2 abundance
-    df2_log<-log2(df2[,mat_norm])
-    #apply selected normalization method
-    if(is.na(NORM)){
-      check<-(df2_log)
-    }else if(NORM=="QUANTILE"){
-      check<-limma::normalizeQuantiles(as.matrix(df2_log),ties=FALSE)
-    }else if(NORM=="EQ_Median"){
-      check<-DEqMS::equalMedianNormalization(as.matrix(df2_log))
-    }
-    #convert abundances back from log2 
-    df2[,mat_norm]<-2^check
-    #if there is a carrier channel, assume there's also FAIMS and PhiSDM involved and tidy the names
-    if(isTRUE(CARRIER)){
-      df2<-dplyr::bind_rows(df2) %>% dplyr::mutate(sample_name=paste0(ifelse(stringr::str_detect(Spectrum_File,"NOcarrier")==TRUE,"nC",ifelse(stringr::str_detect(Spectrum_File,"carrier")==TRUE,"C",NA)),'_',
-                                                                      ifelse(stringr::str_detect(Spectrum_File,"NO_FAIMS")==TRUE,"nF",ifelse(stringr::str_detect(Spectrum_File,"r_FAIMS")==TRUE,"F",NA)),'_',
-                                                                      ifelse(stringr::str_detect(Spectrum_File,"S_eFT")==TRUE,"E",ifelse(stringr::str_detect(Spectrum_File,"S_Phi")==TRUE,"S",NA))),
-                                                   data=Spectrum_File)
-      #split PSM subset into lists by way of sample name
-      df2<-dplyr::bind_rows(df2) %>% dplyr::group_split(sample_name)
-      
-    }else{
-      df2$sample_name<-df2$Spectrum_File
-      df2<-df2 %>% dplyr::group_split(sample_name)
-    }
-    #if the column names are in PD format, change them
-    if(any(names(df2[[1]])%in%"Average.Reporter.S.N")){
-      df2<-purrr::map(df2,function(x) x %>% dplyr::rename("Average_Reporter_S/N"="Average.Reporter.S.N")%>% 
-                        dplyr::mutate(sample_id=File.ID))
-    }
-    if(any(names(df2[[1]]%in% "Isolation.Interference."))){
-      df2<-purrr::map(df2,function(x) x %>% dplyr::rename("Isolation_Interference_[%]"="Isolation.Interference.") %>% 
-                        dplyr::mutate(sample_id=File.ID))
-    }
-    if(any(names(df2[[1]]%in%"Ion.Inject.Time.ms."))){
-      df2<-purrr::map(df2,function(x) x %>% dplyr::rename("Ion_Inject_Time_[ms]"="Ion.Inject.Time.ms."))
-      
-    }
-    if(any(names(df2[[1]]%in% "Percolator.PEP."))){
-      df2<-purrr::map(df2,function(x) x %>% dplyr::rename("Percolator_PEP"="Percolator.PEP") %>% 
-                        dplyr::mutate(sample_id=File.ID))
-      
-    }
-    #change from wide to long and create TMT channel "temp_ref" and abundance "value" columns
-    df2<-furrr::future_map(df2,function(x) x %>%  
-                             dplyr::select(Accession,
-                                           tidyselect::starts_with('Abundance'),
-                                           tidyselect::starts_with('File'),
-                                           Spectrum_File,Annotated_Sequence,
-                                           tidyselect::contains('Isolation'),
-                                           tidyselect::contains('Ion'),
-                                           tidyselect::contains('Charge'),
-                                           tidyselect::contains('PEP'),
-                                           tidyselect::contains('Modifications'),
-                                           tidyselect::contains('Cleavages'),
-                                           tidyselect::starts_with('XCorr'),
-                                           tidyselect::contains('Delta'),
-                                           tidyselect::contains('File'),
-                                           tidyselect::contains('S/N'),
-                                           Fraction,sample_id,sample_name) %>% 
-                             tidyr::gather('id', 'value', -Accession,-File.ID,-Spectrum_File,
-                                           -Annotated_Sequence,-Modifications,-Charge,-"Average_Reporter_S/N",
-                                           -XCorr,-"Isolation_Interference_[%]",-"MissedCleavages",-"Percolator_PEP",
-                                           -"Ion_Inject_Time_[ms]",-"DeltaM",-"sample_id",-"Fraction",-sample_name) %>% 
-                             dplyr::mutate(temp_ref = stringr::str_extract_all(id,find)) %>% 
-                             tidyr::unnest(cols=c("temp_ref"))
-    )
-    
-    df2<-dplyr::bind_rows(df2) %>%
-      dplyr::mutate(value=as.numeric(value),
-                    dataset=ifelse(stringr::str_detect(Spectrum_File,solvent),"vehicle","treated")) %>%
-      dplyr::group_split(sample_name,dataset)
-    
-    #if there's no carrier and the filename is long, find common strings between bioreplicates and call it sample_name
-    if(!isTRUE(CARRIER)){
-      df2<-dplyr::bind_rows(df2) %>%
-        dplyr::mutate(sample_name=stringr::str_flatten(Reduce(intersect, strsplit(c(unique(dplyr::bind_rows(df2)$Spectrum_File), unique(dplyr::bind_rows(DF2)$Spectrum_File)), split = "_"))))
-      
-    }
-    
-    #DF2 original PSM value df2 correction values
-    #prepare data for "best" PSM selection
-    df2<-dplyr::bind_rows(df2) %>% dplyr::group_by(Accession,Annotated_Sequence,dataset,sample_id,sample_name) %>%
-      dplyr::group_split(.)
-    #keep all the PSMs before selecting the best
-    DF2<-df2
-    #choose the "best" (rank 1) PSM for annotated sequence convert delta M to absolute values and arrange data by lowest PEP, lowest isolatoin interference, highest xcorrelation and lower delta M value
-    df2<-furrr::future_map(df2,function(x) x %>% dplyr::mutate(DeltaM=abs(DeltaM)) %>%
-                             dplyr::arrange(x,"DeltaM","Percolator_PEP",`Isolation_Interference_[%]`, desc("XCorr")) %>%
-                             dplyr::mutate(rank = 1:n()) %>% 
-                             dplyr::filter(rank==1) %>%
-                             dplyr::select(Accession,Annotated_Sequence,sample_id,sample_name)) #after ranking, select only the peptide information needed to perform a join
-    #df2 only has the subset of PSMs so we need all remaining PSM information from DF2 before normalization 
-    #intersect column names from the original data and the subset of PSMs
-    name<-dplyr::intersect(names(df2[[1]]),names(DF2[[1]]))
-    #group PSM subset by sample name
-    df2<-dplyr::bind_rows(df2) %>% distinct(.) %>%
-      dplyr::group_by(sample_name) %>% dplyr::group_split()
-    #group original PSM data by sample name
-    DF2<-dplyr::bind_rows(DF2) %>% distinct(.) %>%
-      dplyr::group_by(sample_name) %>% dplyr::group_split()
-    #Perform a right join on the original PSM data
-    df2<-purrr::map2(df2,DF2,function(x,y)y%>% dplyr::right_join(x,by=name))
-    if(isTRUE(CARRIER)){
-      df2<-dplyr::bind_rows(df2) %>% dplyr::filter(!temp_ref=="131C") %>% 
-        dplyr::group_by(Accession,sample_name,File.ID,dataset) %>% dplyr::group_split()
-      
-    }
-    
-    #apply median polish to aggregate PSMs
-    if(any(stringr::str_detect(dplyr::bind_rows(df2)$sample_name,"_[[:digit:]]+_"))){
-      df2<-dplyr::bind_rows(df2) %>% dplyr::mutate(replicate=stringr::str_remove_all(stringr::str_extract(sample_name,"_[[:digit:]]+_"),"_"))
-      df2$sample_name<-sub("_[[:digit:]]+_", "", dplyr::bind_rows(df2)$sample_name)
-      df2$sample_name<-sub("[[:digit:]]+", "", dplyr::bind_rows(df2)$sample_name)
-      df2<-list(dplyr::bind_rows(df2))
-      df2<-purrr::map(df2,function(x)x%>% dplyr::group_by(Accession,sample_name,File.ID,dataset) %>%
-                        dplyr::group_split())
-    }
-    #data is grouped by  protein, bioreplicate and condition to aggregate PSMs to proteins
-    united<-dplyr::bind_rows(df2) %>%
-      dplyr::group_by(Accession,sample_name,dataset) %>% dplyr::select(-id) %>% 
-      dplyr::filter(!is.na(temp_ref)) %>%distinct(.) 
-    
-    #for each protein, bioreplicate and condition, nest PSM values and TMT channels
-    united<-united %>%tidyr::nest(data = c(value,temp_ref))
-    #Create a new variable to pivot from long to wide before aggregating PSM values
-    United1<- united %>% dplyr::mutate(data=furrr::future_map(data,function(y) tidyr::pivot_wider(y,
-                                                                                                  names_from= "temp_ref",
-                                                                                                  values_from="value",
-                                                                                                  names_repair="unique",
-                                                                                                  values_fn = "unique",
-                                                                                                  values_fill=NA)))
-    United<-United1 %>% dplyr::group_split()#split the data to find PSM information
-    United<-United %>% purrr::keep(function(x) length(unique(x$Annotated_Sequence))>=2)#keep protein accessions with 2 or more unique peptides
-    United<-furrr::future_map(United,function(x) x %>% dplyr::mutate(data=list(as.matrix(log2(dplyr::bind_rows(x$data))))))
-    United<-furrr::future_map(United,function(x) x %>% dplyr::mutate(data=furrr::future_map(x$data,function(y) medianPolish(y,ncol(y)))))
-    
-    #backtrack log2 transform then transpose and classify as a data frame
-    United<-purrr::map(United,function(x) x %>% dplyr::mutate(data=purrr::map(x$data,function(y)data.frame(t(2^y)))))
-    #each accession has redundant list of data frames after aggregation, therefore we can select the aggregated abundance
-    United1<-purrr::map(United,function(x) x %>% dplyr::mutate(data=x$data[[1]]))
-    #set TMT channels as colnames
-    United1<-purrr::map(United1,function(x) set_colnames(x$data,united$data[[1]]$temp_ref))
-    #append aggregated PSM values to the data
-    United<-purrr::map2(United,United1,function(x,y) x %>% dplyr::select(-data) %>% dplyr::bind_cols(y))
-    #Join all the PSM data together with aggregated abundances and split by method or sample name
-    United<-dplyr::bind_rows(United) %>% dplyr::group_by(sample_name) %>% dplyr::group_split()
-    #pivot data to long format after aggregating abundances
-    df2<-purrr::map(United,function(x) x %>% tidyr::pivot_longer(cols=colnames(x)[stringr::str_detect(names(x),c('[:digit:][:digit:][:digit:][N|C]|126|131'))],
-                                                                 names_to="temp_ref",
-                                                                 values_to="value"))
-    #Scale PSM abundances from 0 to 1
-    df2<-purrr::keep(df2,function(x) !is.logical(x$Accession)&nrow(x)>0)
-    df2<-dplyr::bind_rows(df2) %>% dplyr::group_by(sample_name) %>% dplyr::group_split(.)
-    df2<-purrr::map(df2,function(x) clean_cetsa(x, temperatures = df.temps,Peptide=Peptide,solvent,CFS=CFS,CARRIER=CARRIER,baseline=baseline))
-    df2<-purrr::keep(df2,function(x) !is.logical(x$Accession)&nrow(x)>0)
-    df2<-dplyr::bind_rows(df2) %>% dplyr::group_by(sample_name) %>% dplyr::group_split(.)
   }
+  #collect a sub-subset of PSMs present for each protein,psm_sequence, replicate/condition and show all replicates where PSM sequences are present
+  united<-dplyr::bind_rows(df2) %>% dplyr::select(Accession,Annotated_Sequence,sample_id) %>% 
+    tidyr::pivot_wider(.,
+                       names_from="sample_id",
+                       values_from="sample_id",
+                       values_fill=NA,
+                       values_fn = "unique") %>% 
+    dplyr::filter(!is.na(Accession))#remove data with missing protein accession values
+  
+  # #determine the threshold for minimum number of replicates present for normalization > 40% default
+  # numsamples<-0.75*(ncol(united)-2)
+  # 
+  # united1<-united[rowSums(!is.na(united))-2>=numsamples,]#remove PSMs with 40% or less replicates
+  # print(paste0("Removed ",round(100*(nrow(united)-nrow(united1))/nrow(united),2), "% of PSMs where each sequence has at least 75% of the total bioreplicates present"))
+  #from the PSM subset, keep those accessions where the conditional min # of replicates are met
+  # df2<-dplyr::bind_rows(df2) %>% dplyr::filter(Accession %in%united1$Accession & Annotated_Sequence %in% united1$Annotated_Sequence)
+  #filter out the carrier channel if it exists before normalizing
+  if(isTRUE(CARRIER)){
+    mat_norm<-which(stringr::str_detect(names(df2),"Abundance")&!stringr::str_detect(names(df2),"131C"))
+    df2<-df2[,which(!stringr::str_detect(names(df2),"131C"))]
+    
+  }else{
+    mat_norm<-which(stringr::str_detect(names(df2),"Abundance"))
+    
+  }
+  #transform abundance to log2 abundance
+  df2_log<-log2(df2[,mat_norm])
+  #apply selected normalization method
+  if(is.na(NORM)){
+    check<-(df2_log)
+  }else if(NORM=="QUANTILE"){
+    check<-tryCatch(limma::normalizeQuantiles(as.matrix(df2_log),ties=FALSE),
+                    error = function(e) {"Error with Normalize Quantiles"},
+                    finally = print("Quantile normalization finished."))
+  }else if(NORM=="EQ_Median"){
+    check<-tryCatch(DEqMS::equalMedianNormalization(as.matrix(df2_log)),
+                    error = function(e) {"Error on equal median normalization"},
+                    finally = print("Equal Median Normalization Finished"))
+  }
+  #convert log2check are now abundance values 
+  df2[,mat_norm]<-check
+  #group data by sample name
+  df2<-df2 %>%
+    dplyr::group_by(sample_name) %>%
+    dplyr::group_split()
+  
+  #if the column names are in PD format, change them
+  if(any(names(df2[[1]])%in%"Average.Reporter.S.N")){
+    df2<-purrr::map(df2,function(x) x %>% dplyr::rename("Average_Reporter_S/N"="Average.Reporter.S.N")%>% 
+                      dplyr::mutate(sample_id=File.ID))
+  }
+  if(any(names(df2[[1]]%in% "Isolation.Interference."))){
+    df2<-purrr::map(df2,function(x) x %>% dplyr::rename("Isolation_Interference_[%]"="Isolation.Interference.") %>% 
+                      dplyr::mutate(sample_id=File.ID))
+  }
+  if(any(names(df2[[1]]%in%"Ion.Inject.Time.ms."))){
+    df2<-purrr::map(df2,function(x) x %>% dplyr::rename("Ion_Inject_Time_[ms]"="Ion.Inject.Time.ms."))
+    
+  }
+  if(any(names(df2[[1]]%in% "Percolator.PEP."))){
+    df2<-purrr::map(df2,function(x) x %>% dplyr::rename("Percolator_PEP"="Percolator.PEP") %>% 
+                      dplyr::mutate(sample_id=File.ID))
+    
+  }
+  #function to pivot longer listing TMT channels
+  pivot_l_tempref <- function(x){
+    x %>%  
+      tidyr::pivot_longer(cols=colnames(x)[stringr::str_detect(names(x),c('[:digit:][:digit:][:digit:][N|C]|126|131'))],
+                          names_to = "id",
+                          values_to = "value")%>% 
+      dplyr::mutate(temp_ref = unlist(stringr::str_extract_all(id,find)),
+                    value = as.numeric(value))
+    return(x)
+  }
+  #change PSMs from wide to long and create TMT channel "temp_ref" and abundance "value" columns
+  df2<-parallel::mclapply(df2,pivot_l_tempref,mc.cores = future::availableCores())
+  
+  df2<-dplyr::bind_rows(df2) %>%
+    dplyr::group_split(sample_name)
+  #Diagnose the plot after normalization uncomment for debugging
+  #ggplot(df2[[1]],mapping=aes(x=temp_ref,y=2^value))+geom_boxplot()+ylim(0,10000)
+  #
+  
+  #DF2 original PSM value df2 correction values
+  #prepare data for "best" PSM selection
+  df2<-dplyr::bind_rows(df2) %>% 
+    dplyr::group_by(Accession,#Protein id
+                    Annotated_Sequence,#peptide sequence
+                    dataset,#vehicle/treated
+                    sample_id,#sample file # in PD
+                    sample_name) %>%#sample name in PD
+    dplyr::group_split(.)
+  #keep all the PSMs before selecting the best
+  DF2<-df2
+  #choose the "best" (rank 1) PSM for annotated sequence convert delta M to absolute values and arrange data by lowest PEP, lowest isolatoin interference, highest xcorrelation and lower delta M value
+  rank_PSM <-function(x){ x %>% dplyr::mutate(DeltaM=abs(DeltaM)) %>% 
+      dplyr::arrange(x,"DeltaM","Percolator_PEP",`Isolation_Interference_[%]`, desc("XCorr")) %>%
+      dplyr::mutate(rank = 1:n()) %>% 
+      dplyr::filter(rank==1) %>%
+      dplyr::select(Accession,
+                    Annotated_Sequence,
+                    sample_name,
+                    sample_id)
+    return(x)
+  }
+  df2<-parallel::mclapply(df2,rank_PSM,mc.cores = future::availableCores())
+  #after ranking, select only the peptide information needed to perform a join
+  #df2 only has the subset of PSMs so we need all remaining PSM information from DF2 before normalization 
+  #intersect column names from the original data and the subset of PSMs
+  name<-dplyr::intersect(names(df2[[1]]),names(DF2[[1]]))
+  #group PSM subset by sample name
+  df2<-dplyr::bind_rows(df2) %>% distinct(.) %>%
+    dplyr::group_by(sample_name) %>% dplyr::group_split()
+  #group original PSM data by sample name
+  DF2<-dplyr::bind_rows(DF2) %>% distinct(.) %>%
+    dplyr::group_by(sample_name) %>% dplyr::group_split()
+  #Perform a right join on the original PSM data
+  df2<-purrr::map2(df2,DF2,function(x,y)y%>% dplyr::right_join(x,by=name))
+  ##uncomment to Diagnose the plot after normalization uncomment for debugging
+  # df2<-dplyr::bind_rows(df2) %>%
+  #   dplyr::group_split(sample_name)
+  # ggplot(df2[[1]],mapping=aes(x=temp_ref,y=2^value))+geom_boxplot()+ylim(0,100000)
+  # #
+  #multiply value by the scaling factor
+  df2<-dplyr::bind_rows(df2) %>% dplyr::group_by(Accession,Annotated_Sequence,sample_name,sample_id,dataset) %>% 
+    dplyr::mutate(value = value*scal_fac)
+  
+  #if the sample_name isn't shortened, shorten it
+  if(any(stringr::str_detect(dplyr::bind_rows(df2)$sample_name,"_[[:digit:]]+_")) & !isTRUE(CARRIER)){
+    df2<-dplyr::bind_rows(df2) %>%#add replicate value from the name assigned in PD if it exists
+      dplyr::mutate(replicate=stringr::str_remove_all(stringr::str_extract(sample_name,"_[[:digit:]]+_"),"_"))
+    df2$sample_name<-sub("_[[:digit:]]+_", "", dplyr::bind_rows(df2)$sample_name)
+    df2$sample_name<-sub("[[:digit:]]+", "", dplyr::bind_rows(df2)$sample_name)
+    
+  }
+  df2<-dplyr::bind_rows(df2) %>% 
+    dplyr::group_by(Accession,sample_name,sample_id,dataset)
+  #data is grouped by  protein, bioreplicate and condition to aggregate PSMs to proteins
+  united<-df2 %>% 
+    dplyr::select(-id) %>% 
+    dplyr::filter(!is.na(temp_ref)) %>%distinct(.) 
+  
+  #for each protein, bioreplicate and condition, nest PSM values and TMT channels
+  united<-united %>%tidyr::nest(data = c(value,temp_ref))
+  #Create a new variable to pivot from long to wide before aggregating PSM values
+  United<- united %>% dplyr::mutate(data=furrr::future_map(data,function(y)
+    tidyr::pivot_wider(y,
+                       names_from= "temp_ref",
+                       values_from="value",
+                       names_repair="unique",
+                       values_fn = "unique",
+                       values_fill=NA)))
+  United<-United %>%
+    dplyr::group_by(Accession,sample_name,sample_id,dataset) %>%
+    dplyr::group_split()#split the data to find PSM information
+  
+  United<-United %>% purrr::keep(function(x) 
+    length(unique(x$Annotated_Sequence))>=2)#keep protein accessions with 2 or more unique peptides
+  #Merge abundances contribution from each sequence back to the data frame
+  United<-furrr::future_map(United,function(x)
+    x %>%
+      dplyr::mutate(data=list(as.matrix(dplyr::bind_rows(x$data)))))
+  #apply median polish to perform local normalization from the PSM to the protein level
+  United<-furrr::future_map(United,function(x)
+    x %>%
+      dplyr::mutate(data=furrr::future_map(x$data,function(y)
+        medianPolish(y,ncol(y)))))
+  
+  #reverse log2 transform then transpose and classify as a data frame
+  United<-purrr::map(United,function(x)
+    x %>% dplyr::mutate(data=purrr::map(x$data,function(y)
+      data.frame(t(2^y)))))
+  #each accession has redundant list of data frames after aggregation, therefore we can select the aggregated abundance
+  United1<-purrr::map(United,function(x)
+    x %>% dplyr::mutate(data=x$data[[1]]))
+  #set TMT channels as colnames
+  United1<-purrr::map(United1,function(x)
+    set_colnames(x$data,united$data[[1]]$temp_ref))
+  #append aggregated PSM values to the data
+  United<-purrr::map2(United,United1,function(x,y)
+    x %>% dplyr::select(-data) %>% dplyr::bind_cols(y))
+  #Join all the PSM data together with aggregated abundances and split by method or sample name
+  United<-dplyr::bind_rows(United) %>%
+    dplyr::group_by(sample_name) %>%
+    dplyr::group_split()
+  #pivot data to long format after aggregating abundances
+  df2<-purrr::map(United,function(x) x %>%
+                    tidyr::pivot_longer(cols=colnames(x)[stringr::str_detect(names(x),c('[:digit:][:digit:][:digit:][N|C]|126|131'))],
+                                        names_to="temp_ref",
+                                        values_to="value"))
+  #Keep proteins where accession is not NA and nrow of peptides has information available
+  df2<-purrr::keep(df2,function(x) !is.logical(x$Accession)&nrow(x)>0)
+  #group data by sample_name
+  df2<-dplyr::bind_rows(df2) %>% dplyr::group_by(sample_name) %>% dplyr::group_split(.)
+  df2<-purrr::map(df2,function(x) clean_cetsa(x,
+                                              temperatures = df.temps,
+                                              Peptide=Peptide,
+                                              solvent=solvent,
+                                              CFS=CFS,
+                                              CARRIER=CARRIER,
+                                              baseline=baseline))
+  
+  df2<-purrr::keep(df2,function(x)
+    !is.logical(x$Accession) & nrow(x)>0
+  )
+  
+  df2<-dplyr::bind_rows(df2) %>%
+    dplyr::group_by(sample_name) %>%
+    dplyr::group_split(.)
+  # #uncomment to Diagnose the plot after normalization uncomment for debugging
+  # df2<-dplyr::bind_rows(df2) %>%
+  #   dplyr::group_split(sample_name)
+  # ggplot(df2[[1]],mapping=aes(x=temp_ref,y=value))+geom_boxplot()+ylim(0,5)
+  # #
+  
   if(any(stringr::str_detect(names(df2[[1]]),"Accession"))){
     df2<-purrr::map(df2,function(x) x %>% dplyr::rename("uniqueID"="Accession"))
   }
@@ -9846,7 +9699,7 @@ df.temps<-df.t(16,temperatures=NA,sample_mapping_name="sample_mapping.xlsx")
 df_raw <- read_cetsa("~/Files/Scripts/Files/Zebra/Napabucasin/Trembl","~/Files/Scripts/Files/Zebra/Napabucasin/Trembl","_Proteins",Peptide=FALSE,Frac=TRUE,CFS=FALSE,solvent="Control",CARRIER=FALSE,rank=TRUE,subset=NA,temperatures=df.temps,baseline="max",NORM="QUANTILE")     
 df_raw <- read_cetsa("~/Files/Scripts/Files/Covid","~/Files/Scripts/Files/Covid","_Proteins",Peptide=FALSE,CFS=FALSE,Frac=TRUE,solvent="AM",CARRIER=FALSE,rank=TRUE,subset=NA,temperatures=df.temps,baseline="min",NORM="QUANTILE")                                                              
 df_raw <- read_cetsa("~/Files/Scripts/Files/2.4/replicates/CFS_vs_CFE_replicates","~/Files/Scripts/Files/2.4/replicates/CFS_vs_CFE_replicates","_Proteins",Peptide=FALSE,Frac=FALSE,solvent="DMSO",CARRIER=TRUE,rank=TRUE,subset=NA,temperatures=df.temps,baseline="min",NORM="QUANTILE")                                                              
-df_raw <- read_cetsa("~/Files/Scripts/Files/2.4/fractions/CFE_vs_CFS","~/Files/Scripts/Files/2.4/fractions/CFE_vs_CFS",Prot_Pattern = "_Proteins",Peptide=TRUE,Frac=TRUE,solvent="DMSO",CARRIER=TRUE,rank=TRUE,subset=1000,temperatures=df.temps,baseline="min",NORM="QUANTILE")                                       
+df_raw <- read_cetsa("~/Files/Scripts/Files/2.4/fractions/CFE_vs_CFS","~/Files/Scripts/Files/2.4/fractions/CFE_vs_CFS",Prot_Pattern = "_Proteins",Peptide=TRUE,Frac=TRUE,solvent="DMSO",CARRIER=TRUE,rank=TRUE,subset=NA,temperatures=df.temps,baseline="min",NORM="QUANTILE")                                       
 
 #df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS/Unshared","~/Files/Scripts/Files/CONSENSUS/Unshared","_Proteins",Peptide=FALSE,Frac=FALSE,solvent="DMSO",CARRIER=TRUE)                                                              
 #df_raw <- read_cetsa("~/CONSENSUS11","~/CONSENSUS11","_Proteins",Peptide=FALSE,Frac=FALSE,solvent="DMSO")                                                              
