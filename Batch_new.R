@@ -746,13 +746,13 @@ choose_PSM<-function(x,Frac=Frac,NORM=NORM,CARRIER=CARRIER,subset=subset,baselin
   }
   #function to pivot longer listing TMT channels
   pivot_l_tempref <- function(x){
-    x %>%  
-      tidyr::pivot_longer(cols=colnames(x)[stringr::str_detect(names(x),c('[:digit:][:digit:][:digit:][N|C]|126|131'))],
+    x1 <- x %>%  
+      tidyr::pivot_longer(cols=colnames(x)[stringr::str_detect(colnames(x),'[:digit:][:digit:][:digit:][N|C]|126|131')],
                           names_to = "id",
                           values_to = "value")%>% 
-      dplyr::mutate(temp_ref = unlist(stringr::str_extract_all(id,find)),
+      dplyr::mutate(temp_ref = unlist(stringr::str_extract_all(id,'[:digit:][:digit:][:digit:][N|C]|126|131')),
                     value = as.numeric(value))
-    return(x)
+    return(x1)
   }
   #change PSMs from wide to long and create TMT channel "temp_ref" and abundance "value" columns
   df2<-parallel::mclapply(df2,pivot_l_tempref,mc.cores = future::availableCores())
@@ -775,7 +775,9 @@ choose_PSM<-function(x,Frac=Frac,NORM=NORM,CARRIER=CARRIER,subset=subset,baselin
   #keep all the PSMs before selecting the best
   DF2<-df2
   #choose the "best" (rank 1) PSM for annotated sequence convert delta M to absolute values and arrange data by lowest PEP, lowest isolatoin interference, highest xcorrelation and lower delta M value
-  rank_PSM <-function(x){ x %>% dplyr::mutate(DeltaM=abs(DeltaM)) %>% 
+  rank_PSM <-function(x){ 
+    x1<-x %>% dplyr::select(-temp_ref) %>% 
+      dplyr::mutate(DeltaM=abs(DeltaM)) %>% 
       dplyr::arrange(x,"DeltaM","Percolator_PEP",`Isolation_Interference_[%]`, desc("XCorr")) %>%
       dplyr::mutate(rank = 1:n()) %>% 
       dplyr::filter(rank==1) %>%
@@ -783,9 +785,10 @@ choose_PSM<-function(x,Frac=Frac,NORM=NORM,CARRIER=CARRIER,subset=subset,baselin
                     Annotated_Sequence,
                     sample_name,
                     sample_id)
-    return(x)
+    return(x1)
   }
-  df2<-parallel::mclapply(df2,rank_PSM,mc.cores = future::availableCores())
+  df2<-furrr::future_map(df2,function(x) tryCatch(rank_PSM(x),
+                                                  error = function(e){error("Error in rank_PSM function")}))
   #after ranking, select only the peptide information needed to perform a join
   #df2 only has the subset of PSMs so we need all remaining PSM information from DF2 before normalization 
   #intersect column names from the original data and the subset of PSMs
@@ -798,7 +801,7 @@ choose_PSM<-function(x,Frac=Frac,NORM=NORM,CARRIER=CARRIER,subset=subset,baselin
     dplyr::group_by(sample_name) %>% dplyr::group_split()
   #Perform a right join on the original PSM data
   df2<-purrr::map2(df2,DF2,function(x,y)y%>% dplyr::right_join(x,by=name))
-  ##uncomment to Diagnose the plot after normalization uncomment for debugging
+  # #uncomment to Diagnose the plot after normalization uncomment for debugging
   # df2<-dplyr::bind_rows(df2) %>%
   #   dplyr::group_split(sample_name)
   # ggplot(df2[[1]],mapping=aes(x=temp_ref,y=2^value))+geom_boxplot()+ylim(0,100000)
