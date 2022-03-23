@@ -250,6 +250,9 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
     }
     df.raw<-read_PD(df.raw)#read in peptide groups
     #perform normalization and aggregation at the PSM level
+    if(isTRUE(CARRIER)){
+      PSMs<-purrr::map(PSMs, function(x)x[!colnames(x) =="Abundance.131C"])
+    }
     #parallel::mcmapply(function(x,y){ return(func(x,y)) }, x = f1, y = f2, mc.cores=1)
     df2<-parallel::mclapply(PSMs,choose_PSM,mc.cores=future::availableCores())
     
@@ -622,14 +625,8 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
 #'Choose PSMs
 #'
 choose_PSM<-function(x,Frac=Frac,NORM=NORM,CARRIER=CARRIER,subset=subset,baseline=baseline){
-  if(isTRUE(CARRIER)){
-    df2<-dplyr::bind_rows(x)[!colnames(x) =="Abundance.131C"]
-    DF2<-data.frame(dplyr::bind_rows(x)[!colnames(x) =="Abundance.131C"]) #Keep original PSM data separate for later
-  }else{
-    df2<-dplyr::bind_rows(x)
-    DF2<-data.frame(dplyr::bind_rows(x)) #Keep original PSM data separate for later
-    
-  }
+  df2<- x
+  DF2<-x
   if(isTRUE(Frac) | !any(names(df2)=="Spectrum_File")){#if this is fractionated, rank by abundance at the baseline value '126' default
     # df2<-dplyr::bind_rows(PSMs)%>%
     #   dplyr::mutate(Ab=dplyr::ntile(Abundance.126,3)) %>%
@@ -696,15 +693,7 @@ choose_PSM<-function(x,Frac=Frac,NORM=NORM,CARRIER=CARRIER,subset=subset,baselin
   # print(paste0("Removed ",round(100*(nrow(united)-nrow(united1))/nrow(united),2), "% of PSMs where each sequence has at least 75% of the total bioreplicates present"))
   #from the PSM subset, keep those accessions where the conditional min # of replicates are met
   # df2<-dplyr::bind_rows(df2) %>% dplyr::filter(Accession %in%united1$Accession & Annotated_Sequence %in% united1$Annotated_Sequence)
-  #filter out the carrier channel if it exists before normalizing
-  if(isTRUE(CARRIER)){
-    mat_norm<-which(stringr::str_detect(names(df2),"Abundance")&!stringr::str_detect(names(df2),"131C"))
-    df2<-df2[,which(!stringr::str_detect(names(df2),"131C"))]
-    
-  }else{
-    mat_norm<-which(stringr::str_detect(names(df2),"Abundance"))
-    
-  }
+  mat_norm<-df2[,stringr::str_detect(names(df2),"Abundance")]
   #transform abundance to log2 abundance
   df2_log<-log2(df2[,mat_norm])
   #apply selected normalization method
@@ -717,7 +706,7 @@ choose_PSM<-function(x,Frac=Frac,NORM=NORM,CARRIER=CARRIER,subset=subset,baselin
   }else if(NORM=="EQ_Median"){
     check<-tryCatch(DEqMS::equalMedianNormalization(as.matrix(df2_log)),
                     error = function(e) {"Error on equal median normalization"},
-                    finally = print("Equal Median Normalization Finished"))
+                    finally = print("Equal median normalization finished"))
   }
   #convert log2check are now abundance values 
   df2[,mat_norm]<-check
@@ -755,7 +744,8 @@ choose_PSM<-function(x,Frac=Frac,NORM=NORM,CARRIER=CARRIER,subset=subset,baselin
     return(x1)
   }
   #change PSMs from wide to long and create TMT channel "temp_ref" and abundance "value" columns
-  df2<-parallel::mclapply(df2,pivot_l_tempref,mc.cores = future::availableCores())
+  df2<-furrr::future_map(df2,function(x) tryCatch(pivot_l_tempref(x),
+                                                  error = function(e){error("Error in pivot longer function")}))
   
   df2<-dplyr::bind_rows(df2) %>%
     dplyr::group_split(sample_name)
