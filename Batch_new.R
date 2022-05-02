@@ -4659,6 +4659,12 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs,CARRIER=
 #   return(results)
 # }
 spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=FALSE,Peptide=FALSE){
+  if(!any(names(df)=="C")){
+    DF<-DF %>% dplyr::rename("C"="temperature")
+    df<-df %>% dplyr::rename("C"="temperature")
+    df1<-df1 %>% dplyr::rename("C"="temperature")
+  }
+  
   if(any(class(df)=="list")){
     df<-df %>% purrr::keep(function(x) is.data.frame(x))
     df1<-df1 %>% purrr::keep(function(x) is.data.frame(x))
@@ -9852,13 +9858,13 @@ df_norm<-purrr::map(df_norm,function(x)x %>% dplyr::filter(uniqueID %in% c("Q7ZU
                                                            
                                                            
 ))                                                                    #A0A1S6L757;A0A1S6L752;Q6NV46;O93599;C0SPC7;A0A0R4IGF2;Q9DDJ8
-df_norm<-purrr::map(df_norm1,function(x)x %>% dplyr::filter(uniqueID %in% c("A0A0R4IGF2","A0A1S6L752","A0A1S6L757","Q6NV46","O93599","C0SPC7","Q7ZTS5","Q9DDJ8","Q8JFU8","C5J410","B0S789","Q8JFS5","Q9DE49"#stat3
-                                                                            ,"A4QNT9","F1QWX2","Q68SP2","Q4V9B2"#stat5
-                                                                            ,"Q6P0H2","A0A0R4IM15","F1QLV5","E9QEA9"#NQO1
-                                                                            ,"Q90XS8","Q8QGQ1","B3DKM0","Q90Y03"#aldh1a2
-                                                                            ,"Q0H2G3",#aldh1a3
-                                                                            "Q499B1","F1Q7F3","Q1XB72"#PORA
-                                                                            
+df_norm<-purrr::map(df_norm1,function(x)x %>% dplyr::filter(Accession %in% c("A0A0R4IGF2","A0A1S6L752","A0A1S6L757","Q6NV46","O93599","C0SPC7","Q7ZTS5","Q9DDJ8","Q8JFU8","C5J410","B0S789","Q8JFS5","Q9DE49"#stat3
+                                                                             ,"A4QNT9","F1QWX2","Q68SP2","Q4V9B2"#stat5
+                                                                             ,"Q6P0H2","A0A0R4IM15","F1QLV5","E9QEA9"#NQO1
+                                                                             ,"Q90XS8","Q8QGQ1","B3DKM0","Q90Y03"#aldh1a2
+                                                                             ,"Q0H2G3",#aldh1a3
+                                                                             "Q499B1","F1Q7F3","Q1XB72"#PORA
+                                                                             
 )))
 PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,Peptide=FALSE,show_results=FALSE){
   df_norm$CC<-ifelse(df_norm$dataset=="vehicle",0,1)
@@ -9994,7 +10000,7 @@ dev.off()
 plot_Splines<-function(x,Protein="Q02750",df.temps,Filters=FALSE,fT=TRUE,show_results=TRUE,Peptide=TRUE,CI=TRUE,simulations=FALSE,CARRIER=FALSE,Frac=TRUE,raw=FALSE){
   Filters=Filters
   fT=fT
-  MD=MD
+  
   x$Charge<-as.factor(x$Charge)
   
   if(any(names(x)=="value")&!any(names(x)=="C")){
@@ -10162,7 +10168,7 @@ plot_Splines<-function(x,Protein="Q02750",df.temps,Filters=FALSE,fT=TRUE,show_re
 #"Q499B1","F1Q7F3","Q1XB72","Q0H2G3")))#GCLC
 df_norm1<-list(dplyr::bind_rows(df_norm1))
 df_norm<-list(dplyr::bind_rows(df_norm))
-plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"F1QLV5",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=TRUE,simulations=FALSE,CARRIER=TRUE,Frac=TRUE,raw=FALSE)))
+plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"F1QLV5",df.temps,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=TRUE,simulations=FALSE,CARRIER=FALSE,Frac=TRUE,raw=FALSE)))
 P1<-plotS2
 #saveRDS(plotS2,"Napabucasin_Protein_unique_data.RDS")
 #A4QNT9 F1Q7F3 F1QLV5 Q0H2G3 Q6NV46 Q90Y03
