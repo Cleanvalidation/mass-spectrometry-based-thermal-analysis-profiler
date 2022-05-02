@@ -4931,7 +4931,6 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
     
   }
   
-  
   #split into lists by uniqueID
   mean1<-mean1%>% dplyr::group_split(uniqueID)
   mean1_1<-mean1_1 %>% dplyr::group_split(uniqueID)
@@ -5281,7 +5280,9 @@ spf<-function(spresults,DFN,filters = TRUE){
   #   DFN<-DFN%>% dplyr::mutate(missing=NA,missing_pct=NA,rank=NA)
   # }
   
-  spresults<-spresults %>% dplyr::mutate(replicate=as.numeric(replicate)) %>% dplyr::group_split(uniqueID)
+  spresults<-spresults %>% 
+    dplyr::mutate(replicate=as.numeric(replicate)) %>%
+    dplyr::group_split(uniqueID)
   DFN<-DFN %>% dplyr::mutate(replicate=as.numeric(replicate)) 
   if(!isTRUE(filters)){
     sl<-purrr::map(seq_len(length(spresults)),function(x) as.numeric({paste(x)})) 
@@ -10103,7 +10104,6 @@ plot_Splines<-function(x,Protein="Q02750",df.temps,Filters=FALSE,fT=TRUE,show_re
       spresults<-spresults[!is.na(spresults$C),]
       res_sp<-spf(spresults,DFN,filters=Filters)
     }else{
-      spresults<-spresults[!is.na(spresults$C),]
       res_sp<-spf(spresults,DFN,filters=FALSE)
     }
     
@@ -10132,11 +10132,12 @@ plot_Splines<-function(x,Protein="Q02750",df.temps,Filters=FALSE,fT=TRUE,show_re
     return(spresults)
   }
   
-  if(class(spresults)=="list"){
+  if(any(class(spresults)=="list")){
     spresults<-dplyr::bind_rows(spresults)
     spresults<-spresults[!is.na(spresults$C),]
     res_sp<-spf(spresults,DFN,filters=Filters)
   }else{
+    DFN<-DFN %>% dplyr::mutate(C=temperature)
     res_sp<-spf(spresults,DFN,filters=Filters)
   }
   if(isTRUE(simulations)){
@@ -10168,7 +10169,7 @@ plot_Splines<-function(x,Protein="Q02750",df.temps,Filters=FALSE,fT=TRUE,show_re
 #"Q499B1","F1Q7F3","Q1XB72","Q0H2G3")))#GCLC
 df_norm1<-list(dplyr::bind_rows(df_norm1))
 df_norm<-list(dplyr::bind_rows(df_norm))
-plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"F1QLV5",df.temps,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=TRUE,simulations=FALSE,CARRIER=FALSE,Frac=TRUE,raw=FALSE)))
+plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"F1Q7F3",df.temps,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=TRUE,simulations=FALSE,CARRIER=FALSE,Frac=TRUE,raw=FALSE)))
 P1<-plotS2
 #saveRDS(plotS2,"Napabucasin_Protein_unique_data.RDS")
 #A4QNT9 F1Q7F3 F1QLV5 Q0H2G3 Q6NV46 Q90Y03
