@@ -399,16 +399,10 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
       PSMs<- furrr::future_map(PSMs,function(x) x %>%
                                  dplyr::select(Accession,File.ID,Spectrum.File) %>%
                                  distinct())
-      if(isTRUE(Frac)){
-        PSMs<-dplyr::bind_rows(PSMs) %>%
-          dplyr::mutate(Fraction=stringr::str_remove(File.ID,"[:upper:][[:digit:]]+."),
-                        File.ID = stringr::str_extract(File.ID,"[:upper:][[:digit:]]+"))
-        
-        
-      }else{
-        PSMs<-dplyr::bind_rows(PSMs) %>%
-          dplyr::mutate(File.ID = stringr::str_extract(File.ID,"[:upper:][[:digit:]]+"))
-      }
+      #no need to look at fractions since peptide groups are already summarized
+      PSMs<-dplyr::bind_rows(PSMs) %>%
+        dplyr::mutate(File.ID = stringr::str_extract(File.ID,"[:upper:][[:digit:]]+"))
+      
       PG<-dplyr::bind_rows(PG) %>%
         dplyr::mutate(File.ID = stringr::str_extract(id,"[:upper:][[:digit:]]+"))
       PG<-data.table::data.table(dplyr::bind_rows(PG))
@@ -5240,6 +5234,10 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
     mean3<-mean3 %>% dplyr::filter(mean3$uniqueID %in% test$uniqueID)
     
     results<-dplyr::bind_rows(mean1,mean1_1,mean3) 
+    # results<-results %>% dplyr::group_by(dataset) %>%
+    #   dplyr::rowwise() %>%
+    #   dplyr::mutate(performance_k5 = list(performance::model_performance(unlist(.$M1))),
+    #                 performance_k6 = list(performance::model_performance(unlist(.$M2))))
     if(!isTRUE(Peptide)){
       results1<-dplyr::bind_rows(results1) %>% dplyr::select(uniqueID,dataset,sample,p_dTm)
       names<-dplyr::intersect(names(results),names(results1))
@@ -5263,6 +5261,7 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
     }
   }
   if(isTRUE(show_results)){
+    
     return(testResults)
     if(isTRUE(scaled_dof)){
       return(test)
@@ -5696,7 +5695,7 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
                    colour = "red",linetype=2)+
           annotate("segment", x = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), xend = round(with(fitted.values1, stats::approx(fitted.values1$fit,fitted.values1$C,xout=max(fitted.values1$fit, na.rm=TRUE)-0.5))$y,1), y = 0, yend = 0.5,
                    colour = "red",linetype=2)+ ggplot2::ggtitle(paste0(as.character(df1[1])," ",str_replace(df2$sample_name[1],"S",paste0("\u03A6"))))+
-          ylim(-0.60,1000000)+xlim(37,68)+
+          ylim(-0.60,2)+xlim(37,68)+
           theme(legend.position="bottom")
         
         return(plot)
@@ -9809,7 +9808,7 @@ Int_plot<-function(df_norm,Peptide=FALSE,raw=FALSE){
       facet_wrap(df_norm$dataset)+
       ylab("Normalized intensity")+
       ggtitle(df_norm$sample_name[1])+
-      ylim(-0.1,5)+
+      ylim(-0.1,2)+
       theme(legend.position="bottom")+labs(colour = "Temperature (\u00B0C)")
   }
 }
@@ -10011,6 +10010,11 @@ plot_Splines<-function(x,Protein="Q02750",df.temps,Filters=FALSE,fT=TRUE,show_re
     x<-x %>% dplyr::rename("I"="value")
     
   }
+  if(any(names(x)=="Fraction")){
+    x<-x %>% dplyr::select(-Fraction,-Spectrum.File) %>% distinct(.)
+    x<-x %>% dplyr::mutate(Fraction=1)
+    
+  }
   if(any(names(x)=="Accession")&!any(names(x)=="uniqueID")){
     x<-x %>% dplyr::rename("uniqueID"="Accession")
     
@@ -10104,6 +10108,8 @@ plot_Splines<-function(x,Protein="Q02750",df.temps,Filters=FALSE,fT=TRUE,show_re
       spresults<-spresults[!is.na(spresults$C),]
       res_sp<-spf(spresults,DFN,filters=Filters)
     }else{
+      
+      DFN<-DFN %>% dplyr::mutate(C=temperature)
       res_sp<-spf(spresults,DFN,filters=FALSE)
     }
     
@@ -10169,7 +10175,7 @@ plot_Splines<-function(x,Protein="Q02750",df.temps,Filters=FALSE,fT=TRUE,show_re
 #"Q499B1","F1Q7F3","Q1XB72","Q0H2G3")))#GCLC
 df_norm1<-list(dplyr::bind_rows(df_norm1))
 df_norm<-list(dplyr::bind_rows(df_norm))
-plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"F1Q7F3",df.temps,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=TRUE,simulations=FALSE,CARRIER=FALSE,Frac=TRUE,raw=FALSE)))
+plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"Q1XB72",df.temps,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=TRUE,simulations=FALSE,CARRIER=FALSE,Frac=TRUE,raw=FALSE)))
 P1<-plotS2
 #saveRDS(plotS2,"Napabucasin_Protein_unique_data.RDS")
 #A4QNT9 F1Q7F3 F1QLV5 Q0H2G3 Q6NV46 Q90Y03
