@@ -460,181 +460,186 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
       
       return(df3)
       
-    }else{ #if this is a protein file
+    }
+  }else{ #if this is a protein file
+    
+    PSMs<- furrr::future_map(PSMs,function(x) x %>%
+                               dplyr::select(Accession,File.ID,Spectrum.File) %>%
+                               dplyr::mutate(File.ID=stringr::str_extract(File.ID,"[:upper:][[:digit:]]+")) %>% 
+                               distinct())
+    Proteins<-dplyr::bind_rows(Proteins)
+    if(isTRUE(Frac)){
+      Proteins <- Proteins %>% 
+        tidylog::pivot_longer(cols=colnames(Proteins)[stringr::str_detect(colnames(Proteins),"[:digit:][:digit:][:digit:][N|C]|126|131")],
+                              names_to = "id",
+                              values_to ="value") %>% 
+        dplyr::mutate(File.ID = stringr::str_extract(id,"[:upper:][[:digit:]]+"),
+                      Fraction=stringr::str_remove(id,"[:upper:][[:digit:]]+."),
+                      temp_ref = stringr::str_extract(id,'[:digit:][:digit:][:digit:][N|C]|126|131'),
+                      value = as.numeric(value),
+                      Fraction = stringr::str_remove(File.ID,"[:upper:][[:digit:]]+."),
+                      sample_id = stringr::str_extract(File.ID,"[:upper:][[:digit:]]+"))
+      Proteins<-Proteins %>% dplyr::right_join(temperatures, by ="temp_ref")
       
-      PSMs<- furrr::future_map(PSMs,function(x) x %>%
-                                 dplyr::select(Accession,File.ID,Spectrum.File) %>%
-                                 dplyr::mutate(File.ID=stringr::str_extract(File.ID,"[:upper:][[:digit:]]+")) %>% 
-                                 distinct())
-      Proteins<-dplyr::bind_rows(Proteins)
-      if(isTRUE(Frac)){
-        Proteins <- Proteins %>% 
-          tidylog::pivot_longer(cols=colnames(Proteins)[stringr::str_detect(colnames(Proteins),"[:digit:][:digit:][:digit:][N|C]|126|131")],
-                                names_to = "id",
-                                values_to ="value") %>% 
-          dplyr::mutate(File.ID = stringr::str_extract(id,"[:upper:][[:digit:]]+"),
-                        Fraction=stringr::str_remove(id,"[:upper:][[:digit:]]+."),
-                        temp_ref = stringr::str_extract(id,'[:digit:][:digit:][:digit:][N|C]|126|131'),
-                        value = as.numeric(value),
-                        Fraction = stringr::str_remove(File.ID,"[:upper:][[:digit:]]+."),
-                        sample_id = stringr::str_extract(File.ID,"[:upper:][[:digit:]]+"))
-        Proteins<-Proteins %>% dplyr::right_join(temperatures, by ="temp_ref")
-        
-      }else{
-        Proteins <- Proteins %>% 
-          tidylog::pivot_longer(cols=colnames(Proteins)[stringr::str_detect(colnames(Proteins),"[:digit:][:digit:][:digit:][N|C]|126|131")],
-                                names_to = "id",
-                                values_to ="value") %>% 
-          dplyr::mutate(File.ID = stringr::str_extract(id,"[:upper:][[:digit:]]+"),
-                        temp_ref = stringr::str_extract(id,'[:digit:][:digit:][:digit:][N|C]|126|131'),
-                        value = as.numeric(value),
-                        Fraction = stringr::str_remove(File.ID,"[:upper:][[:digit:]]+."),
-                        sample_id = stringr::str_extract(File.ID,"[:upper:][[:digit:]]+"))
-        Proteins<-Proteins %>% dplyr::right_join(temperatures, by ="temp_ref")
-      }
-      Proteins<-data.table::data.table(dplyr::bind_rows(Proteins))
-      PSMs<-data.table::data.table(dplyr::bind_rows(PSMs))
+    }else{
+      Proteins <- Proteins %>% 
+        tidylog::pivot_longer(cols=colnames(Proteins)[stringr::str_detect(colnames(Proteins),"[:digit:][:digit:][:digit:][N|C]|126|131")],
+                              names_to = "id",
+                              values_to ="value") %>% 
+        dplyr::mutate(File.ID = stringr::str_extract(id,"[:upper:][[:digit:]]+"),
+                      temp_ref = stringr::str_extract(id,'[:digit:][:digit:][:digit:][N|C]|126|131'),
+                      value = as.numeric(value),
+                      Fraction = stringr::str_remove(File.ID,"[:upper:][[:digit:]]+."),
+                      sample_id = stringr::str_extract(File.ID,"[:upper:][[:digit:]]+"))
+      Proteins<-Proteins %>% dplyr::right_join(temperatures, by ="temp_ref")
+    }
+    Proteins<-data.table::data.table(dplyr::bind_rows(Proteins))
+    PSMs<-data.table::data.table(dplyr::bind_rows(PSMs))
+    
+    name<-dplyr::intersect(names(Proteins),names(PSMs))#dfP is PSMs df3 is proteins
+    #Join protein and PSM file
+    Proteins<-Proteins  %>%
+      dplyr::right_join(PSMs,by=name) %>%  #Add spectrum_File values
+      distinct(.)
+    Proteins<-Proteins %>% tibble::as_tibble()
+    #Select protein columns
+    if(any(names(Proteins)=="Biological.Process")&any(names(Proteins[[1]]=="MW.kDa."))){
+      Proteins<-dplyr::bind_rows(Proteins) %>% 
+        dplyr::rename("Cell_Component"="Cellular.Component","MW_kDa"="MW.kDa.","Bio_Process"="Biological.Process","Coverage"="Coverage.","Molecular_Function"="Molecular.Function")
+    }else if(any(names(Proteins)=="MW.kDa.")){
+      Proteins<-dplyr::bind_rows(Proteins) %>% 
+        dplyr::rename("MW_kDa"="MW.kDa.","Coverage"="Coverage.")
+    }else if (any(stringr::str_detect(names(Proteins),"Coverage."))){
+      Proteins<-dplyr::bind_rows(Proteins) %>% 
+        dplyr::rename("Coverage"="Coverage.")
+    }
+    #Pivot longer
+    if(isTRUE(Frac)){
+      Proteins <- Proteins %>% 
+        dplyr::mutate(CC = ifelse(stringr::str_detect(Spectrum.File,solvent),0,1),
+                      dataset = ifelse(stringr::str_detect(Spectrum.File,solvent),"vehicle","treated"),
+                      sample_name = ifelse(length(unique(.$sample_id))==4,
+                                           unique(stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+"))[2],
+                                           stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+")))
+      Proteins$treatment<-as.factor(Proteins$dataset)
+    }else{#if this isnt fractionated
+      Proteins <- Proteins %>%  
+        dplyr::mutate(CC = ifelse(stringr::str_detect(Spectrum.File,solvent),0,1),
+                      dataset = ifelse(stringr::str_detect(Spectrum.File,solvent),"vehicle","treated"),
+                      sample_name = ifelse(length(unique(.$sample_id))==4,
+                                           unique(stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+"))[2],
+                                           stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+")))
       
-      name<-dplyr::intersect(names(Proteins),names(PSMs))#dfP is PSMs df3 is proteins
-      #Join protein and PSM file
-      Proteins<-Proteins  %>%
-        dplyr::right_join(PSMs,by=name) %>%  #Add spectrum_File values
-        distinct(.)
-      Proteins<-Proteins %>% as_tibble()
-      #Select protein columns
-      if(any(names(Proteins)=="Biological.Process")&any(names(Proteins[[1]]=="MW.kDa."))){
-        Proteins<-dplyr::bind_rows(Proteins) %>% 
-          dplyr::rename("Cell_Component"="Cellular.Component","MW_kDa"="MW.kDa.","Bio_Process"="Biological.Process","Coverage"="Coverage.","Molecular_Function"="Molecular.Function")
-      }else if(any(names(Proteins)=="MW.kDa.")){
-        Proteins<-dplyr::bind_rows(Proteins) %>% 
-          dplyr::rename("MW_kDa"="MW.kDa.","Coverage"="Coverage.")
-      }else if (any(stringr::str_detect(names(Proteins),"Coverage."))){
-        Proteins<-dplyr::bind_rows(Proteins) %>% 
-          dplyr::rename("Coverage"="Coverage.")
-      }
-      #Pivot longer
-      if(isTRUE(Frac)){
-        Proteins <- Proteins %>% 
-          dplyr::mutate(CC = ifelse(stringr::str_detect(Spectrum.File,solvent),0,1),
-                        dataset = ifelse(stringr::str_detect(Spectrum.File,solvent),"vehicle","treated"),
-                        sample_name = ifelse(length(unique(.$sample_id))==4,
-                                             unique(stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+"))[2],
-                                             stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+")))
-        Proteins$treatment<-as.factor(Proteins$dataset)
-      }else{#if this isnt fractionated
-        Proteins <- Proteins %>%  
-          dplyr::mutate(CC = ifelse(stringr::str_detect(Spectrum.File,solvent),0,1),
-                        dataset = ifelse(stringr::str_detect(Spectrum.File,solvent),"vehicle","treated"),
-                        sample_name = ifelse(length(unique(.$sample_id))==4,
-                                             unique(stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+"))[2],
-                                             stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+")))
-        
-        Proteins$treatment<-as.factor(Proteins$dataset)
-      }
+      Proteins$treatment<-as.factor(Proteins$dataset)
+    }
+    
+    
+    Proteins<-dplyr::bind_rows(Proteins) %>% dplyr::group_split(Accession,sample_id,sample_name,dataset) 
+    missing_label<-function(x) {
+      x<-x %>% dplyr::group_by(Accession,sample_id,sample_name,dataset) %>%
+        distinct(.) %>% dplyr::mutate(missing=is.na(value),
+                                      missing_pct=sum(is.na(value))/nrow(.))
+      return(x)
+    }
+    if (.Platform$OS.type=="windows"){
+      Proteins<-parallel::mclapply(Proteins,missing_label)
+    }else{
+      Proteins<-parallel::mclapply(Proteins,missing_label,mc.cores=availableCores())
+    }
+    if(isTRUE(Frac)){#if this is a fractionated dataset
       
-      
-      Proteins<-dplyr::bind_rows(Proteins) %>% dplyr::group_split(Accession,sample_id,sample_name,dataset) 
-      missing_label<-function(x) {
-        x<-x %>% dplyr::group_by(Accession,sample_id,sample_name,dataset) %>%
-          distinct(.) %>% dplyr::mutate(missing=is.na(value),
-                                        missing_pct=sum(is.na(value))/nrow(.))
-        return(x)
+      if(baseline=="min"){
+        rank_label<-function(x){#if baseline is min and this is a fractionated dataset
+          x<-x%>% dplyr::filter(temperature==min(temperature,na.rm=TRUE)) %>%
+            dplyr::mutate(rank=dplyr::ntile(value,3))%>%
+            dplyr::select(sample_id,sample_name,Accession,rank,id,Fraction,Spectrum.File)%>%
+            dplyr::filter(!is.na(rank),!is.na(id),rank==min(.$rank,na.rm=TRUE)) %>% dplyr::select(-id) %>% distinct(.)
+          return(x)
+        }
+      }else{#if baseline is max and this is a fractionated dataset
+        rank_label<-function(x){
+          x<-x%>% dplyr::filter(temp_ref==unique(x$temperature)[length(unique(x$temperature))]) %>%
+            dplyr::mutate(rank=dplyr::ntile(value,3))%>%
+            dplyr::select(sample_id,sample_name,Accession,rank,id,Fraction,Spectrum.File)%>%
+            dplyr::filter(!is.na(rank),!is.na(id),rank==min(.$rank,na.rm=TRUE)) %>% dplyr::select(-id) %>% distinct(.)
+          return(x)
+        }
       }
+    }else{#if this is unfractionated
+      if(baseline=="min"){#if baseline is min and this is an unfractionated dataset
+        rank_label<-function(x){
+          x<-x%>% dplyr::filter(temperature==min(temperature,na.rm=TRUE)) %>%
+            dplyr::mutate(rank=dplyr::ntile(value,3))%>%
+            dplyr::select(sample_id,sample_name,Accession,rank,id,Spectrum.File)%>%
+            dplyr::filter(!is.na(rank),!is.na(id)) %>% dplyr::select(-id) %>% distinct(.)
+          return(x)
+        }
+      }else{#if baseline is max and this is an unfractionated dataset
+        rank_label<-function(x){
+          x<-x%>% dplyr::filter(temp_ref==unique(x$temperature)[length(unique(x$temperature))]) %>%
+            dplyr::mutate(rank=dplyr::ntile(value,3))%>%
+            dplyr::select(sample_id,sample_name,Accession,rank,id,Spectrum.File)%>%
+            dplyr::filter(!is.na(rank),!is.na(id),rank==min(.$rank,na.rm=TRUE)) %>%
+            dplyr::select(-id) %>% distinct(.)
+          return(x)
+        }
+      }
+    }
+    if(isTRUE(rank)){
       if (.Platform$OS.type=="windows"){
-        Proteins<-parallel::mclapply(Proteins,missing_label)
+        df_raw_D_R<-parallel::mclapply(Proteins,rank_label)
       }else{
-        Proteins<-parallel::mclapply(Proteins,missing_label,mc.cores=availableCores())
+        df_raw_D_R<-parallel::mclapply(Proteins,rank_label,mc.cores=availableCores())
       }
-      if(isTRUE(Frac)){#if this is a fractionated dataset
+      if(any(names(Proteins[[1]]$Spectrum.File)=="Fraction")){
+        Proteins<-dplyr::bind_rows(Proteins)
+        Proteins$Fraction<-stringr::str_extract(Proteins$Spectrum.File,"Fraction_[[:digit:]]+")
+        Proteins$Fraction<-stringr::str_remove(Proteins$Fraction,"Fraction_")
         
-        if(baseline=="min"){
-          rank_label<-function(x){#if baseline is min and this is a fractionated dataset
-            x<-x%>% dplyr::filter(temperature==min(temperature,na.rm=TRUE)) %>%
-              dplyr::mutate(rank=dplyr::ntile(value,3))%>%
-              dplyr::select(sample_id,sample_name,Accession,rank,id,Fraction,Spectrum.File)%>%
-              dplyr::filter(!is.na(rank),!is.na(id),rank==min(.$rank,na.rm=TRUE)) %>% dplyr::select(-id) %>% distinct(.)
-            return(x)
-          }
-        }else{#if baseline is max and this is a fractionated dataset
-          rank_label<-function(x){
-            x<-x%>% dplyr::filter(temp_ref==unique(x$temperature)[length(unique(x$temperature))]) %>%
-              dplyr::mutate(rank=dplyr::ntile(value,3))%>%
-              dplyr::select(sample_id,sample_name,Accession,rank,id,Fraction,Spectrum.File)%>%
-              dplyr::filter(!is.na(rank),!is.na(id),rank==min(.$rank,na.rm=TRUE)) %>% dplyr::select(-id) %>% distinct(.)
-            return(x)
-          }
-        }
-      }else{#if this is unfractionated
-        if(baseline=="min"){#if baseline is min and this is an unfractionated dataset
-          rank_label<-function(x){
-            x<-x%>% dplyr::filter(temperature==min(temperature,na.rm=TRUE)) %>%
-              dplyr::mutate(rank=dplyr::ntile(value,3))%>%
-              dplyr::select(sample_id,sample_name,Accession,rank,id,Spectrum.File)%>%
-              dplyr::filter(!is.na(rank),!is.na(id)) %>% dplyr::select(-id) %>% distinct(.)
-            return(x)
-          }
-        }else{#if baseline is max and this is an unfractionated dataset
-          rank_label<-function(x){
-            x<-x%>% dplyr::filter(temp_ref==unique(x$temperature)[length(unique(x$temperature))]) %>%
-              dplyr::mutate(rank=dplyr::ntile(value,3))%>%
-              dplyr::select(sample_id,sample_name,Accession,rank,id,Spectrum.File)%>%
-              dplyr::filter(!is.na(rank),!is.na(id),rank==min(.$rank,na.rm=TRUE)) %>%
-              dplyr::select(-id) %>% distinct(.)
-            return(x)
-          }
-        }
+        df_raw_D_R<-dplyr::bind_rows(df_raw_D_R)
+        df_raw_D_R$Fraction<-stringr::str_extract(df_raw_D_R$Spectrum.File,"Fraction_[[:digit:]]+")
+        df_raw_D_R$Fraction<-stringr::str_remove(df_raw_D_R$Fraction,"Fraction_")
       }
-      if(isTRUE(rank)){
-        if (.Platform$OS.type=="windows"){
-          df_raw_D_R<-parallel::mclapply(Proteins,rank_label)
-        }else{
-          df_raw_D_R<-parallel::mclapply(Proteins,rank_label,mc.cores=availableCores())
-        }
-        if(any(names(Proteins[[1]]$Spectrum.File)=="Fraction")){
-          Proteins<-dplyr::bind_rows(Proteins)
-          Proteins$Fraction<-stringr::str_extract(Proteins$Spectrum.File,"Fraction_[[:digit:]]+")
-          Proteins$Fraction<-stringr::str_remove(Proteins$Fraction,"Fraction_")
-          
-          df_raw_D_R<-dplyr::bind_rows(df_raw_D_R)
-          df_raw_D_R$Fraction<-stringr::str_extract(df_raw_D_R$Spectrum.File,"Fraction_[[:digit:]]+")
-          df_raw_D_R$Fraction<-stringr::str_remove(df_raw_D_R$Fraction,"Fraction_")
-        }
-        #ID will contain accessions with high-intensity values at reference channel
-        ID<-dplyr::intersect(unique(Proteins$Accession),unique(df_raw_D_R$Accession)) %>%
-          na.omit(.)
+      #ID will contain accessions with high-intensity values at reference channel
+      ID<-dplyr::intersect(unique(Proteins$Accession),unique(df_raw_D_R$Accession)) %>%
+        na.omit(.)
+      
+      Proteins<-dplyr::bind_rows(Proteins)%>% 
+        dplyr::filter(Accession %in% ID) %>% distinct(.)
+      df_raw_D_R<-dplyr::bind_rows(df_raw_D_R)%>% 
+        dplyr::filter(Accession %in% ID) %>% distinct(.)
+      
+      name<-dplyr::intersect(names(df_raw_D_R),names(Proteins))
+      #df_raw_D_R is ranked protein data frame
+      df_raw_D_R<-data.table::data.table(df_raw_D_R)
+      Proteins<-data.table::data.table(Proteins)
+      #set key to join ranked protein data frame to protein file
+      data.table::setkeyv(df_raw_D_R,cols=name)
+      data.table::setkeyv(Proteins,cols=name)
+      df2<-data.table::merge.data.table(Proteins,df_raw_D_R,by=name)
+      df2<-df2 %>% as.data.frame(.) %>% distinct(.)
+      
+    }else{
+      if(any(names(Proteins)=="Fraction")){
+        Proteins<-dplyr::bind_rows(Proteins)
+        Proteins$Fraction<-stringr::str_extract(Proteins$Spectrum.File,"Fraction_[[:digit:]]+")
+        Proteins$Fraction<-stringr::str_remove(Proteins$Fraction,"Fraction_")
         
-        Proteins<-dplyr::bind_rows(Proteins)%>% 
-          dplyr::filter(Accession %in% ID) %>% distinct(.)
-        df_raw_D_R<-dplyr::bind_rows(df_raw_D_R)%>% 
-          dplyr::filter(Accession %in% ID) %>% distinct(.)
-        
-        name<-dplyr::intersect(names(df_raw_D_R),names(Proteins))
-        #df_raw_D_R is ranked protein data frame
-        df_raw_D_R<-data.table::data.table(df_raw_D_R)
-        Proteins<-data.table::data.table(Proteins)
-        #set key to join ranked protein data frame to protein file
-        data.table::setkeyv(df_raw_D_R,cols=name)
-        data.table::setkeyv(Proteins,cols=name)
-        df2<-data.table::merge.data.table(Proteins,df_raw_D_R,by=name)
-        df2<-df2 %>% as.data.frame(.) %>% distinct(.)
-        
-      }else{
-        if(any(names(Proteins)=="Fraction")){
-          Proteins<-dplyr::bind_rows(Proteins)
-          Proteins$Fraction<-stringr::str_extract(Proteins$Spectrum.File,"Fraction_[[:digit:]]+")
-          Proteins$Fraction<-stringr::str_remove(Proteins$Fraction,"Fraction_")
-          
-          df_raw_D_R<-dplyr::bind_rows(df_raw_D_R)
-          df_raw_D_R$Fraction<-stringr::str_extract(df_raw_D_R$Spectrum.File,"Fraction_[[:digit:]]+")
-          df_raw_D_R$Fraction<-stringr::str_remove(df_raw_D_R$Fraction,"Fraction_")
-        }
-        df2<-Proteins
+        df_raw_D_R<-dplyr::bind_rows(df_raw_D_R)
+        df_raw_D_R$Fraction<-stringr::str_extract(df_raw_D_R$Spectrum.File,"Fraction_[[:digit:]]+")
+        df_raw_D_R$Fraction<-stringr::str_remove(df_raw_D_R$Fraction,"Fraction_")
+      }
+      df2<-dplyr::bind_rows(Proteins)
+      if(isTRUE(CFS)){
+        df2$sample_name<-paste0(ifelse(stringr::str_detect(df2$Spectrum.File,"NOcarrier")==TRUE,"nC",ifelse(stringr::str_detect(df2$Spectrum.File,"carrier")==TRUE,"C",NA)),'_',
+                                ifelse(stringr::str_detect(df2$Spectrum.File,"NO_FAIMS")==TRUE,"nF",ifelse(stringr::str_detect(df2$Spectrum.File,"r_FAIMS")==TRUE,"F",NA)),'_',
+                                ifelse(stringr::str_detect(df2$Spectrum.File,"S_eFT")==TRUE,"E",ifelse(stringr::str_detect(df2$Spectrum.File,"S_Phi")==TRUE,"S",NA)))
       }
       
-      df2<-dplyr::bind_rows(df2) %>% distinct(.)
-      return(df2)
     }
   }
+  df2<-dplyr::bind_rows(df2) %>% distinct(.)
+  return(df2)
 }
 
 #'Choose PSMs
@@ -921,7 +926,9 @@ clean_cetsa <- function(df, temperatures = NULL,samples = NA,Peptide=FALSE,solve
     df<-df %>% dplyr::filter(!temp_ref=="131C")
     temperatures<-temperatures %>% dplyr::filter(!temp_ref=="131C")
   }
-  
+  if(!any(names(df)=="sample")&any(names(df)=="sample_id")){
+    df %>% dplyr::mutate(sample=sample_)
+  }
   if(!any(names(df)=="rank")){#if there's no rank column, add NA values to the df
     df$rank<-NA
   }
@@ -1166,7 +1173,9 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
   if(any(names(df)=="value")){
     df<-df %>% dplyr::rename("I"="value")
   }
-  
+  if(!any(names(df)=="sample")&any(names(df)=="sample_id")){
+    df<-df %>% dplyr::mutate(sample=sample_id)
+  }
   if(isTRUE(Peptide)){
     if(any(names(df)=="uniqueID")){
       df<-df %>% dplyr::rename("Accession"="uniqueID","value"="I")
@@ -1615,7 +1624,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     df3<-df3 %>% dplyr::mutate(norm_value=ifelse(is.na(.$norm_value),"NA",I)) %>% 
       dplyr::select(-I)
     df3 <- df3 %>% 
-      dplyr::rename("uniqueID"="Accession", "C"="temperature","I"="norm_value","sample_id"="sample")
+      dplyr::rename("uniqueID"="Accession", "C"="temperature","I"="norm_value")
     df3<-df3 %>% dplyr::ungroup(.) %>% dplyr::select(-correction)
     
     if(isTRUE(filters)){
@@ -4958,9 +4967,9 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
   m1<-m1%>% dplyr::filter(uniqueID %in% CID)
   mn<-mn%>% dplyr::filter(uniqueID %in% CID)
   #split 
-  m<-m %>% as_tibble()%>% dplyr::group_split(uniqueID,sample)
-  m1<-m1%>% as_tibble()%>% dplyr::group_split(uniqueID,sample)
-  mn<-mn%>% as_tibble()%>% dplyr::group_split(uniqueID,sample)
+  m<-m %>% tibble::as_tibble()%>% dplyr::group_split(uniqueID,sample)
+  m1<-m1%>% tibble::as_tibble()%>% dplyr::group_split(uniqueID,sample)
+  mn<-mn%>% tibble::as_tibble()%>% dplyr::group_split(uniqueID,sample)
   
   if(length(m[[1]])<length(m1[[1]])){
     m1<-purrr::map(m1,function(x) x[1:length(m[[1]])])
