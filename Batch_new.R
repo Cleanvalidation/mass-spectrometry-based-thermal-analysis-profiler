@@ -85,6 +85,18 @@ theme_set(theme_bw())
 #' @importFrom stringr stringr::str_extract
 #' @export
 #' 
+#' #protein_path is where your protein files are stored
+#' peptide_path is where your peptides and PSMs are stored
+#' prot_pattern is how to identify the protein file.  The default is "_Proteins"
+#' Frac is if this is a fractionated experiment (my data is fractionated)
+#' CFS is only true for the internal dataset (not the Zebrafish) and it is used to shorten file names
+#' solvent "DMSO" for internal dataset "Control" for zebrafish
+#' CARRIER is if the experiment has a carrier channel present (only the internal dataset is true)
+#' RANK is a function that selects the highest intensity PSM for summarization (can be true or false)
+#' Sub is to select a subset of PSMs to deal with memory issues
+#' temperatures is df.temps and it links the TMT barcode to the temperature used in your experiment
+#' baseline is the temperature to select in order to normalize against a reference (37C is the minimum temperature in the internal dataset and it is 34C for Zebrafish)
+#' NORM is the type of normalization at the PSM level.  There are currently two types: "QUANTILE" for quantile normalization and "EQ_Median"for equal median normalization across sample_id and dataset runs
 read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac=TRUE,CFS=TRUE,solvent="DMSO",CARRIER=TRUE,rank=TRUE,sub=NA,temperatures=temps,baseline="min",NORM="QUANTILE"){
   file.list<-protein_path
   i=1
