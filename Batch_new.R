@@ -85,18 +85,6 @@ theme_set(theme_bw())
 #' @importFrom stringr stringr::str_extract
 #' @export
 #' 
-#' #protein_path is where your protein files are stored
-#' peptide_path is where your peptides and PSMs are stored
-#' prot_pattern is how to identify the protein file.  The default is "_Proteins"
-#' Frac is if this is a fractionated experiment (my data is fractionated)
-#' CFS is only true for the internal dataset (not the Zebrafish) and it is used to shorten file names
-#' solvent "DMSO" for internal dataset "Control" for zebrafish
-#' CARRIER is if the experiment has a carrier channel present (only the internal dataset is true)
-#' RANK is a function that selects the highest intensity PSM for summarization (can be true or false)
-#' Sub is to select a subset of PSMs to deal with memory issues
-#' temperatures is df.temps and it links the TMT barcode to the temperature used in your experiment
-#' baseline is the temperature to select in order to normalize against a reference (37C is the minimum temperature in the internal dataset and it is 34C for Zebrafish)
-#' NORM is the type of normalization at the PSM level.  There are currently two types: "QUANTILE" for quantile normalization and "EQ_Median"for equal median normalization across sample_id and dataset runs
 read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac=TRUE,CFS=TRUE,solvent="DMSO",CARRIER=TRUE,rank=TRUE,sub=NA,temperatures=temps,baseline="min",NORM="QUANTILE"){
   file.list<-protein_path
   i=1
@@ -1197,21 +1185,27 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     df<-data.frame(df)
     
     #rank by intensity at the lowest temperature channel
-    df_filt<-df %>% dplyr::filter(temp_ref==temp_ref[temperature=min(df$temperature,na.rm=TRUE)]) %>% dplyr::mutate(rank=dplyr::ntile(dplyr::desc(I),3)) %>%
-      dplyr::select(Accession,Annotated_Sequence,I,sample,dataset,sample_name,rank)
+    df_filt<-df %>% dplyr::filter(temp_ref==temp_ref[temperature=min(df$temperature,na.rm=TRUE)]) %>%
+      dplyr::mutate(rank=dplyr::ntile(dplyr::desc(I),3)) %>%
+      dplyr::select(Accession,Annotated_Sequence,I,sample,sample_id,dataset,sample_name,rank)
     
     df_filt$rank<-as.factor(df_filt$rank)
     
-    #select top3 top5 and top10 peptides according to rank
-    df_filt3 <- df_filt %>%dplyr::filter(!is.na(I)) %>%  
+    #select top6000 top12000 and all peptides according to rank
+    df_filt3 <- df_filt %>%
+      dplyr::filter(!is.na(I)) %>%  
       dplyr::arrange(dplyr::desc(I)) %>% 
-      group_by(rank) %>% dplyr::slice(1:6000)
-    df_filt5 <- df_filt %>%dplyr::filter(!is.na(I)) %>%  
+      group_by(rank) %>% 
+      dplyr::slice(1:6000)
+    df_filt5 <- df_filt %>%
+      dplyr::filter(!is.na(I)) %>%  
       arrange(I) %>% 
-      group_by(rank) %>% dplyr::slice(1:12000)
-    df_filt10 <- df_filt %>%dplyr::filter(!is.na(I)) %>%  
-      arrange(I) %>% 
-      group_by(rank) 
+      group_by(rank) %>%
+      dplyr::slice(1:12000)
+    df_filt10 <- df_filt %>%
+      dplyr::filter(!is.na(I)) %>%  
+      dplyr::arrange(I) %>% 
+      dplyr::group_by(rank) 
     
     df_filt3<-df_filt3 %>% dplyr::ungroup(.) %>%  dplyr::select(-I,-rank)
     df_filt5<-df_filt5 %>% dplyr::ungroup(.) %>%  dplyr::select(-I,-rank)
@@ -1232,43 +1226,32 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     
     
     df3<-dplyr::bind_rows(df3) %>%
-      dplyr::group_split(Accession,dataset,sample,sample_name)
+      dplyr::group_split(Accession,dataset,sample_id,sample_name)
     df5<-dplyr::bind_rows(df5) %>%
-      dplyr::group_split(Accession,dataset,sample,sample_name)
+      dplyr::group_split(Accession,dataset,sample_id,sample_name)
     df10<-dplyr::bind_rows(df10) %>%
-      dplyr::group_split(Accession,dataset,sample,sample_name)
+      dplyr::group_split(Accession,dataset,sample_id,sample_name)
+    
     #Calculate fold changes acros temperatures 7, 9 and 10
     if(order(df3[[1]]$temperature)[1]==length(df3[[1]]$temperature)){
+      FC_to_ref<-function(x){ y<-x %>%  
+        dplyr::mutate(.,T7 = try(mean(x[which(x$temperature==unique(x$temperature)[length(unique(x$temperature))-2,"I"]$I/x[which(x$temperature==min(x$temperature,na.rm=TRUE)),"I"]$I)])),
+                      T9 = try(mean(x[which(x$temperature==unique(x$temperature)[length(unique(x$temperature))-1,"I"]$I/x[which(x$temperature==min(x$temperature,na.rm=TRUE)),"I"]$I)])),
+                      T10 = try(mean(x[which(x$temperature==max(x$temperature,na.rm=TRUE)),"I"]$I/x[which(x$temperature==min(x$temperature,na.rm=TRUE)),"I"]$I)))
+      return(y)
+      }
       #if the temperatures are reversed, relabel 7,9th and 10th temperature channels
-      df.jointP3 <- suppressWarnings(purrr::map(df3,function(x) x %>%  
-                                                  dplyr::mutate(.,T7 = try(mean(x[which(x$temperature==unique(x$temperature)[length(unique(x$temperature))-2,"I"]$I/x[which(x$temperature==min(x$temperature,na.rm=TRUE)),"I"]$I)])),
-                                                                T9 = try(mean(x[which(x$temperature==unique(x$temperature)[length(unique(x$temperature))-1,"I"]$I/x[which(x$temperature==min(x$temperature,na.rm=TRUE)),"I"]$I)])),
-                                                                T10 = try(mean(x[which(x$temperature==max(x$temperature,na.rm=TRUE)),"I"]$I/x[which(x$temperature==min(x$temperature,na.rm=TRUE)),"I"]$I)))))
+      df.jointP3 <- suppressWarnings(purrr::map(df3,function(x) FC_to_ref(x)))
       
-      df.jointP5 <- suppressWarnings(purrr::map(df5,function(x) x %>%  
-                                                  dplyr::mutate(.,T7 = try(mean(x[which(x$temperature==unique(x$temperature)[length(unique(x$temperature))-2,"I"]$I/x[which(x$temperature==min(x$temperature,na.rm=TRUE)),"I"]$I)])),
-                                                                T9 = try(mean(x[which(x$temperature==unique(x$temperature)[length(unique(x$temperature))-1,"I"]$I/x[which(x$temperature==min(x$temperature,na.rm=TRUE)),"I"]$I)])),
-                                                                T10 = try(mean(x[which(x$temperature==max(x$temperature,na.rm=TRUE)),"I"]$I/x[which(x$temperature==min(x$temperature,na.rm=TRUE)),"I"]$I)))))
-      df.jointP10 <- suppressWarnings(purrr::map(df10,function(x) x %>%  
-                                                   dplyr::mutate(.,T7 = try(mean(x[which(x$temperature==unique(x$temperature)[length(unique(x$temperature))-2,"I"]$I/x[which(x$temperature==min(x$temperature,na.rm=TRUE)),"I"]$I)])),
-                                                                 T9 = try(mean(x[which(x$temperature==unique(x$temperature)[length(unique(x$temperature))-1,"I"]$I/x[which(x$temperature==min(x$temperature,na.rm=TRUE)),"I"]$I)])),
-                                                                 T10 = try(mean(x[which(x$temperature==max(x$temperature,na.rm=TRUE)),"I"]$I/x[which(x$temperature==min(x$temperature,na.rm=TRUE)),"I"]$I)))))
+      df.jointP5 <- suppressWarnings(purrr::map(df5,function(x) FC_to_ref(x)))
+      
+      df.jointP10 <- suppressWarnings(purrr::map(df10,function(x) function(x) FC_to_ref(x)))
     }else{
-      df.jointP3 <- suppressWarnings(purrr::map(df3,function(x) x %>%  
-                                                  dplyr::mutate(.,T7 = try(mean(x[x$temperature %in% temperatures$temperature[7],"I"]$I/x[x$temperature %in% temperatures$temperature[1],"I"]$I,na.rm=TRUE)),
-                                                                T9 = try(mean(x[x$temperature %in% temperatures$temperature[9],"I"]$I/x[x$temperature %in% temperatures$temperature[1],"I"]$I,na.rm=TRUE)),
-                                                                T10 = try(mean(x[x$temperature %in% temperatures$temperature[10],"I"]$I/x[x$temperature %in% temperatures$temperature[1],"I"]$I,na.rm=TRUE)))))
+      df.jointP3 <- suppressWarnings(purrr::map(df3,function(x) FC_to_ref(x)))
       
-      df.jointP5 <- suppressWarnings(purrr::map(df5,function(x) x %>%  
-                                                  dplyr::mutate(.,T7 = try(mean(x[x$temperature %in% temperatures$temperature[7],]$I/x[x$temperature %in% temperatures$temperature[1],]$I,na.rm=TRUE)),
-                                                                T9 = try(mean(x[x$temperature %in% temperatures$temperature[9],]$I/x[x$temperature %in% temperatures$temperature[1],]$I,na.rm=TRUE)),
-                                                                T10 = try(mean(x[x$temperature %in% temperatures$temperature[10],]$I/x[x$temperature %in% temperatures$temperature[1],]$I,na.rm=TRUE)))))
+      df.jointP5 <- suppressWarnings(purrr::map(df5,function(x) function(x) FC_to_ref(x)))
       
-      
-      df.jointP10 <- suppressWarnings(purrr::map(df10,function(x) x %>%  
-                                                   dplyr::mutate(.,T7 = try(mean(x[x$temperature %in% temperatures$temperature[7],"I"]$I/x[x$temperature %in% temperatures$temperature[1],"I"]$I,na.rm=TRUE)),
-                                                                 T9 = try(mean(x[x$temperature %in% temperatures$temperature[9],"I"]$I/x[x$temperature %in% temperatures$temperature[1],"I"]$I,na.rm=TRUE)),
-                                                                 T10 = try(mean(x[x$temperature %in% temperatures$temperature[10],"I"]$I/x[x$temperature %in% temperatures$temperature[1],"I"]$I,na.rm=TRUE)))))
+      df.jointP10 <- suppressWarnings(purrr::map(df10,function(x) function(x) FC_to_ref(x)))
       
       
     }
@@ -1276,45 +1259,41 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     
     df.jointP3<- dplyr::bind_rows(df.jointP3)%>%
       dplyr::group_split(dataset,sample_name)
+    
     df.jointP5<- dplyr::bind_rows(df.jointP5)%>%
       dplyr::group_split(dataset,sample_name)
+    
     df.jointP10<- dplyr::bind_rows(df.jointP10)%>%
       dplyr::group_split(dataset,sample_name)
+    
     #this would implement fold-change filters upon request acccording to Franken et al.
     if(isTRUE(filters)){
       #top3
-      df.jointP3<-df.jointP3 %>% dplyr::filter(T7 >= 0.4, T7 <= 0.6)
-      df.jointP3<-df.jointP3 %>% dplyr::filter(T9 < 0.3)%>% dplyr::select(-T7,-T9,-n)
-      if(any(names(df.jointP3)=="T10" & all(!is.na(df.jointP3$T10)))){
-        df.jointP3<- df.jointP3 %>% subset(T10 < 0.2)%>% dplyr::select(-T10)#normalization from TPP
+      FC_filter<-function(x){
+        y<-x%>% dplyr::filter(T7 >= 0.4, T7 <= 0.6,T9 < 0.3) %>% 
+          dplyr::select(-T7,-T9,-n)
+        if(any(names(x)=="T10" & all(!is.na(x$T10)))){
+          y<- y %>% subset(T10 < 0.2)%>% dplyr::select(-T10)#normalization from TPP
+        }
+        return(y)
       }
+      df.jointP3<-FC_filter(df.jointP3)
       #top 5
-      df.jointP5<-df.jointP5 %>% dplyr::filter(T7 >= 0.4 & T7 <= 0.6)
-      df.jointP5<-df.jointP5 %>% dplyr::filter(T9 < 0.3)%>% dplyr::select(-T7,-T9,-n)
-      if(any(names(df.jointP5)=="T10"& all(!is.na(df.jointP5$T10)))){
-        df.jointP5<- df.jointP5 %>% dplyr::filter(T10 < 0.2)%>% dplyr::select(-T10)#normalization from TPP
-      }
+      df.jointP5<-FC_filter(df.jointP5)
       #top 10
-      df.jointP10<-df.jointP10 %>% dplyr::filter(T7 >= 0.4 & T7 <= 0.6)
-      df.jointP10<-df.jointP10 %>% dplyr::filter(T9 < 0.3)%>% dplyr::select(-T7,-T9,-n)
-      if(any(names(df.jointP10)=="T10")& all(!is.na(df.jointP3$T10))){
-        df.jointP10<- df.jointP10 %>% dplyr::filter(T10 < 0.2)%>% dplyr::select(-T10)#normalization from TPP
-      }
+      df.jointP10<-FC_filter(df.jointP10)
       #also filter original data by FC filters
       df1<-dplyr::bind_rows(df1)
-      df1 <- suppressWarnings(df1 %>% dplyr::group_split(Accession,sample) %>% 
-                                purrr::map(function(x) x %>% dplyr::mutate(n=dplyr::n()) %>% 
-                                             dplyr::mutate(.,T7 = try(mean(x[x$temperature %in% temperatures[7],]$I/x[x$temperature %in% temperatures[1],]$I,na.rm=TRUE)),
-                                                           T9 = try(mean(x[x$temperature %in% temperatures[9],]$I/x[x$temperature %in% temperatures[1],]$I,na.rm=TRUE)),
-                                                           T10 = try(mean(x[x$temperature %in% temperatures[10],]$I/x[x$temperature %in% temperatures[1],]$I,na.rm=TRUE)))))
+      df1 <- suppressWarnings(df1 %>% dplyr::group_split(Accession,sample_id,sample_name) %>% 
+                                purrr::map(function(x) x %>% dplyr::mutate(n=dplyr::n())))
       
+      df1<-purrr::map(df1,function(x) FC_to_rep(x))
       
-      df1<-dplyr::bind_rows(df1)
-      df1<-df1 %>% dplyr::filter(T7 >= 0.4 & T7 <= 0.6)
-      df1<-df1 %>% dplyr::filter(T9 < 0.3)%>% dplyr::select(-T7,-T9,-n)
-      if(any(names(df1)=="T10") & all(!is.na(df1$T10))){
-        df1<- df1 %>% dplyr::filter(T10 < 0.2)%>% dplyr::select(-T10)#normalization from TPP
+      if(isTRUE(filters)){
+        df1<-purrr::map(df2,function(x) FC_filter(x))
+        
       }
+      df1<-dplyr::bind_rows(df1)
     }
     #check that all the data wasn't filtered out
     if(nrow(df.jointP3)==0){
@@ -1328,9 +1307,9 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     }
     
     ## split data by Replicate 
-    l.bytype3 <- split.data.frame(df.jointP3, df.jointP3$sample)
-    l.bytype5 <- split.data.frame(df.jointP5, df.jointP5$sample)
-    l.bytype10 <- split.data.frame(df.jointP10, df.jointP10$sample)
+    l.bytype3 <- split.data.frame(df.jointP3, df.jointP3$sample_id)
+    l.bytype5 <- split.data.frame(df.jointP5, df.jointP5$sample_id)
+    l.bytype10 <- split.data.frame(df.jointP10, df.jointP10$sample_id)
     
     ## determine which Replicate (F1 through FN in PD) contains the greatest number of PSM curves and use this for normalization
     n.filter3 <- lapply(l.bytype3, nrow)
@@ -1367,7 +1346,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     #fit curves to median 
     ## fit curves to the median data for each replicate (F1 through FN)
     df.fit3 <- df.median3 %>%
-      dplyr::group_by(sample) %>% 
+      dplyr::group_by(sample_id) %>% 
       dplyr::mutate(fit = list(try(nls(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl,
                                        start = c(Pl=0, a = 550, b = 10),
                                        data = list(x=temperature,y=value),
@@ -1377,16 +1356,16 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
                                        upper = c(1.5,15000,300),
                                        control = nls.control(maxiter = 50)
       )),silent=TRUE))
-    df.fit3<-df.fit3 %>% dplyr::group_by(sample) %>% dplyr::group_split()
+    df.fit3<-df.fit3 %>% dplyr::group_by(sample_id) %>% dplyr::group_split()
     df.fit3<-df.fit3 %>% purrr::keep(function(x) class(x$fit[[1]])=='nls')
     
     df.fit3<-dplyr::bind_rows(df.fit3)
     df.fit3<-df.fit3%>% #calculate fitted values and record as scaling factors for top 6k PSMs
       dplyr::mutate(fitted_values3 = try(list(data.frame(fitted_values=predict(fit[[1]]))),silent=TRUE)) %>% 
-      dplyr::select(sample,fitted_values3,temperature,dataset) %>% dplyr::ungroup(.)
+      dplyr::select(sample_id,fitted_values3,temperature,dataset) %>% dplyr::ungroup(.)
     
     df.fit5 <- df.median5 %>%
-      dplyr::group_by(sample) %>% 
+      dplyr::group_by(sample_id) %>% 
       dplyr::mutate(fit = list(try(nls(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl,
                                        start = c(Pl=0, a = 550, b = 10),
                                        data = list(x=temperature,y=value),
@@ -1396,15 +1375,15 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
                                        upper = c(1.5,15000,300),
                                        control = nls.control(maxiter = 50)
       )),silent=TRUE))
-    df.fit5<-df.fit5 %>% dplyr::group_by(sample) %>% dplyr::group_split()
+    df.fit5<-df.fit5 %>% dplyr::group_by(sample_id) %>% dplyr::group_split()
     df.fit5<-df.fit5 %>% purrr::keep(function(x) class(x$fit[[1]])=='nls')
     df.fit5<-dplyr::bind_rows(df.fit5)
     df.fit5<- df.fit5%>% #calculate fitted values and record as scaling factors for top 12k PSMs
       dplyr::mutate(fitted_values5 = try(list(data.frame(fitted_values=predict(fit[[1]]))),silent=TRUE)) %>% 
-      dplyr::select(sample,fitted_values5,temperature,dataset) %>% dplyr::ungroup(.)
+      dplyr::select(sample_id,fitted_values5,temperature,dataset) %>% dplyr::ungroup(.)
     
     df.fit10 <- df.median10 %>%
-      dplyr::group_by(sample) %>% 
+      dplyr::group_by(sample_id) %>% 
       dplyr::mutate(fit = list(try(nls(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl,
                                        start = c(Pl=0, a = 550, b = 10),
                                        data = list(x=temperature,y=value),
@@ -1414,7 +1393,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
                                        upper = c(1.5,15000,300),
                                        control = nls.control(maxiter = 50)
       )),silent=TRUE))
-    df.fit10<-df.fit10 %>% dplyr::group_by(sample) %>% dplyr::group_split()
+    df.fit10<-df.fit10 %>% dplyr::group_by(sample_id) %>% dplyr::group_split()
     df.fit10<-df.fit10 %>% purrr::keep(function(x) class(x$fit[[1]])=='nls')
     df.fit10<-dplyr::bind_rows(df.fit10)
     
@@ -1423,7 +1402,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
       dplyr::select(sample,fitted_values10,temperature,dataset) %>% dplyr::ungroup(.)
     
     ## split data by replicate, treatment and temperature
-    d3<-df.fit3 %>% dplyr::group_split(sample,dataset,temperature)
+    d3<-df.fit3 %>% dplyr::group_split(sample_id,dataset,temperature)
     d5<-df.fit5 %>% dplyr::group_split(sample,dataset,temperature)
     d10<-df.fit10 %>% dplyr::group_split(sample,dataset,temperature)
     
@@ -1452,17 +1431,17 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     df.out3 <- test3 %>%
       dplyr::mutate(correction3 = ifelse(is.na(fitted_values /I),NA,fitted_values/I)) %>%
       dplyr::select('sample','temperature','I','fitted_values','correction3')
-    df.out3<-df.out3 %>% dplyr::select(-fitted_values,-I,-sample)
+    df.out3<-df.out3 %>% dplyr::select(-fitted_values,-I)
     
     df.out5 <- test5 %>%
       dplyr::mutate(correction5 = ifelse(is.na(fitted_values / I),NA,fitted_values / I)) %>%
       dplyr::select('sample','temperature','I','fitted_values','correction5')
-    df.out5<-df.out5 %>% dplyr::select(-fitted_values,-I,-sample)
+    df.out5<-df.out5 %>% dplyr::select(-fitted_values,-I)
     
     df.out10 <- test10 %>%
       dplyr::mutate(correction10 = ifelse(is.na(fitted_values /I),NA,fitted_values /I)) %>%
       dplyr::select('sample','temperature','I','fitted_values','correction10')
-    df.out10<-df.out10 %>% dplyr::select(-fitted_values,-I,-sample)
+    df.out10<-df.out10 %>% dplyr::select(-fitted_values,-I)
     ## join correction factor to data
     df1$temperature<-as.factor(df1$temperature)
     df1<-df1 %>% dplyr::group_split(temperature)
@@ -1509,7 +1488,6 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     return(df)
   }else{#if this is a protein file
     
-    
     if(any(names(df)=="uniqueID")){
       df<-df %>% dplyr::rename("Accession"="uniqueID")
     }
@@ -1521,6 +1499,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
       df<-df %>%
         dplyr::group_split(Accession,sample_id,Fraction)
     }
+    
     check_baseline<-function(x) {
       if(min(temperatures$temperature,na.rm=TRUE)==min(x$temperature,na.rm=TRUE)){
         baseline<-min(x$temperature,na.rm=TRUE)
@@ -1532,34 +1511,40 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     }
     #check baseline temperature
     baseline<-purrr::map(df,function(x) check_baseline(x))
+    
+    FC_calc<-function(x,y) {
+      y<-x %>%  
+        dplyr::mutate(.,T7 = try(mean(x[which(x$temperature==unique(x$temperature)[order(unique(x$temperature))=="7"]),]$I/x[which(x$temperature==y),"I"]$I)),
+                      T9 = try(mean(x[which(x$temperature==unique(x$temperature)[order(unique(x$temperature))=="9"]),]$I/x[which(x$temperature==y),"I"]$I)),
+                      T10 = try(mean(x[which(x$temperature==max(x$temperature,na.rm=TRUE)),"I"]$I/x[which(x$temperature==y),"I"]$I)))
+      return(y)
+    }
     if(any(!isTRUE(order(unique(df[[1]]$temperature))==order(unique(temperatures$temperature))))){
       #if the temperatures are reversed, relabel 7,9th and 10th temperature channels
-      df.jointP <- suppressWarnings(purrr::map2(df,baseline,function(x,y) x %>%  
-                                                  dplyr::mutate(.,T7 = try(mean(x[which(x$temperature==unique(x$temperature)[order(unique(x$temperature))=="7"]),]$I/x[which(x$temperature==baseline),"I"]$I)),
-                                                                T9 = try(mean(x[which(x$temperature==unique(x$temperature)[order(unique(x$temperature))=="9"]),]$I/x[which(x$temperature==baseline),"I"]$I)),
-                                                                T10 = try(mean(x[which(x$temperature==max(x$temperature,na.rm=TRUE)),"I"]$I/x[which(x$temperature==baseline),"I"]$I)))))
+      df.jointP <- suppressWarnings(purrr::map2(df,baseline,function(x,y) FC_calc(x,y)))
       
     }else{
-      df.jointP <- suppressWarnings(purrr::map2(df,baseline,function(x,y) x %>%  
-                                                  dplyr::mutate(.,T7 =  try(mean(x[x$temperature %in% temperatures$temperature[7],]/x[x$temperature %in% y,]$I,na.rm=TRUE)),
-                                                                T9 = try(mean(x[x$temperature %in% temperatures$temperature[9],]$I/x[x$temperature %in% y,]$I,na.rm=TRUE)),
-                                                                T10 = try(mean(x[x$temperature %in% temperatures$temperature[10],]$I/x[x$temperature %in% y,]$I,na.rm=TRUE)))))
+      df.jointP <- suppressWarnings(purrr::map2(df,baseline,function(x,y) FC_calc(x,y)))
     }
-    
-    df.jointP<- dplyr::bind_rows(df.jointP)
-    if(isTRUE(filters)){
-      df.jointP<-df.jointP %>% dplyr::filter(T7 >= 0.4 & T7 <= 0.6)
-      df.jointP<-df.jointP %>% dplyr::filter(T9 < 0.3)%>% dplyr::select(-T7,-T9,-n)
-      if(any(names(df.jointP)=="T10")){
-        df.jointP<- df.jointP %>% dplyr::filter(T10 < 0.2)%>% dplyr::select(-T10)#normalization from TPP
+    FC_filter<-function(x){
+      y<-x%>% dplyr::filter(T7 >= 0.4, T7 <= 0.6,T9 < 0.3) %>% 
+        dplyr::select(-T7,-T9,-n)
+      if(any(names(x)=="T10" & all(!is.na(x$T10)))){
+        y<- y %>% subset(T10 < 0.2)%>% dplyr::select(-T10)#normalization from TPP
       }
+      return(y)
+    }
+    df.jointP<- dplyr::bind_rows(df.jointP)
+    
+    if(isTRUE(filters)){
+      df.jointP<-FC_filter(df.jointP)
     }
     if(nrow(df[[1]])==0){
-      return(warning("Please disable filters, all data was filtered out."))
+      return(warning("Please disable filters, all data was filtered out from original dataset."))
     }
     
     ## split the data by replicate 
-    l.bytype <- split.data.frame(df.jointP, df.jointP$sample)
+    l.bytype <- split.data.frame(df.jointP, df.jointP$sample_id)
     
     ## determine which replicate (F1 through FN) contains the greatest number of curves and use this for normalization
     n.filter <- lapply(l.bytype, nrow)
@@ -1602,8 +1587,8 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     df.fit<-df.fit %>% purrr::keep(function(x) class(x$fit[[1]])=='nls')
     df.fit<-dplyr::bind_rows(df.fit)
     df.fit<-df.fit%>% dplyr::group_by(sample) %>% 
-      dplyr::mutate(fitted_values = ifelse(!is.logical(fit[[1]]),list(data.frame(fitted_values=predict(fit[[1]]))),NA))  %>% 
-      dplyr::select(sample_id,fitted_values,temperature) %>% ungroup(.)
+      dplyr::mutate(fitted_values = ifelse(!is.logical(fit[[1]]),list(data.frame(fitted_values=stats::predict(fit[[1]]))),NA))  %>% 
+      dplyr::select(sample_id,fitted_values,temperature) %>% dplyr::ungroup(.)
     
     d<-df.fit %>% dplyr::group_split(sample)
     check <-data.frame(temperature=unique(d[[1]]$temperature),
@@ -1618,21 +1603,23 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     df.out <- test %>% dplyr::group_by(sample,temperature) %>% 
       dplyr::rowwise() %>% 
       dplyr::mutate(correction = ifelse(is.na(fitted_values/I),NA,fitted_values/I)) %>%
-      dplyr::select('temperature','correction','sample') %>% unique(.) %>% dplyr::ungroup(.) %>% 
-      dplyr::group_by(sample) %>% 
+      dplyr::select('temperature','correction','sample_id') %>%
+      unique(.) %>%
+      dplyr::ungroup(.) %>% 
+      dplyr::group_by(sample_id) %>% 
       dplyr::group_split()
-    
     
     df.jointP<-dplyr::bind_rows(df.jointP) %>% unique(.)
     df.jointP$temperature<-as.factor(df.jointP$temperature)
-    df.jointP<-df.jointP %>% dplyr::group_split(sample) 
+    df.jointP<-df.jointP %>% dplyr::group_split(sample_id) 
     
     #apply correction factor by temperature to original data
     df3<-purrr::map2(df.jointP,df.out,function(x,y)tryCatch(x %>% dplyr::mutate(correction=y$correction[1])))
     
     
     df3 <- dplyr::bind_rows(df3)%>% 
-      dplyr::mutate(norm_value= ifelse(is.na(.$correction),.$I,.$I*correction)) %>% dplyr::ungroup(.) 
+      dplyr::mutate(norm_value= ifelse(is.na(.$correction),.$I,.$I*correction)) %>% 
+      dplyr::ungroup(.) 
     df3<-df3 %>% dplyr::mutate(norm_value=ifelse(is.na(.$norm_value),"NA",I)) %>% 
       dplyr::select(-I)
     df3 <- df3 %>% 
@@ -10057,62 +10044,68 @@ df_clean <- furrr::future_map(df_raw,function(x) try(clean_cetsa(x, temperatures
 df_norm <- furrr::future_map(df_clean,function(x) try(normalize_cetsa(x, temperatures=df.temps,Peptide=FALSE,filters=FALSE,CARRIER=TRUE))) #normalizes according to Franken et. al. without R-squared filter
 #normalize data
 df_norm <- furrr::future_map(df_clean,function(x) try(normalize_cetsa(x, temperatures=df.temps,Peptide=FALSE,filters=FALSE,CARRIER=FALSE))) #normalizes according to Franken et. al. without R-squared filter
-Int_plot<-function(df_norm,Peptide=FALSE,raw=FALSE){
-  df_norm<-data.frame(df_norm)
-  df_norm$dataset<-as.factor(df_norm$dataset)
-  if(!any(stringr::str_detect(names(df_norm),"uniqueID"))){
-    df_norm<-df_norm %>% dplyr::rename("uniqueID"="Accession")
-    df_norm$uniqueID<-as.factor(df_norm$uniqueID)
+Int_plot<-function(x,Peptide=FALSE,raw=FALSE){
+  x<-data.frame(x)
+  x$dataset<-as.factor(x$dataset)
+  if(!any(stringr::str_detect(names(x),"uniqueID"))){
+    x<-x %>% dplyr::rename("uniqueID"="Accession")
+    x$uniqueID<-as.factor(x$uniqueID)
   }
-  if(any(stringr::str_detect(df_norm$sample_name,"S"))&any(stringr::str_detect(df_norm$Spectrum.File,"FAIMS"))){
-    df_norm$sample_name<-str_replace(df_norm$sample_name,"S","\u03A6")
+  if(any(stringr::str_detect(x$sample_name,"S"))&any(stringr::str_detect(x$Spectrum.File,"FAIMS"))){
+    x$sample_name<-stringr::str_replace(x$sample_name,"S","\u03A6")
   }
-  if(any(names(df_norm)=="I3")){
-    df_norm<-df_norm %>% dplyr::rename("I"="I3")
+  if(any(names(x)=="I3")){
+    x<-x %>% dplyr::rename("I"="I3")
   }
-  if(any(names(df_norm)=="value")){
-    df_norm<-df_norm %>% dplyr::rename("I"="value","C"="temperature")
+  if(any(names(x)=="value")){
+    x<-x %>% dplyr::rename("I"="value","C"="temperature")
   }
   
-  if(!any(names(df_norm)=="C")){
-    df_norm<-df_norm %>% dplyr::rename("C"="temperature")
+  if(!any(names(x)=="C")){
+    x<-x %>% dplyr::rename("C"="temperature")
   }
+  x$C<-as.factor(x$C)
+  x$I<-as.numeric(x$I)
   if(!isTRUE(Peptide)){
-    list<-ggplot2::ggplot(df_norm,mapping=aes(x=C,y=I))+
+    list<-ggplot2::ggplot(x,mapping=aes(x=C,y=I))+
       geom_jitter(position=position_jitter(2),alpha=0.5)+
-      geom_boxplot(mapping=aes(color=as.factor(C)))+xlab('Temperature (\u00B0C)')+
+      facet_wrap(~dataset)+
+      geom_boxplot(mapping=aes(color=C))+xlab('Temperature (\u00B0C)')+
       ylab("Normalized intensity protein")+
-      ggtitle(df_norm$sample_name[1])+
+      ggtitle(x$sample_name[1])+
       ylim(-0.1,5)+
       theme(legend.position="bottom")+ labs(colour = "Temperature (\u00B0C)")
   }else if(isTRUE(raw)){
-    list<-ggplot2::ggplot(df_norm,mapping=aes(x=C,y=I))+
+    list<-ggplot2::ggplot(x,mapping=aes(x=C,y=I))+
       geom_jitter(position=position_jitter(2),alpha=0.5)+
-      geom_boxplot(mapping=aes(color=as.factor(C)))+xlab('Temperature (\u00B0C)')+
+      facet_wrap(~dataset)+
+      geom_boxplot(mapping=aes(color=C))+xlab('Temperature (\u00B0C)')+
       ylab("Raw intensity")+
-      ggtitle(df_norm$sample_name[1])+
+      ggtitle(x$sample_name[1])+
       theme(legend.position="bottom")+labs(colour = "Temperature (\u00B0C)")+
       ylim(0,10000000)
   }else{
-    list<-ggplot2::ggplot(df_norm,mapping=aes(x=C,y=I))+
+    list<-ggplot2::ggplot(x,mapping=aes(x=C,y=I))+
+      facet_wrap(~dataset)+
       geom_jitter(position=position_jitter(2),alpha=0.5)+
-      geom_boxplot(mapping=aes(color=as.factor(C)))+xlab('Temperature (\u00B0C)')+
+      geom_boxplot(mapping=aes(color=C))+xlab('Temperature (\u00B0C)')+
       facet_wrap(df_norm$dataset)+
       ylab("Normalized intensity")+
-      ggtitle(df_norm$sample_name[1])+
+      ggtitle(x$sample_name[1])+
       ylim(-0.1,2)+
       theme(legend.position="bottom")+labs(colour = "Temperature (\u00B0C)")
   }
+  
 }
-plot_I<-purrr::map(df_norm,function(x) try(Int_plot(x,Peptide=TRUE,raw=TRUE)))
+plot_I<-purrr::map(df_norm,function(x) try(Int_plot(x,Peptide=FALSE,raw=FALSE)))
 plot_I1<-purrr::map(df_raw,function(x) try(Int_plot(x,Peptide=TRUE,raw=TRUE)))
 check<-ggplot2::ggplot_build(plot_I[[1]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plot_I,function(x) x$labels$title))
 plot_I<-plot_I[order(data)]
-P<-ggarrange(plotlist=c(plot_I),ncol=2,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
-pdf("Zebra_PSMs_After_after_MP_norm.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
-ch
+P<-ggpubr::ggarrange(plotlist=c(plot_I),ncol=2,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
+pdf("CFE_CFS_After_after_TPP_norm.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+P
 dev.off()
 ##Generate upset plots for missing value data###
 df_<-df_clean %>% dplyr::rename("sample_id"="sample")%>% dplyr::select(-missing_pct,-value,-missing,-rank)
