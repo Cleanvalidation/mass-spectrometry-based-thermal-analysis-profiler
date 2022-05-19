@@ -10045,6 +10045,9 @@ df_norm <- furrr::future_map(df_clean,function(x) try(normalize_cetsa(x, tempera
 #normalize data
 df_norm <- furrr::future_map(df_clean,function(x) try(normalize_cetsa(x, temperatures=df.temps,Peptide=FALSE,filters=FALSE,CARRIER=FALSE))) #normalizes according to Franken et. al. without R-squared filter
 Int_plot<-function(x,Peptide=FALSE,raw=FALSE){
+  if(any(x$temp_ref=="131C")){
+    x<-x %>% dplyr::filter(!temp_ref=="131C")
+  }
   x<-data.frame(x)
   x$dataset<-as.factor(x$dataset)
   if(!any(stringr::str_detect(names(x),"uniqueID"))){
@@ -10058,54 +10061,68 @@ Int_plot<-function(x,Peptide=FALSE,raw=FALSE){
     x<-x %>% dplyr::rename("I"="I3")
   }
   if(any(names(x)=="value")){
-    x<-x %>% dplyr::rename("I"="value","C"="temperature")
+    x<-x %>% dplyr::rename("I"="value")
   }
-  
+  x<-x %>% dplyr::filter(!is.na(x$I))
   if(!any(names(x)=="C")){
     x<-x %>% dplyr::rename("C"="temperature")
   }
   x$C<-as.factor(x$C)
   x$I<-as.numeric(x$I)
   if(!isTRUE(Peptide)){
-    list<-ggplot2::ggplot(x,mapping=aes(x=C,y=I))+
-      geom_jitter(position=position_jitter(2),alpha=0.5)+
-      facet_wrap(~dataset)+
-      geom_boxplot(mapping=aes(color=C))+xlab('Temperature (\u00B0C)')+
-      ylab("Normalized intensity protein")+
-      ggtitle(x$sample_name[1])+
-      ylim(-0.1,5)+
-      theme(legend.position="bottom")+ labs(colour = "Temperature (\u00B0C)")
-  }else if(isTRUE(raw)){
-    list<-ggplot2::ggplot(x,mapping=aes(x=C,y=I))+
-      geom_jitter(position=position_jitter(2),alpha=0.5)+
-      facet_wrap(~dataset)+
-      geom_boxplot(mapping=aes(color=C))+xlab('Temperature (\u00B0C)')+
-      ylab("Raw intensity")+
-      ggtitle(x$sample_name[1])+
-      theme(legend.position="bottom")+labs(colour = "Temperature (\u00B0C)")+
-      ylim(0,10000000)
+    if(!isTRUE(raw)){
+      list<-ggplot2::ggplot(x,mapping=aes(x=C,y=I))+
+        geom_jitter(position=position_jitter(2),alpha=0.5)+
+        geom_boxplot(mapping=aes(color=C))+xlab('Temperature (\u00B0C)')+
+        facet_wrap(~dataset)+
+        ylab("Normalized intensity protein")+
+        ggtitle(x$sample_name[1])+
+        ylim(-0.1,5)+
+        theme(legend.position="bottom")+ labs(colour = "Temperature (\u00B0C)")
+    }else{
+      list<-ggplot2::ggplot(x,mapping=aes(x=C,y=I))+
+        geom_jitter(position=position_jitter(2),alpha=0.5)+
+        geom_boxplot(mapping=aes(color=C))+xlab('Temperature (\u00B0C)')+
+        facet_wrap(~dataset)+
+        ylab("Raw intensity")+
+        ggtitle(x$sample_name[1])+
+        theme(legend.position="bottom")+labs(colour = "Temperature (\u00B0C)")+
+        ylim(0,10000000)
+    }
   }else{
-    list<-ggplot2::ggplot(x,mapping=aes(x=C,y=I))+
-      facet_wrap(~dataset)+
-      geom_jitter(position=position_jitter(2),alpha=0.5)+
-      geom_boxplot(mapping=aes(color=C))+xlab('Temperature (\u00B0C)')+
-      facet_wrap(df_norm$dataset)+
-      ylab("Normalized intensity")+
-      ggtitle(x$sample_name[1])+
-      ylim(-0.1,2)+
-      theme(legend.position="bottom")+labs(colour = "Temperature (\u00B0C)")
+    if(!isTRUE(raw)){
+      list<-ggplot2::ggplot(x,mapping=aes(x=C,y=I))+
+        geom_jitter(position=position_jitter(2),alpha=0.5)+
+        geom_boxplot(mapping=aes(color=C))+xlab('Temperature (\u00B0C)')+
+        facet_wrap(~dataset)+
+        ylab("Normalized intensity")+
+        ggtitle(x$sample_name[1])+
+        ylim(-0.1,2)+
+        theme(legend.position="bottom")+labs(colour = "Temperature (\u00B0C)")
+    }else{
+      list<-ggplot2::ggplot(x,mapping=aes(x=C,y=I))+
+        geom_jitter(position=position_jitter(2),alpha=0.5)+
+        geom_boxplot(mapping=aes(color=C))+xlab('Temperature (\u00B0C)')+
+        facet_wrap(~dataset)+
+        ylab("Raw intensity")+
+        ggtitle(x$sample_name[1])+
+        theme(legend.position="bottom")+labs(colour = "Temperature (\u00B0C)")+
+        ylim(0,10000000)
+    }
   }
   
 }
 plot_I<-purrr::map(df_norm,function(x) try(Int_plot(x,Peptide=FALSE,raw=FALSE)))
-plot_I1<-purrr::map(df_raw,function(x) try(Int_plot(x,Peptide=TRUE,raw=TRUE)))
+plot_I1<-purrr::map(df_raw,function(x) try(Int_plot(x,Peptide=FALSE,raw=TRUE)))
 check<-ggplot2::ggplot_build(plot_I[[1]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plot_I,function(x) x$labels$title))
 plot_I<-plot_I[order(data)]
 P<-ggpubr::ggarrange(plotlist=c(plot_I),ncol=2,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
-pdf("CFE_CFS_After_after_TPP_norm.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
-P
+
+P1<-ggpubr::ggarrange(plotlist=c(plot_I1),ncol=2,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
+pdf("CFE_CFS_after_raw_proteins.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+P1
 dev.off()
 ##Generate upset plots for missing value data###
 df_<-df_clean %>% dplyr::rename("sample_id"="sample")%>% dplyr::select(-missing_pct,-value,-missing,-rank)
