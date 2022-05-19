@@ -1206,7 +1206,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     df_filt10<-df_filt10 %>% dplyr::ungroup(.) %>%  dplyr::select(-I,-rank)
     #preserve original dataset
     df1<-df
-    df<-df %>% group_by(sample)
+    df<-df %>% dplyr::group_by(sample_id)
     
     name<-dplyr::intersect(names(df1),names(df_filt3))
     #Only keep curves with the topN values
@@ -1371,7 +1371,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     df.fit3<-dplyr::bind_rows(df.fit3)
     df.fit3<-df.fit3%>% #calculate fitted values and record as scaling factors for top 6k PSMs
       dplyr::mutate(fitted_values3 = try(list(data.frame(fitted_values=predict(fit[[1]]))),silent=TRUE)) %>% 
-      dplyr::select(sample,fitted_values3,temperature,dataset) %>% ungroup(.)
+      dplyr::select(sample,fitted_values3,temperature,dataset) %>% dplyr::ungroup(.)
     
     df.fit5 <- df.median5 %>%
       dplyr::group_by(sample) %>% 
@@ -1389,7 +1389,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     df.fit5<-dplyr::bind_rows(df.fit5)
     df.fit5<- df.fit5%>% #calculate fitted values and record as scaling factors for top 12k PSMs
       dplyr::mutate(fitted_values5 = try(list(data.frame(fitted_values=predict(fit[[1]]))),silent=TRUE)) %>% 
-      dplyr::select(sample,fitted_values5,temperature,dataset) %>% ungroup(.)
+      dplyr::select(sample,fitted_values5,temperature,dataset) %>% dplyr::ungroup(.)
     
     df.fit10 <- df.median10 %>%
       dplyr::group_by(sample) %>% 
@@ -1408,7 +1408,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     
     df.fit10<- df.fit10%>% #calculate fitted values and record as scaling factors for all PSMs
       dplyr::mutate(fitted_values10 = try(list(data.frame(fitted_values=predict(fit[[1]]))),silent=TRUE)) %>% 
-      dplyr::select(sample,fitted_values10,temperature,dataset) %>% ungroup(.)
+      dplyr::select(sample,fitted_values10,temperature,dataset) %>% dplyr::ungroup(.)
     
     ## split data by replicate, treatment and temperature
     d3<-df.fit3 %>% dplyr::group_split(sample,dataset,temperature)
@@ -1504,10 +1504,10 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     df$Accession<-as.factor(df$Accession)
     if(any(names(df)=="replicate")){
       df<-df %>%
-        dplyr::group_split(Accession,sample,replicate)
+        dplyr::group_split(Accession,sample_id,replicate)
     }else if(any(names(df)=="Fraction")){
       df<-df %>%
-        dplyr::group_split(Accession,sample,Fraction)
+        dplyr::group_split(Accession,sample_id,Fraction)
     }
     check_baseline<-function(x) {
       if(min(temperatures$temperature,na.rm=TRUE)==min(x$temperature,na.rm=TRUE)){
@@ -1575,7 +1575,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     
     ## fit curves to the median data for each sample (F1 through FN)
     df.fit <- df.median %>%
-      dplyr::group_by(sample) %>% 
+      dplyr::group_by(sample_id) %>% 
       dplyr::mutate(fit=list(try(cetsa_fit(.,norm=FALSE))))
     # dplyr::mutate(fit = list(try(nls(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl,
     #                                  start = c(Pl=0, a = 550, b = 10),
@@ -1586,12 +1586,12 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     #                                  upper = c(1.5,15000,300),
     #                                  control = nls.control(maxiter = 50))
     #)))
-    df.fit<-df.fit %>% dplyr::group_by(sample) %>% dplyr::group_split()
+    df.fit<-df.fit %>% dplyr::group_by(sample_id) %>% dplyr::group_split()
     df.fit<-df.fit %>% purrr::keep(function(x) class(x$fit[[1]])=='nls')
     df.fit<-dplyr::bind_rows(df.fit)
     df.fit<-df.fit%>% dplyr::group_by(sample) %>% 
       dplyr::mutate(fitted_values = ifelse(!is.logical(fit[[1]]),list(data.frame(fitted_values=predict(fit[[1]]))),NA))  %>% 
-      dplyr::select(sample,fitted_values,temperature) %>% ungroup(.)
+      dplyr::select(sample_id,fitted_values,temperature) %>% ungroup(.)
     
     d<-df.fit %>% dplyr::group_split(sample)
     check <-data.frame(temperature=unique(d[[1]]$temperature),
@@ -9763,27 +9763,26 @@ df_raw <- read_cetsa("~/Files/Scripts/Files/2.4/fractions/CFE_vs_CFS","~/Files/S
 #df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS/Unshared","~/Files/Scripts/Files/CONSENSUS/Unshared","_Proteins",Peptide=FALSE,Frac=FALSE,solvent="DMSO",CARRIER=TRUE)                                                              
 #df_raw <- read_cetsa("~/CONSENSUS11","~/CONSENSUS11","_Proteins",Peptide=FALSE,Frac=FALSE,solvent="DMSO")                                                              
 #saveRDS(df_raw,"df_raw.RDS")
-filter_Peptides<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm,Occupancy,filter_rank=FALSE,shared_proteins=FALSE,CFS=TRUE,Frac=FALSE){
+filter_Peptides<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm,Occupancy,filter_rank=FALSE,keep_shared_proteins=FALSE,CFS=TRUE,Frac=FALSE){
   #remove shared proteins
   if(!any(names(df_)=="sample_name")){
     df_$sample_name<-df_$Spectrum.File[1]
   }
-  if(any(names(df_)=="Fraction")){
+  if(any(names(df_)=="Fraction")&!any(names(df_)=="replicate")){
     df_$replicate<-as.numeric(df_$Fraction)
     df_$Fraction<-as.numeric(df_$Fraction)
   }
-  if(!isTRUE(shared_proteins)){
-    
-    df_<-df_[!str_detect(df_$Accession,";"),]
+  if(any(stringr::str_detect(df_$Accession,";"))&!isTRUE(keep_shared_proteins)){
+    df_<-df_[!stringr::str_detect(df_$Accession,";"),]
   }
   if(any(stringr::str_detect(names(df_),"PEP"))=="FALSE"){
     df_<-df_ %>% dplyr::mutate(Percolator_PEP=0)
   }
   #rename problematic headers
   check<-names(head(df_))
-  ch<-str_replace_all(check,paste0("[","[:punct:]","]"),paste0("_"))
-  ch<-str_replace_all(ch,paste0("[:punct:]","[:punct:]","[:punct:]"),paste0(""))
-  ch<-str_replace_all(ch,paste0("[:punct:]","[:punct:]"),paste0(""))
+  ch<-stringr::str_replace_all(check,paste0("[","[:punct:]","]"),paste0("_"))
+  ch<-stringr::str_replace_all(ch,paste0("[:punct:]","[:punct:]","[:punct:]"),paste0(""))
+  ch<-stringr::str_replace_all(ch,paste0("[:punct:]","[:punct:]"),paste0(""))
   #set new names
   names(df_)<-ch
   #filter
