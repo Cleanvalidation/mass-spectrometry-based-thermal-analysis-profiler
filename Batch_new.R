@@ -1063,11 +1063,20 @@ clean_cetsa <- function(df, temperatures = NULL,samples = NA,Peptide=FALSE,solve
   df<-dplyr::bind_rows(df) 
   return(df)
 }
-FC_to_ref<-function(x){ y<-x %>%  
-  dplyr::mutate(.,T7 = try(mean(x[which(x$temperature==unique(x$temperature)[length(unique(x$temperature))-2,"I"]$I/x[which(x$temperature==min(x$temperature,na.rm=TRUE)),"I"]$I)])),
-                T9 = try(mean(x[which(x$temperature==unique(x$temperature)[length(unique(x$temperature))-1,"I"]$I/x[which(x$temperature==min(x$temperature,na.rm=TRUE)),"I"]$I)])),
-                T10 = try(mean(x[which(x$temperature==max(x$temperature,na.rm=TRUE)),"I"]$I/x[which(x$temperature==min(x$temperature,na.rm=TRUE)),"I"]$I)))
-return(y)
+FC_to_ref<-function(x,baseline){ 
+  if(baseline=="min"){
+    y<-x %>%  
+      dplyr::mutate(.,T7 = try(mean(x[which(x$temperature==unique(x$temperature)[length(unique(x$temperature))-2,"I"]$I/x[which(x$temperature==min(x$temperature,na.rm=TRUE)),"I"]$I)])),
+                    T9 = try(mean(x[which(x$temperature==unique(x$temperature)[length(unique(x$temperature))-1,"I"]$I/x[which(x$temperature==min(x$temperature,na.rm=TRUE)),"I"]$I)])),
+                    T10 = try(mean(x[which(x$temperature==max(x$temperature,na.rm=TRUE)),"I"]$I/x[which(x$temperature==min(x$temperature,na.rm=TRUE)),"I"]$I)))
+    return(y)
+  }else{
+    y<-x %>%  
+      dplyr::mutate(.,T7 = try(mean(x[which(x$temperature==unique(x$temperature)[min(unique(x$temperature),na.rm=TRUE)+2,"I"]$I/x[which(x$temperature==max(x$temperature,na.rm=TRUE)),"I"]$I)])),
+                    T9 = try(mean(x[which(x$temperature==unique(x$temperature)[min(unique(x$temperature),na.rm=TRUE)+1,"I"]$I/x[which(x$temperature==max(x$temperature,na.rm=TRUE)),"I"]$I)])),
+                    T10 = try(mean(x[which(x$temperature==max(x$temperature,na.rm=TRUE)),"I"]$I/x[which(x$temperature==max(x$temperature,na.rm=TRUE)),"I"]$I)))
+    return(y)
+  }
 }
 FC_calc<-function(x,y) {
   y<-x %>%  
@@ -1083,6 +1092,15 @@ FC_filter<-function(x){
     y<- y %>% subset(T10 < 0.2)%>% dplyr::select(-T10)#normalization from TPP
   }
   return(y)
+}
+check_baseline<-function(x) {
+  if(min(temperatures$temperature,na.rm=TRUE)==min(x$temperature,na.rm=TRUE)){
+    baseline<-min(x$temperature,na.rm=TRUE)
+  }else{
+    warning("minimum temperature reporter ion values not found for this replicate")
+    baseline<-min(x$temperature,na.rm=TRUE)
+  }
+  return(baseline)
 }
 #' normalize CETSA data
 #'
@@ -1108,13 +1126,13 @@ FC_filter<-function(x){
 #' @import tidyr
 #' @import nls2
 #' @export
-normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER=TRUE) {
+normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER=TRUE,baseline="min") {
   if(isTRUE(CARRIER)){
     df<-df %>% dplyr::filter(!temperature=="68")
     temperatures<-temperatures[temperatures$temperature<68,]
   }
   if(any(names(df)=="value")&!any(names(df)=="I")){
-    df<-df %>% dplyr::rename("I"="value")
+    df<-df %>% dplyr::mutate(I=value)
   }
   if(!any(names(df)=="sample")&any(names(df)=="sample_id")){
     df<-df %>% dplyr::mutate(sample=sample_id)
@@ -1179,17 +1197,17 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     if(order(df3[[1]]$temperature)[1]==length(df3[[1]]$temperature)){
       
       #if the temperatures are reversed, relabel 7,9th and 10th temperature channels
-      df.jointP3 <- suppressWarnings(purrr::map(df3,function(x) FC_to_ref(x)))
+      df.jointP3 <- suppressWarnings(purrr::map(df3,function(x) FC_to_ref(x,baseline)))
       
-      df.jointP5 <- suppressWarnings(purrr::map(df5,function(x) FC_to_ref(x)))
+      df.jointP5 <- suppressWarnings(purrr::map(df5,function(x) FC_to_ref(x,baseline)))
       
-      df.jointP10 <- suppressWarnings(purrr::map(df10,function(x) function(x) FC_to_ref(x)))
+      df.jointP10 <- suppressWarnings(purrr::map(df10,function(x) function(x) FC_to_ref(x,baseline)))
     }else{
-      df.jointP3 <- suppressWarnings(purrr::map(df3,function(x) FC_to_ref(x)))
+      df.jointP3 <- suppressWarnings(purrr::map(df3,function(x) FC_to_ref(x,baseline)))
       
-      df.jointP5 <- suppressWarnings(purrr::map(df5,function(x) function(x) FC_to_ref(x)))
+      df.jointP5 <- suppressWarnings(purrr::map(df5,function(x) function(x) FC_to_ref(x,baseline)))
       
-      df.jointP10 <- suppressWarnings(purrr::map(df10,function(x) function(x) FC_to_ref(x)))
+      df.jointP10 <- suppressWarnings(purrr::map(df10,function(x) function(x) FC_to_ref(x,baseline)))
       
       
     }
@@ -1218,7 +1236,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
       df1 <- suppressWarnings(df1 %>% dplyr::group_split(Accession,sample_id,sample_name) %>% 
                                 purrr::map(function(x) x %>% dplyr::mutate(n=dplyr::n())))
       
-      df1<-purrr::map(df1,function(x) FC_to_rep(x))
+      df1<-purrr::map(df1,function(x) FC_to_ref(x,baseline))
       
       if(isTRUE(filters)){
         df1<-purrr::map(df2,function(x) FC_filter(x))
@@ -1431,15 +1449,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
         dplyr::group_split(Accession,sample_id,Fraction)
     }
     
-    check_baseline<-function(x) {
-      if(min(temperatures$temperature,na.rm=TRUE)==min(x$temperature,na.rm=TRUE)){
-        baseline<-min(x$temperature,na.rm=TRUE)
-      }else{
-        warning("minimum temperature reporter ion values not found for this replicate")
-        baseline<-min(x$temperature,na.rm=TRUE)
-      }
-      return(baseline)
-    }
+    
     #check baseline temperature
     baseline<-purrr::map(df,function(x) check_baseline(x))
     
@@ -9957,9 +9967,9 @@ df_clean <- furrr::future_map(df_raw,function(x) try(clean_cetsa(x, temperatures
 #zebra data
 #df_clean<-list(dplyr::bind_rows(df_clean))
 
-df_norm <- furrr::future_map(df_clean,function(x) try(normalize_cetsa(x, temperatures=df.temps,Peptide=TRUE,filters=FALSE,CARRIER=TRUE))) #normalizes according to Franken et. al. without R-squared filter
+df_norm <- furrr::future_map(df_clean,function(x) try(normalize_cetsa(x, temperatures=df.temps,Peptide=TRUE,filters=FALSE,CARRIER=TRUE,baseline="min"))) #normalizes according to Franken et. al. without R-squared filter
 #normalize data
-df_norm <- furrr::future_map(df_clean,function(x) try(normalize_cetsa(x, temperatures=df.temps,Peptide=FALSE,filters=FALSE,CARRIER=FALSE))) #normalizes according to Franken et. al. without R-squared filter
+df_norm <- furrr::future_map(df_clean,function(x) try(normalize_cetsa(x, temperatures=df.temps,Peptide=FALSE,filters=FALSE,CARRIER=FALSE,baseline="min"))) #normalizes according to Franken et. al. without R-squared filter
 Int_plot<-function(x,Peptide=FALSE,raw=FALSE){
   if(any(x$temp_ref=="131C")){
     x<-x %>% dplyr::filter(!temp_ref=="131C")
