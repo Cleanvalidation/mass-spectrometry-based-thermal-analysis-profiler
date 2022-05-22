@@ -930,10 +930,13 @@ clean_cetsa <- function(df, temperatures = NULL,samples = NA,Peptide=FALSE,solve
     temperatures<-temperatures %>% dplyr::filter(!temp_ref=="131C")
   }
   if(!any(names(df)=="sample")&any(names(df)=="sample_id")){
-    df %>% dplyr::mutate(sample=sample_)
+    df %>% dplyr::mutate(sample=sample_id)
   }
   if(!any(names(df)=="rank")){#if there's no rank column, add NA values to the df
     df$rank<-NA
+  }
+  if(any(names(df)=="I")&!any(names(df)=="value")){#if there's no rank column, add NA values to the df
+    df$value<-df$I
   }
   samples<-samples
   if(any(stringr::str_detect(names(temperatures),"sample_name"))&any(stringr::str_detect(names(df),"replicate"))){#if this is a timepoint study
@@ -988,103 +991,13 @@ clean_cetsa <- function(df, temperatures = NULL,samples = NA,Peptide=FALSE,solve
   }
   
   df<-dplyr::bind_rows(df)
-  if(isTRUE(Peptide) & any(stringr::str_detect(names(df),"Fraction"))){
-    if(baseline=="min"){
-      bl <-min(df$temperature,na.rm=TRUE)
-    }else{
-      bl <-max(df$temperature,na.rm=TRUE)
-    }
-    if(any(stringr::str_detect(df$Fraction,"."))){
-      df<-df %>% dplyr::mutate(Fraction = stringr::str_remove(File.ID,"[:upper:][[:digit:]]+."))
-    }
-    df <- df %>%
-      dplyr::filter(!is.na(.$Accession),
-                    !is.na(.$temperature),
-                    !is.na(.$value)) %>%
-      dplyr::group_by(Accession,Annotated_Sequence,dataset,sample_name,Fraction) %>%
-      dplyr::group_split()
-    if (.Platform$OS.type=="windows"){
-      df<-parallel::mclapply(df,tryCatch({function(x){x<-x %>% 
-        dplyr::mutate(value = x$value/mean(x$value[x$temperature == bl],na.rm=TRUE)) %>%
-        distinct(.) %>% ungroup(.)
-      return(x)
-      }},
-      error = function(cond){return(NA)}))
-    }else{
-      df<-parallel::mclapply(df,tryCatch({function(x){x<-x %>% 
-        dplyr::mutate(value = x$value/mean(x$value[x$temperature == bl],na.rm=TRUE)) %>%
-        distinct(.) %>% ungroup(.)
-      return(x)
-      }},
-      error = function(cond){return(NA)}),mc.cores=availableCores())
-    }
-  }else if(!isTRUE(Peptide) & any(stringr::str_detect(names(df),"Fraction"))){
-    if(baseline=="min"){
-      bl <-min(df$temperature,na.rm=TRUE)
-    }else{
-      bl <-max(df$temperature,na.rm=TRUE)
-    }
-    if(any(stringr::str_detect(df$Fraction,"."))){
-      df<-df %>% dplyr::mutate(Fraction = stringr::str_remove(File.ID,"[:upper:][[:digit:]]+."))
-    }
-    df <- df %>%
-      dplyr::filter(!is.na(.$Accession),
-                    !is.na(.$temperature),
-                    !is.na(.$value)) %>%
-      dplyr::group_by(Accession,dataset,sample_name,Fraction) %>%
-      dplyr::group_split()
-    if (.Platform$OS.type=="windows"){
-      df<-parallel::mclapply(df,tryCatch({function(x){x<-x %>% 
-        dplyr::mutate(value = x$value/mean(x$value[x$temperature == bl],na.rm=TRUE)) %>%
-        distinct(.) %>% ungroup(.)
-      return(x)
-      }},
-      error = function(cond){return(NA)}))
-    }else{
-      df<-parallel::mclapply(df,tryCatch({function(x){x<-x %>% 
-        dplyr::mutate(value = x$value/mean(x$value[x$temperature == bl],na.rm=TRUE)) %>%
-        distinct(.) %>% ungroup(.)
-      return(x)
-      }},
-      error = function(cond){return(NA)}),mc.cores=availableCores())
-    }
-  }else if(!isTRUE(Peptide)){
-    if(baseline=="min"){
-      bl <-min(df$temperature,na.rm=TRUE)
-    }else{
-      bl <-max(df$temperature,na.rm=TRUE)
-    }
-    if(any(stringr::str_detect(df$Fraction,"."))){
-      df<-df %>% dplyr::mutate(Fraction = stringr::str_remove(File.ID,"[:upper:][[:digit:]]+."))
-    }
-    df <- df %>%
-      dplyr::filter(!is.na(.$Accession),
-                    !is.na(.$temperature),
-                    !is.na(.$value)) %>%
-      dplyr::group_by(Accession,dataset,sample_name) %>%
-      dplyr::group_split()
-    if (.Platform$OS.type=="windows"){
-      df<-parallel::mclapply(df,tryCatch({function(x){x<-x %>% 
-        dplyr::mutate(value = x$value/mean(x$value[x$temperature == bl],na.rm=TRUE)) %>%
-        distinct(.) %>% ungroup(.)
-      return(x)
-      }},
-      error = function(cond){return(NA)}))
-    }else{
-      df<-parallel::mclapply(df,tryCatch({function(x){x<-x %>% 
-        dplyr::mutate(value = x$value/mean(x$value[x$temperature == bl],na.rm=TRUE)) %>%
-        distinct(.) %>% ungroup(.)
-      return(x)
-      }},
-      error = function(cond){return(NA)}),mc.cores=availableCores())
-    }
-    
+  if(baseline=="min"){
+    bl <-min(df$temperature,na.rm=TRUE)
   }else{
-    if(baseline=="min"){
-      bl <-min(df$temperature,na.rm=TRUE)
-    }else{
-      bl <-max(df$temperature,na.rm=TRUE)
-    }
+    bl <-max(df$temperature,na.rm=TRUE)
+  }
+  
+  if(any(names(df)=="Fraction")){
     if(any(stringr::str_detect(df$Fraction,"."))){
       df<-df %>% dplyr::mutate(Fraction = stringr::str_remove(File.ID,"[:upper:][[:digit:]]+."))
     }
@@ -1094,26 +1007,33 @@ clean_cetsa <- function(df, temperatures = NULL,samples = NA,Peptide=FALSE,solve
                     !is.na(.$value)) %>%
       dplyr::group_by(Accession,Annotated_Sequence,dataset,sample_name,Fraction) %>%
       dplyr::group_split()
-    if (.Platform$OS.type=="windows"){
-      df<-parallel::mclapply(df,tryCatch({function(x){x<-x %>% 
-        dplyr::mutate(value = x$value/mean(x$value[x$temperature == bl],na.rm=TRUE)) %>%
-        distinct(.) %>% ungroup(.)
-      return(x)
-      }},
-      error = function(cond){return(NA)}))
-      
-    }else{
-      df<-parallel::mclapply(df,tryCatch({function(x){x<-x %>% 
-        dplyr::mutate(value = x$value/mean(x$value[x$temperature == bl],na.rm=TRUE)) %>%
-        distinct(.) %>% ungroup(.)
-      return(x)
-      }},
-      error = function(cond){return(NA)}),mc.cores=availableCores())
-      
-    }
+  }else{
+    df <- df %>%
+      dplyr::filter(!is.na(.$Accession),
+                    !is.na(.$temperature),
+                    !is.na(.$value)) %>%
+      dplyr::group_by(Accession,Annotated_Sequence,dataset,sample_name) %>%
+      dplyr::distinct() %>% 
+      dplyr::group_split()
+  }
+  
+  
+  if (.Platform$OS.type=="windows"){
+    df<-parallel::mclapply(df,tryCatch({function(x){x<-x %>% 
+      dplyr::mutate(value = x$value/mean(x$value[x$temperature == bl],na.rm=TRUE)) %>%
+      distinct(.) %>% ungroup(.)
+    return(x)
+    }},
+    error = function(cond){return(NA)}))
+  }else{
+    df<-parallel::mclapply(df,tryCatch({function(x){x<-x %>% 
+      dplyr::mutate(value = x$value/mean(x$value[x$temperature == bl],na.rm=TRUE)) %>%
+      distinct(.) %>% ungroup(.)
+    return(x)
+    }},
+    error = function(cond){return(NA)}),mc.cores=availableCores())
   }
   df<-dplyr::bind_rows(df)
-  
   if(!any(names(df)=="missing")){
     df<-df %>% dplyr::mutate(missing=is.na(value))
   }
@@ -1139,7 +1059,7 @@ clean_cetsa <- function(df, temperatures = NULL,samples = NA,Peptide=FALSE,solve
   df<-df %>% dplyr::left_join(df1,by=name)
   df<-dplyr::bind_rows(df)
   df$sample_id<-as.factor(df$sample_id)
-  df<-df %>% dplyr::rename("I"="value")
+  
   df<-dplyr::bind_rows(df) 
   return(df)
 }
@@ -9752,6 +9672,22 @@ filter_Peptides<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm,
   if(!any(names(df_)=="sample_name")){
     df_$sample_name<-df_$Spectrum.File[1]
   }
+  if(any(stringr::str_detect(names(df_),"Percolator.PEP"))){
+    pep<-names(df_)[stringr::str_detect(names(df_),"Percolator.PEP")]
+    df_<-df_ %>% dplyr::rename("Percolator_PEP"=pep)
+  }
+  if(any(stringr::str_detect(names(df_),"Charge"))){
+    pep<-names(df_)[stringr::str_detect(names(df_),"Charge")]
+    df_<-df_ %>% dplyr::rename("Charge"=pep)
+  }
+  if(any(stringr::str_detect(names(df_),"DeltaM"))){
+    pep<-names(df_)[stringr::str_detect(names(df_),"DeltaM")]
+    df_<-df_ %>% dplyr::rename("DeltaM"=pep)
+  }
+  if(any(stringr::str_detect(names(df_),"XCorr"))){
+    pep<-names(df_)[stringr::str_detect(names(df_),"XCorr")]
+    df_<-df_ %>% dplyr::rename("XCorr"=pep)
+  }
   if(any(names(df_)=="Fraction")&!any(names(df_)=="replicate")){
     df_$replicate<-as.numeric(df_$Fraction)
     df_$Fraction<-as.numeric(df_$Fraction)
@@ -10015,7 +9951,7 @@ df.samples<-df.s(f,dplyr::bind_rows(df_raw),3,2,"DMSO","TREATED",Frac=TRUE,PSM=T
 df_raw<-dplyr::bind_rows(df_raw) %>% dplyr::group_by(sample_name) %>% group_split(.)
 #Zebra
 #df_raw1<-list(dplyr::bind_rows(df_raw1))
-df_clean <- furrr::future_map(df_raw,function(x) try(clean_cetsa(x, temperatures = df.temps,samples = df.samples,Peptide=FALSE,solvent="DMSO",CFS=TRUE,CARRIER=TRUE,baseline="min")))#assgns temperature and replicate values
+df_clean <- furrr::future_map(df_raw1,function(x) try(clean_cetsa(x, temperatures = df.temps,samples = df.samples,Peptide=TRUE,solvent="DMSO",CFS=TRUE,CARRIER=TRUE,baseline="min")))#assgns temperature and replicate values
 
 df_clean <- furrr::future_map(df_raw,function(x) try(clean_cetsa(x, temperatures = df.temps,samples = df.samples,Peptide=FALSE,solvent="Control",CFS=FALSE,CARRIER=FALSE,baseline="min")))#assgns temperature and replicate values
 
