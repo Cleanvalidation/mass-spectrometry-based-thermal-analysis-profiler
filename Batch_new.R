@@ -1063,7 +1063,27 @@ clean_cetsa <- function(df, temperatures = NULL,samples = NA,Peptide=FALSE,solve
   df<-dplyr::bind_rows(df) 
   return(df)
 }
-
+FC_to_ref<-function(x){ y<-x %>%  
+  dplyr::mutate(.,T7 = try(mean(x[which(x$temperature==unique(x$temperature)[length(unique(x$temperature))-2,"I"]$I/x[which(x$temperature==min(x$temperature,na.rm=TRUE)),"I"]$I)])),
+                T9 = try(mean(x[which(x$temperature==unique(x$temperature)[length(unique(x$temperature))-1,"I"]$I/x[which(x$temperature==min(x$temperature,na.rm=TRUE)),"I"]$I)])),
+                T10 = try(mean(x[which(x$temperature==max(x$temperature,na.rm=TRUE)),"I"]$I/x[which(x$temperature==min(x$temperature,na.rm=TRUE)),"I"]$I)))
+return(y)
+}
+FC_calc<-function(x,y) {
+  y<-x %>%  
+    dplyr::mutate(.,T7 = try(mean(x[which(x$temperature==unique(x$temperature)[order(unique(x$temperature))=="7"]),]$I/x[which(x$temperature==y),"I"]$I)),
+                  T9 = try(mean(x[which(x$temperature==unique(x$temperature)[order(unique(x$temperature))=="9"]),]$I/x[which(x$temperature==y),"I"]$I)),
+                  T10 = try(mean(x[which(x$temperature==max(x$temperature,na.rm=TRUE)),"I"]$I/x[which(x$temperature==y),"I"]$I)))
+  return(y)
+}
+FC_filter<-function(x){
+  y<-x%>% dplyr::filter(T7 >= 0.4, T7 <= 0.6,T9 < 0.3) %>% 
+    dplyr::select(-T7,-T9,-n)
+  if(any(names(x)=="T10" & all(!is.na(x$T10)))){
+    y<- y %>% subset(T10 < 0.2)%>% dplyr::select(-T10)#normalization from TPP
+  }
+  return(y)
+}
 #' normalize CETSA data
 #'
 #' Normalize data according to Pelago paper.
@@ -1093,7 +1113,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     df<-df %>% dplyr::filter(!temperature=="68")
     temperatures<-temperatures[temperatures$temperature<68,]
   }
-  if(any(names(df)=="value")){
+  if(any(names(df)=="value")&!any(names(df)=="I")){
     df<-df %>% dplyr::rename("I"="value")
   }
   if(!any(names(df)=="sample")&any(names(df)=="sample_id")){
@@ -1157,12 +1177,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     
     #Calculate fold changes acros temperatures 7, 9 and 10
     if(order(df3[[1]]$temperature)[1]==length(df3[[1]]$temperature)){
-      FC_to_ref<-function(x){ y<-x %>%  
-        dplyr::mutate(.,T7 = try(mean(x[which(x$temperature==unique(x$temperature)[length(unique(x$temperature))-2,"I"]$I/x[which(x$temperature==min(x$temperature,na.rm=TRUE)),"I"]$I)])),
-                      T9 = try(mean(x[which(x$temperature==unique(x$temperature)[length(unique(x$temperature))-1,"I"]$I/x[which(x$temperature==min(x$temperature,na.rm=TRUE)),"I"]$I)])),
-                      T10 = try(mean(x[which(x$temperature==max(x$temperature,na.rm=TRUE)),"I"]$I/x[which(x$temperature==min(x$temperature,na.rm=TRUE)),"I"]$I)))
-      return(y)
-      }
+      
       #if the temperatures are reversed, relabel 7,9th and 10th temperature channels
       df.jointP3 <- suppressWarnings(purrr::map(df3,function(x) FC_to_ref(x)))
       
@@ -1192,14 +1207,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     #this would implement fold-change filters upon request acccording to Franken et al.
     if(isTRUE(filters)){
       #top3
-      FC_filter<-function(x){
-        y<-x%>% dplyr::filter(T7 >= 0.4, T7 <= 0.6,T9 < 0.3) %>% 
-          dplyr::select(-T7,-T9,-n)
-        if(any(names(x)=="T10" & all(!is.na(x$T10)))){
-          y<- y %>% subset(T10 < 0.2)%>% dplyr::select(-T10)#normalization from TPP
-        }
-        return(y)
-      }
+      
       df.jointP3<-FC_filter(df.jointP3)
       #top 5
       df.jointP5<-FC_filter(df.jointP5)
@@ -1435,13 +1443,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     #check baseline temperature
     baseline<-purrr::map(df,function(x) check_baseline(x))
     
-    FC_calc<-function(x,y) {
-      y<-x %>%  
-        dplyr::mutate(.,T7 = try(mean(x[which(x$temperature==unique(x$temperature)[order(unique(x$temperature))=="7"]),]$I/x[which(x$temperature==y),"I"]$I)),
-                      T9 = try(mean(x[which(x$temperature==unique(x$temperature)[order(unique(x$temperature))=="9"]),]$I/x[which(x$temperature==y),"I"]$I)),
-                      T10 = try(mean(x[which(x$temperature==max(x$temperature,na.rm=TRUE)),"I"]$I/x[which(x$temperature==y),"I"]$I)))
-      return(y)
-    }
+    
     if(any(!isTRUE(order(unique(df[[1]]$temperature))==order(unique(temperatures$temperature))))){
       #if the temperatures are reversed, relabel 7,9th and 10th temperature channels
       df.jointP <- suppressWarnings(purrr::map2(df,baseline,function(x,y) FC_calc(x,y)))
@@ -1449,14 +1451,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     }else{
       df.jointP <- suppressWarnings(purrr::map2(df,baseline,function(x,y) FC_calc(x,y)))
     }
-    FC_filter<-function(x){
-      y<-x%>% dplyr::filter(T7 >= 0.4, T7 <= 0.6,T9 < 0.3) %>% 
-        dplyr::select(-T7,-T9,-n)
-      if(any(names(x)=="T10" & all(!is.na(x$T10)))){
-        y<- y %>% subset(T10 < 0.2)%>% dplyr::select(-T10)#normalization from TPP
-      }
-      return(y)
-    }
+    
     df.jointP<- dplyr::bind_rows(df.jointP)
     
     if(isTRUE(filters)){
@@ -9962,7 +9957,7 @@ df_clean <- furrr::future_map(df_raw,function(x) try(clean_cetsa(x, temperatures
 #zebra data
 #df_clean<-list(dplyr::bind_rows(df_clean))
 
-df_norm <- furrr::future_map(df_clean,function(x) try(normalize_cetsa(x, temperatures=df.temps,Peptide=FALSE,filters=FALSE,CARRIER=TRUE))) #normalizes according to Franken et. al. without R-squared filter
+df_norm <- furrr::future_map(df_clean,function(x) try(normalize_cetsa(x, temperatures=df.temps,Peptide=TRUE,filters=FALSE,CARRIER=TRUE))) #normalizes according to Franken et. al. without R-squared filter
 #normalize data
 df_norm <- furrr::future_map(df_clean,function(x) try(normalize_cetsa(x, temperatures=df.temps,Peptide=FALSE,filters=FALSE,CARRIER=FALSE))) #normalizes according to Franken et. al. without R-squared filter
 Int_plot<-function(x,Peptide=FALSE,raw=FALSE){
