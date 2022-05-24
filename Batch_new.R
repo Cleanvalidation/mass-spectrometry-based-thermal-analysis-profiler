@@ -9424,7 +9424,7 @@ mpPval <- function(x, r_1, r0, r1){
 #get p-values
 pValsBin <- function(mpDiffs){
   ## Determine meltpoints beyond the 16th and 85th quantiles per bin
-  dmp <- quantile(mpDiffs, probs = c(0.1587, 0.5, 0.8413), na.rm=TRUE)
+  dmp <- stats::quantile(mpDiffs, probs = c(0.1587, 0.5, 0.8413), na.rm=TRUE)
   r_1 <- dmp[1]
   r0 <- dmp[2]
   r1 <- dmp[3]
@@ -9433,8 +9433,19 @@ pValsBin <- function(mpDiffs){
   return(pV)
 }
 replicate_labels<-function(x){
-  x<-x%>% 
-    dplyr::mutate(replicate=row.names(.))
+  if(any(names(x)=="Annotated_Sequence")&any(names(x)=="Accession")){
+    x<-x%>% dplyr::group_by(Accession,Annotated_Sequence,dataset,sample_id) %>% 
+      dplyr::mutate(replicate=row.names(.))
+  }else if (any(names(x)=="uniqueID")&any(names(x)=="Annotated_Sequence")){
+    x<-x%>% dplyr::group_by(uniqueID,Annotated_Sequence,dataset,sample_id) %>% 
+      dplyr::mutate(replicate=row.names(.))
+  }else if (any(names(x)=="uniqueID")){
+    x<-x%>% dplyr::group_by(uniqueID,dataset,sample_id) %>% 
+      dplyr::mutate(replicate=row.names(.))
+  }else if (any(names(x) == "Accession")){
+    x<-x%>% dplyr::group_by(Accession,dataset,sample_id) %>% 
+      dplyr::mutate(replicate=row.names(.))
+  }
 }
 rename_TPP<-function(x,temps=df.temps){#rename script data to run TPP
   string_db <- STRINGdb$new( version="10", species=9606,score_threshold=400, input_directory="")
