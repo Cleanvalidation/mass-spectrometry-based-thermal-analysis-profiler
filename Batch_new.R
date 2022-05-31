@@ -4906,9 +4906,15 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
     m<-purrr::map(m,function(x) x[1:length(m1[[1]])])
   }
   
-  m<-dplyr::bind_rows(m) %>% distinct(.)%>% dplyr::group_split(uniqueID)
-  m1<-dplyr::bind_rows(m1)%>% distinct(.)%>% dplyr::group_split(uniqueID)
-  mn<-dplyr::bind_rows(mn)%>% distinct(.)%>% dplyr::group_split(uniqueID)
+  m<-dplyr::bind_rows(m) %>%
+    distinct(.)%>%
+    dplyr::group_split(uniqueID)
+  m1<-dplyr::bind_rows(m1)%>%
+    distinct(.)%>%
+    dplyr::group_split(uniqueID)
+  mn<-dplyr::bind_rows(mn)%>%
+    distinct(.)%>%
+    dplyr::group_split(uniqueID)
   #calculate RSS
   m<-purrr::map2(m,m1,function(x,y) x %>% dplyr::mutate(RSSv=as.numeric(x$rss[x$treatment=="vehicle"][1]),
                                                         RSSt=as.numeric(y$rss[y$treatment=="treated"][1]),
@@ -4928,17 +4934,26 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
                                                     Tm=x$Tm[1]
   ))
   if(any(names(m)=="Fraction")){
-    m<-dplyr::bind_rows(m) %>% dplyr::group_split(uniqueID,Fraction)
-    m1<-dplyr::bind_rows(m1) %>% dplyr::group_split(uniqueID,Fraction)
-    mn<-dplyr::bind_rows(mn) %>% dplyr::group_split(uniqueID,Fraction)
+    m<-dplyr::bind_rows(m) %>%
+      dplyr::group_split(uniqueID,Fraction)
+    m1<-dplyr::bind_rows(m1) %>%
+      dplyr::group_split(uniqueID,Fraction)
+    mn<-dplyr::bind_rows(mn) %>%
+      dplyr::group_split(uniqueID,Fraction)
   }else if(any(names(m)=="replicate")){
-    m<-dplyr::bind_rows(m) %>% dplyr::group_split(uniqueID,replicate)
-    m1<-dplyr::bind_rows(m1) %>% dplyr::group_split(uniqueID,replicate)
-    mn<-dplyr::bind_rows(mn) %>% dplyr::group_split(uniqueID,replicate)
+    m<-dplyr::bind_rows(m) %>%
+      dplyr::group_split(uniqueID,replicate)
+    m1<-dplyr::bind_rows(m1) %>%
+      dplyr::group_split(uniqueID,replicate)
+    mn<-dplyr::bind_rows(mn) %>%
+      dplyr::group_split(uniqueID,replicate)
   }
-  m<-purrr::map2(m,mn,function(x,y) x %>% dplyr::mutate(rssDiff=y$RSS0[1]-x$RSS1[1]))
-  m1<-purrr::map2(m1,mn,function(x,y)x %>% dplyr::mutate(rssDiff=y$RSS0[1]-x$RSS1[1]))
-  mn<-purrr::map2(m1,mn,function(x,y)y %>% dplyr::mutate(rssDiff=y$RSS0[1]-x$RSS1[1]))
+  m<-purrr::map2(m,mn,function(x,y) x %>%
+                   dplyr::mutate(rssDiff=y$RSS0[1]-x$RSS1[1]))
+  m1<-purrr::map2(m1,mn,function(x,y)x %>%
+                    dplyr::mutate(rssDiff=y$RSS0[1]-x$RSS1[1]))
+  mn<-purrr::map2(m1,mn,function(x,y)y %>%
+                    dplyr::mutate(rssDiff=y$RSS0[1]-x$RSS1[1]))
   #4031 proteins have rssDiff> 0 
   
   #convert to df and split by uniqueID 
@@ -4954,7 +4969,7 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
   
   #filter out proteins with neg RSSdiff
   if(isTRUE(filters)){
-    check<-intersect(mean1$uniqueID,mean1_1$uniqueID)
+    check<-dplyr::intersect(mean1$uniqueID,mean1_1$uniqueID)
     
     mean1<-mean1 %>% dplyr::filter(uniqueID %in% check,rsq>0.8)
     mean1_1<- mean1_1 %>% dplyr::filter(uniqueID %in% check,rsq>0.8)
@@ -4985,7 +5000,8 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
     results_<-results_ %>% purrr::keep(function(x) nrow(x)>1)
     results_<-purrr::map(results_,function(x) x %>%dplyr::group_by(replicate) %>% dplyr::mutate(dTm=(.$Tm[which(.$treatment=="treated")]-.$Tm[which(.$treatment=="vehicle")])))
   }else{#if this is a peptide file
-    results_<-dplyr::bind_rows(results) %>% dplyr::select(uniqueID,Annotated_Sequence,sample_name,-Tm,sample_id,treatment,-M1,-missing_pct,C,I,replicate) %>%
+    results_<-dplyr::bind_rows(results) %>%
+      dplyr::select(uniqueID,Annotated_Sequence,sample_name,-Tm,sample_id,treatment,C,I,replicate) %>%
       distinct(.) %>% dplyr::group_split(uniqueID,Annotated_Sequence,sample_name,sample_id)
     data<-purrr::map(results_,function(x) x[1,] %>% dplyr::select(-C,-I))
     
@@ -5008,16 +5024,23 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
   }
   #only keep data with vehicle and treated values
   
-  results_<-dplyr::bind_rows(results_) %>% dplyr::group_by(uniqueID) %>% dplyr::group_split(.)
-  results_1<-results_ %>% purrr::keep(function(x) length(unique(x$treatment))>1)
-  results_2<-dplyr::bind_rows(results_1) %>% dplyr::group_split(uniqueID,treatment)
+  results_<-dplyr::bind_rows(results_) %>%
+    dplyr::group_by(uniqueID) %>%
+    dplyr::group_split(.)
+  #make sure we keep proteins with both treated and vehicle data
+  results_1<-results_ %>%
+    purrr::keep(function(x) length(unique(x$treatment))>1)
+  results_2<-dplyr::bind_rows(results_1) %>%
+    dplyr::group_split(uniqueID,treatment)
   #nest the columns that dont involve Tm t-test calculation 
   nesting<-names(results_2[[1]])[!names(results_2[[1]]) %in% c("uniqueID","sample_id","treatment","Tm","replicate","sample_name","dTm","missing_pct")]
   
   results_2<-purrr::map(results_2,function(x) x %>% tidyr::nest(data=nesting))
   #only keep replicates with Tm values
-  results_2<-dplyr::bind_rows(results_2) %>% dplyr::group_split(uniqueID)
-  results_2<-purrr::map(results_2,function(x) x %>% dplyr::filter(replicate %in% unique(x$replicate[duplicated(x$replicate)])))
+  results_2<-dplyr::bind_rows(results_2) %>%
+    dplyr::group_split(uniqueID)
+  results_2<-purrr::map(results_2,function(x) x %>%
+                          dplyr::filter(replicate %in% unique(x$replicate[duplicated(x$replicate)])))
   
   results_3<-dplyr::bind_rows(results_2) %>%  dplyr::group_split(uniqueID,replicate)
   
@@ -5025,7 +5048,9 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
   if(length(results_)==0){
     warning(paste0(results_2[[1]]$sample_name[1], " has at least one Tm value missing"))
   }
-  results_3<-purrr::map(results_3,function(x) x %>% distinct(.) %>%  dplyr::mutate(
+  results_3<-purrr::map(results_3,function(x) x %>%
+                          distinct(.) %>%
+                          dplyr::mutate(
     dTm=x$Tm[x$treatment %in% "treated"][1]-x$Tm[x$treatment %in% "vehicle"][1])%>% dplyr::ungroup(.)) 
   results_<-results_3 %>% purrr::keep(function(x) !is.na(x$dTm[1]))
   results_<-dplyr::bind_rows(results_) %>% dplyr::group_split(sample_name)
@@ -5064,14 +5089,12 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
     mean3<-mean3%>% dplyr::group_split(uniqueID)
     
     if(!nrow(mean3[[1]])==nrow(mean1[[1]])){
-      mean1<-dplyr::bind_rows(mean1) %>% dplyr::select(-M2) %>% distinct(.)
-      mean1_1<-dplyr::bind_rows(mean1_1)%>% dplyr::select(-M2)%>% distinct(.)
-      mean3<-dplyr::bind_rows(mean3)%>% dplyr::select(-M2)%>% distinct(.)
+      mean1<-dplyr::bind_rows(mean1) %>% distinct(.)
+      mean1_1<-dplyr::bind_rows(mean1_1)%>% distinct(.)
+      mean3<-dplyr::bind_rows(mean3)%>% distinct(.)
       
       CID<-dplyr::intersect(mean1$uniqueID,mean1_1$uniqueID)
       CID<-dplyr::intersect(CID,mean3$uniqueID)
-      
-      
       #filter
       mean1 <-mean1 %>% dplyr::filter(uniqueID %in% CID)
       mean1_1<-mean1_1%>% dplyr::filter(uniqueID %in% CID)
@@ -5102,7 +5125,7 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
     }
     #Calculate stats summary
     rss0<-purrr::map(mean3,function(x)stats_summary_null(x))
-    
+    #this is the alternative hypothesis (one curve per treatment)
     stats_summary_alt<-function(x,y){
       z =data.frame(uniqueID=x$uniqueID[1],
                     sample_id=x$sample_id[1],
@@ -5200,8 +5223,12 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
     Fvals<-purrr::map2(Fvals,rssDiff,function(x,y) cbind(x,y))
     Fvals<-purrr::map(Fvals,function(x) x %>% dplyr::mutate(Fvals=(x$dRSS/x$rss1)*(x$df2/x$df1)))
     #calculate p and p-adj vals
-    Fvals<-purrr::map(Fvals,function(x) x %>% dplyr::mutate(pValue = 1 - pf(fStatistic, df1 = x$df1, df2 = x$df2),
-                                                            pAdj = p.adjust(pValue,"BH")))
+    
+    Fvals<-purrr::map(Fvals,tryCatch({function(x) x %>% dplyr::mutate(pValue = 1 - pf(fStatistic, df1 = x$df1, df2 = x$df2),
+                                                            pAdj = p.adjust(pValue,"BH"))
+      },error = function(cond){
+        message(cond)
+      }))
     Fvals<-purrr::map2(Fvals,mean1,function(x,y) x %>% dplyr::mutate(uniqueID=y$uniqueID[1]))
     
     
@@ -5229,8 +5256,10 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
     #filter out negative delta rss
     testResults<-testResults %>% dplyr::filter(dRSS>0)
     #effective degrees of freedom
-    ed1<-MASS::fitdistr(x=testResults$dRSS, densfun = "chi-squared", start = list(df=2))[["estimate"]]
-    ed2<-MASS::fitdistr(x=testResults$rss, densfun = "chi-squared", start = list(df=2))[["estimate"]]
+    ed1<-tryCatch({MASS::fitdistr(x=testResults$dRSS, densfun = "chi-squared", start = list(df=2))[["estimate"]]},
+                  error= function (cond){message(cond)})
+    ed2<-tryCatch({MASS::fitdistr(x=testResults$rss, densfun = "chi-squared", start = list(df=2))[["estimate"]]},
+                  error = function(cond){message(cond)})
     #scale data
     testScaled <-testResults %>%
       dplyr::mutate(rssDiff = .$dRSS/altScale,
@@ -5239,6 +5268,7 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
                     d2=ed2)
     #
     #new F-test
+    if(!class(ed1)=="NULL"&!class(ed2)=="NULL"){
     testResults<-testScaled %>% dplyr::mutate(Fvals=(dRSS/rss1)*(d2/d1))
     Fvals<-testResults$Fvals
     d1<-testResults$d1
@@ -5272,19 +5302,15 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
     mean1_1<-mean1_1 %>% dplyr::filter(mean1_1$uniqueID %in% test$uniqueID)
     mean3<-dplyr::bind_rows(mean3)
     mean3<-mean3 %>% dplyr::filter(mean3$uniqueID %in% test$uniqueID)
-    
     results<-dplyr::bind_rows(mean1,mean1_1,mean3) 
-    # results<-results %>% dplyr::group_by(treatment) %>%
-    #   dplyr::rowwise() %>%
-    #   dplyr::mutate(performance_k5 = list(performance::model_performance(unlist(.$M1))),
-    #                 performance_k6 = list(performance::model_performance(unlist(.$M2))))
     if(!isTRUE(Peptide)){
-      results1<-dplyr::bind_rows(results1) %>% dplyr::select(uniqueID,treatment,sample_id,p_dTm)
-      names<-dplyr::intersect(names(results),names(results1))
-      results<-results %>% dplyr::right_join(results1,by=names)
+      results1<-dplyr::bind_rows(results) %>%
+        dplyr::select(uniqueID,treatment,sample_id,p_dTm)
+      nam<-dplyr::intersect(names(results),names(results1))
+      results<-results %>% dplyr::right_join(results1,by=nam)
       
-      names<-dplyr::intersect(names(testResults),names(results1))
-      testResults<-testResults %>% dplyr::right_join(results1,by=names)
+      nam<-dplyr::intersect(names(testResults),names(results1))
+      testResults<-testResults %>% dplyr::right_join(results1,by=nam)
       
       names<-dplyr::intersect(names(test),names(results1))
       test<-test %>% dplyr::right_join(results1,by=names)
@@ -5299,13 +5325,22 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
       names<-dplyr::intersect(names(test),names(results1))
       test<-test %>% dplyr::right_join(results1,by=names)
     }
-  }
-  if(isTRUE(show_results)){
+    }
     
-    return(testResults)
+    results<-dplyr::bind_rows(mean1,mean1_1,mean3) 
+    # results<-results %>% dplyr::group_by(treatment) %>%
+    #   dplyr::rowwise() %>%
+    #   dplyr::mutate(performance_k5 = list(performance::model_performance(unlist(.$M1))),
+    #                 performance_k6 = list(performance::model_performance(unlist(.$M2))))
+    
+  }
+  if(isTRUE(show_results)&exists("testResults")){
+
     if(isTRUE(scaled_dof)){
       return(test)
     }
+    
+    return(testResults)
   }else{
     
     return(results)
