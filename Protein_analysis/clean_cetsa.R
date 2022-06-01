@@ -4,7 +4,7 @@ clean_cetsa <- function(df, temperatures = NULL,samples = NA,Peptide=FALSE,solve
     df<-df %>% dplyr::filter(!temp_ref=="131C")
     temperatures<-temperatures %>% dplyr::filter(!temp_ref=="131C")
   }
-  if(!any(names(df)=="sample")&any(names(df)=="sample_id")){
+  if(!any(names(df)=="sample_id")&any(names(df)=="sample_id")){
     df %>% dplyr::mutate(sample=sample_id)
   }
   if(!any(names(df)=="rank")){#if there's no rank column, add NA values to the df
@@ -16,23 +16,23 @@ clean_cetsa <- function(df, temperatures = NULL,samples = NA,Peptide=FALSE,solve
   samples<-samples
   if(any(stringr::str_detect(names(temperatures),"sample_name"))&any(stringr::str_detect(names(df),"replicate"))){#if this is a timepoint study
     if(!nchar(temperatures$sample_name[1])==nchar(df$sample_name[1])){
-      hi<-df %>% dplyr::select(sample_name) %>% dplyr::mutate(sample=stringr::str_extract(sample_name,"_S[[:digit:]]+_"))
-      hi<-hi %>% dplyr::mutate(sample=stringr::str_remove_all(sample,"_")) %>% distinct(.)
+      hi<-df %>% dplyr::select(sample_name) %>% dplyr::mutate(sample_id=stringr::str_extract(sample_name,"_S[[:digit:]]+_"))
+      hi<-hi %>% dplyr::mutate(sample_id=stringr::str_remove_all(sample_id,"_")) %>% distinct(.)
       df<-df %>% dplyr::right_join(hi,by="sample_name")
       temperatures<-temperatures %>% dplyr::select(-temp_ref) %>% 
-        dplyr::mutate(dataset=ifelse(stringr::str_detect(.$sample,"no"),"vehicle","treated")) %>% dplyr::select(-sample)
-      temperatures<-temperatures %>% dplyr::mutate(sample=.$sample_name,
+        dplyr::mutate(treatment=ifelse(stringr::str_detect(.$sample_id,"no"),"vehicle","treated")) %>% dplyr::select(-sample_id)
+      temperatures<-temperatures %>% dplyr::mutate(sample_id=.$sample_name,
                                                    replicate=as.character(.$Replicate)) %>% dplyr::select(-sample_name,-Replicate)
     }else if(stringr::str_detect(unique(df$sample_name),temperatures$sample_name[1])){
       hi<-df %>%
         dplyr::select(sample_name) %>%
-        dplyr::mutate(sample=stringr::str_extract(sample_name,"_S[[:digit:]]+_"))
-      hi<-hi %>% dplyr::mutate(sample=stringr::str_remove_all(sample,"_")) %>% distinct(.)
+        dplyr::mutate(sample_id=stringr::str_extract(sample_name,"_S[[:digit:]]+_"))
+      hi<-hi %>% dplyr::mutate(sample_id=stringr::str_remove_all(sample_id,"_")) %>% distinct(.)
       
-      df<-df %>% dplyr::right_join(hi,by="sample")
+      df<-df %>% dplyr::right_join(hi,by="sample_id")
       temperatures<-temperatures %>% dplyr::select(-temp_ref) %>% 
-        dplyr::mutate(dataset=ifelse(stringr::str_detect(.$sample,"no"),"vehicle","treated")) %>% dplyr::select(-sample)
-      temperatures<-temperatures %>% dplyr::mutate(sample=.$sample_name,
+        dplyr::mutate(treatment=ifelse(stringr::str_detect(.$sample_id,"no"),"vehicle","treated")) %>% dplyr::select(-sample_id)
+      temperatures<-temperatures %>% dplyr::mutate(sample_id=.$sample_name,
                                                    replicate=as.character(.$Replicate)) %>% dplyr::select(-sample_name,-Replicate)
     }
   }
@@ -50,10 +50,10 @@ clean_cetsa <- function(df, temperatures = NULL,samples = NA,Peptide=FALSE,solve
   if(ncol(temperatures)>2){#If dealing with a time_point study 
     name<-dplyr::intersect(names(df),names(temperatures))
     df_ <- data.frame(merge(df,temperatures, all.y=TRUE))
-    if(!any(names(df)=="sample_name")&!any(names(df)=="dataset")){
+    if(!any(names(df)=="sample_name")&!any(names(df)=="treatment")){
       df$sample_name<-df$Spectrum.File
       df_<-df
-      df_<-df_ %>% dplyr::mutate(dataset=ifelse(stringr::str_detect(df_$sample_name,solvent),"vehicle","treated"))
+      df_<-df_ %>% dplyr::mutate(treatment=ifelse(stringr::str_detect(df_$sample_name,solvent),"vehicle","treated"))
     }else if(!is.na(samples)){
       df_ <- df_ %>%
         dplyr::right_join(samples, by = intersect(names(df_),names(samples)))
@@ -80,14 +80,14 @@ clean_cetsa <- function(df, temperatures = NULL,samples = NA,Peptide=FALSE,solve
       dplyr::filter(!is.na(.$Accession),
                     !is.na(.$temperature),
                     !is.na(.$value)) %>%
-      dplyr::group_by(Accession,Annotated_Sequence,dataset,sample_name,Fraction) %>%
+      dplyr::group_by(Accession,Annotated_Sequence,treatment,sample_name,Fraction) %>%
       dplyr::group_split()
   }else{
     df <- df %>%
       dplyr::filter(!is.na(.$Accession),
                     !is.na(.$temperature),
                     !is.na(.$value)) %>%
-      dplyr::group_by(Accession,Annotated_Sequence,dataset,sample_name) %>%
+      dplyr::group_by(Accession,Annotated_Sequence,treatment,sample_name) %>%
       dplyr::distinct() %>% 
       dplyr::group_split()
   }
@@ -122,7 +122,7 @@ clean_cetsa <- function(df, temperatures = NULL,samples = NA,Peptide=FALSE,solve
   df1<-df %>%
     dplyr::filter(temperature==min(temperature,na.rm=TRUE)) %>% 
     dplyr::mutate(rank=dplyr::ntile(value,3)) %>% 
-    dplyr::select(Accession,dataset,rank,sample_name) %>%
+    dplyr::select(Accession,treatment,rank,sample_name) %>%
     distinct(.)
   df1<-df1 %>% dplyr::group_by(Accession,sample_name) %>% 
     dplyr::group_split()
@@ -177,4 +177,3 @@ check_baseline<-function(x) {
   }
   return(baseline)
 }
-

@@ -32,12 +32,12 @@ choose_PSM<-function(x,Frac=Frac,NORM=NORM,CARRIER=CARRIER,subset=subset,baselin
   if(any(names(dplyr::bind_rows(df2)=="Fraction"))){
     df2<-dplyr::bind_rows(df2) %>%
       dplyr::filter(Accession %in%united1$Accession & Annotated_Sequence %in% united1$Annotated_Sequence) %>% 
-      dplyr::group_by(Accession,Annotated_Sequence,sample_name,dataset,Fraction) %>% 
+      dplyr::group_by(Accession,Annotated_Sequence,sample_name,treatment,Fraction) %>% 
       dplyr::group_split()
   }else{
     df2<-dplyr::bind_rows(df2) %>%
       dplyr::filter(Accession %in%united1$Accession & Annotated_Sequence %in% united1$Annotated_Sequence) %>% 
-      dplyr::group_by(Accession,Annotated_Sequence,sample_name,dataset) %>% 
+      dplyr::group_by(Accession,Annotated_Sequence,sample_name,treatment) %>% 
       dplyr::group_split()
   }
   mat_norm<-which(stringr::str_detect(names(df2[[1]]),"Abundance"))
@@ -63,7 +63,7 @@ choose_PSM<-function(x,Frac=Frac,NORM=NORM,CARRIER=CARRIER,subset=subset,baselin
     )
   }
   #convert log2check are now abundance values 
-  df2_<-purrr::map2(df2,check,tryCatch({function(x,y)
+  df2<-purrr::map2(df2,check,tryCatch({function(x,y)
     if(is.na(y[[1]])){
       return(x)
     }else{
@@ -79,8 +79,8 @@ choose_PSM<-function(x,Frac=Frac,NORM=NORM,CARRIER=CARRIER,subset=subset,baselin
   
   check<-NA
   
-  #group data by sample name
-  df2<-dplyr::bind_rows(df2_) %>%
+  #group data by sample_id name
+  df2<-dplyr::bind_rows(df2) %>%
     dplyr::group_by(sample_name) %>%
     dplyr::group_split()
   
@@ -123,7 +123,7 @@ choose_PSM<-function(x,Frac=Frac,NORM=NORM,CARRIER=CARRIER,subset=subset,baselin
         dplyr::mutate(temp_ref = unlist(stringr::str_remove(id,'Abundance.')),
                       value = as.numeric(value))
       return(x1)
-    },mc.cores = availableCores())
+    },mc.cores = future::availableCores())
   }
   # if(any(stringr::str_detect(names(df2[[1]]),"File.ID"))){
   #   df2<-purrr::map(df2,function(x) x %>% dplyr::rename("sample_id"="File.ID"))
@@ -134,7 +134,7 @@ choose_PSM<-function(x,Frac=Frac,NORM=NORM,CARRIER=CARRIER,subset=subset,baselin
   # ggplot(df2,mapping=aes(x=temp_ref,y=value))+geom_boxplot()
   # #
   df2<-dplyr::bind_rows(df2) %>% 
-    dplyr::group_by(Accession,Annotated_Sequence,sample_name,sample_id,dataset) %>%
+    dplyr::group_by(Accession,Annotated_Sequence,sample_name,sample_id,treatment) %>%
     dplyr::distinct() %>% 
     dplyr::group_split()
   #if the sample_name isn't shortened, shorten it
@@ -146,13 +146,13 @@ choose_PSM<-function(x,Frac=Frac,NORM=NORM,CARRIER=CARRIER,subset=subset,baselin
     
   }
   df2<-dplyr::bind_rows(df2) %>% 
-    dplyr::group_by(Accession,sample_name,sample_id,dataset)
+    dplyr::group_by(Accession,sample_name,sample_id,treatment)
   #data is grouped by  protein, bioreplicate and condition to aggregate PSMs to proteins
   united<-df2 %>% 
     dplyr::select(-id) %>% 
     dplyr::filter(!is.na(temp_ref)) %>%
     dplyr::distinct(.) %>% 
-    dplyr::group_by(Accession,Annotated_Sequence,dataset,sample_name,sample_id) %>% 
+    dplyr::group_by(Accession,Annotated_Sequence,treatment,sample_name,sample_id) %>% 
     dplyr::group_split()
   
   
@@ -176,7 +176,7 @@ choose_PSM<-function(x,Frac=Frac,NORM=NORM,CARRIER=CARRIER,subset=subset,baselin
     )
     )
   United<-United %>%
-    dplyr::group_by(Accession,sample_name,dataset) %>%
+    dplyr::group_by(Accession,sample_name,treatment) %>%
     dplyr::group_split()#Split the data to get multiple peptides of the same master protein
   
   #Merge abundances contribution from each sequence back to the data frame
@@ -215,7 +215,7 @@ choose_PSM<-function(x,Frac=Frac,NORM=NORM,CARRIER=CARRIER,subset=subset,baselin
     x %>%
       dplyr::select(-data) %>%
       dplyr::bind_cols(y))
-  #Join all the PSM data together with aggregated abundances and split by method or sample name
+  #Join all the PSM data together with aggregated abundances and split by method or sample_id name
   United<-dplyr::bind_rows(United) %>%
     dplyr::group_by(sample_name) %>%
     dplyr::group_split()
@@ -257,4 +257,3 @@ choose_PSM<-function(x,Frac=Frac,NORM=NORM,CARRIER=CARRIER,subset=subset,baselin
   }
   return(df2)
 }
-

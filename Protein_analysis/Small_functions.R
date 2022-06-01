@@ -1,22 +1,20 @@
 mutate_missing<-function(x){
   if(any(names(x)=="replicate")){
-    x<-x %>%  dplyr::group_by(uniqueID,Annotated_Sequence,dataset,sample_id,replicate) %>%
+    x<-x %>%  dplyr::group_by(uniqueID,Annotated_Sequence,treatment,sample_id,replicate) %>%
       dplyr::mutate(missing_pct=ifelse(all(is.na(.$value)),100,(100*(sum(as.numeric(is.na(.$value))))/nrow(.))))%>% ungroup(.)
     
   }else{
-    x<-x %>%  dplyr::group_by(uniqueID,Annotated_Sequence,dataset,sample_id,Fraction) %>%
+    x<-x %>%  dplyr::group_by(uniqueID,Annotated_Sequence,treatment,sample_id,Fraction) %>%
       dplyr::mutate(missing_pct=ifelse(all(is.na(.$value)),100,(100*(sum(as.numeric(is.na(.$value))))/nrow(.))))%>% ungroup(.)
   }
 }
 
-
 missing_label<-function(x) {
-  x<-x %>% dplyr::group_by(Accession,sample_id,sample_name,dataset) %>%
+  x<-x %>% dplyr::group_by(Accession,sample_id,sample_name,treatment) %>%
     distinct(.) %>% dplyr::mutate(missing=is.na(value),
                                   missing_pct=sum(is.na(value))/nrow(.))
   return(x)
 }
-
 
 
 

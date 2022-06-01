@@ -1,25 +1,7 @@
-set.seed(123)
-
-theme_set(theme_bw())
-
-#' Read in data
-#'
-#' Read in Excel file and apply minimal pre-processing
-#'
-#'
-#' @param  f.  Path of Excel file output from Proteome Discoverer
-#' @return a dataframe containing extracted information
-#'
-#' @importFrom readxl read_excel
-#' @import dplyr
-#' @importFrom tidyr gather
-#' @importFrom stringr stringr::str_extract
-#' @export
-#' 
 read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac=TRUE,CFS=TRUE,solvent="DMSO",CARRIER=TRUE,rank=TRUE,sub=NA,temperatures=temps,baseline="min",NORM="QUANTILE"){
-  #print("printing solvent",solvent)
   file.list<-protein_path
   i=1
+  peptide_path<-as.character(peptide_path)
   protein_path<-as.character(protein_path)
   
   find<-c('[:digit:][:digit:][:digit:][N|C]|126|131')
@@ -38,11 +20,10 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
   #read_PSMs and proteins
   if (.Platform$OS.type=="windows"){
     Proteins<-parallel::mclapply(f,read_xl,solvent=solvent)
-    PSMs<-parallel::mclapply(h,read_xl,solvent=solvent)
+    PSMs<-parallel::mclapply(h,read_xl,solvent=solvent,CFS=CFS)
   }else{
-    PSMs<-parallel::mclapply(h,read_xl,solvent=solvent,mc.cores = availableCores())
+    PSMs<-parallel::mclapply(h,read_xl,solvent=solvent,CFS=CFS,mc.cores = availableCores())
   }
-  
   
   if(any(stringr::str_detect(Peptide,c("PG","PSMs")))){
     
@@ -53,7 +34,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
     }
     
     if (Peptide=="PSMs"){ #if this is a PSM file
-      #split PSM subset into lists by way of sample name
+      #split PSM subset into lists by way of sample_id name
       PSMs<-dplyr::bind_rows(PSMs) %>% dplyr::group_split(sample_name)
       
       #only select abundance columns
@@ -72,12 +53,12 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
           #}
           x<-x %>%
             dplyr::ungroup() %>%
-            dplyr::group_by(Accession,Annotated_Sequence,dataset,Fraction,sample_id) %>% 
+            dplyr::group_by(Accession,Annotated_Sequence,treatment,Fraction,sample_id) %>% 
             dplyr::group_split()
         }else{
           x<-x %>%
             dplyr::ungroup() %>%
-            dplyr::group_by(Accession,Annotated_Sequence,dataset,sample_id)%>% 
+            dplyr::group_by(Accession,Annotated_Sequence,treatment,sample_id)%>% 
             dplyr::group_split()
         }
         x<-lapply(x,function(y)tryCatch(
@@ -98,7 +79,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
             return(NA)
           },
           finally={
-            message("Scaling factor calculated per protein,annotated sequence and dataset")
+            message("Scaling factor calculated per protein,annotated sequence and treatment")
           }
         )
         )
@@ -106,14 +87,14 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
         return(x)
       }
       )
-      #if any data has the bioreplicate number, truncate the sample name contents
+      #if any data has the bioreplicate number, truncate the sample_id name contents
       if(any(stringr::str_detect(unique(dplyr::bind_rows(df2)$sample_name),"_[[:digit:]]+"))){
         df2<-dplyr::bind_rows(df2) %>%
           dplyr::mutate(
             sample_name=stringr::str_remove(.$sample_name,"_[[:digit:]]+_"))
       }
       df2<-dplyr::bind_rows(df2) %>% 
-        dplyr::group_by(dataset,sample_name) %>% 
+        dplyr::group_by(treatment,sample_name) %>% 
         dplyr::group_split()
       
       df2<-purrr::map(df2,function(x) choose_PSM(x,
@@ -128,11 +109,12 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
       )
       
       df2<-df2 %>% purrr::keep(function(x) any(class(x)=="data.frame"))
-      #make sure the data is ready to be processed by sample name
-      df2<-dplyr::bind_rows(df2) %>% 
-        dplyr::group_by(sample_name) %>%
-        dplyr::group_split(.)
-      
+      #make sure the data is ready to be processed by sample_id name
+      if(any(names(df2)=="sample_name")){
+        df2<-dplyr::bind_rows(df2) %>% 
+          dplyr::group_by(sample_name) %>%
+          dplyr::group_split(.)
+      }
       if(any(stringr::str_detect(names(df2[[1]]),"Accession"))){
         df2<-dplyr::bind_rows(df2) %>% dplyr::rename("uniqueID"="Accession")
       }
@@ -157,8 +139,8 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
         tidylog::pivot_longer(cols=colnames(df2)[stringr::str_detect(colnames(df2),"Abundances")],
                               names_to = "id",
                               values_to ="value") %>% 
-        dplyr::mutate(dataset= ifelse(stringr::str_detect(.$Spectrum.File,"DMSO"),"vehicle","treated"),
-                      CC= ifelse(stringr::str_detect(.$Spectrum.File,"DMSO"),0,1),
+        dplyr::mutate(treatment= ifelse(stringr::str_detect(.$Spectrum.File,solvent),"vehicle","treated"),
+                      CC= ifelse(stringr::str_detect(.$Spectrum.File,solvent),0,1),
                       sample_id = stringr::str_extract(.$id,"[[:upper:]]+[[:digit:]]+"),
                       temp_ref = stringr::str_extract(.$id,"[:digit:][:digit:][:digit:][N|C]|126|131"),
                       value = as.numeric(value),
@@ -177,16 +159,17 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
       }
       #first get Peptide group file read
       if (.Platform$OS.type=="windows"){
-        df.raw<-parallel::mclapply(f,read_xl,solvent=solvent)
+        df.raw<-parallel::mclapply(f,read_xl,solvent=solvent,CFS=CFS)
       }else{
-        df.raw<-parallel::mclapply(f,read_xl, solvent=solvent,mc.cores = availableCores())
+        df.raw<-parallel::mclapply(f,read_xl, solvent=solvent,CFS=CFS,mc.cores = availableCores())
       }
       #get row number for peptide groups in case of batch files present
       df.raw1<-purrr::map2(df.raw,seq(df.raw),function(x,y) x %>% dplyr::mutate(n=y))
       #names<-purrr::map2(df.raw,f,function(x,y) ifelse(length(names(x))<45,warning(paste0("Please check the columns on file names",y)),print("All files have all necessary columns")))
       df.raw<-dplyr::bind_rows(df.raw1)
       
- 
+      
+      
       PG<-read_PD(df.raw,solvent=solvent)#read in peptide groups
       
       PSMs<- furrr::future_map(PSMs,function(x) x %>%
@@ -284,26 +267,26 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
     #Pivot longer
     if(isTRUE(Frac)){
       Proteins <- Proteins %>% 
-        dplyr::mutate(CC = ifelse(stringr::str_detect(Spectrum.File,"DMSO"),0,1),
-                      dataset = ifelse(stringr::str_detect(Spectrum.File,"DMSO"),"vehicle","treated"),
+        dplyr::mutate(CC = ifelse(stringr::str_detect(Spectrum.File,solvent),0,1),
+                      treatment = ifelse(stringr::str_detect(Spectrum.File,solvent),"vehicle","treated"),
                       sample_name = ifelse(length(unique(.$sample_id))==4,
                                            unique(stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+"))[2],
                                            stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+")))
-      Proteins$treatment<-as.factor(Proteins$dataset)
+      Proteins$treatment<-as.factor(Proteins$treatment)
     }else{#if this isnt fractionated
       Proteins <- Proteins %>%  
-        dplyr::mutate(CC = ifelse(stringr::str_detect(Spectrum.File,"DMSO"),0,1),
-                      dataset = ifelse(stringr::str_detect(Spectrum.File,"DMSO"),"vehicle","treated"),
+        dplyr::mutate(CC = ifelse(stringr::str_detect(Spectrum.File,solvent),0,1),
+                      treatment = ifelse(stringr::str_detect(Spectrum.File,solvent),"vehicle","treated"),
                       sample_name = ifelse(length(unique(.$sample_id))==4,
                                            unique(stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+"))[2],
                                            stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+")))
       
-      Proteins$treatment<-as.factor(Proteins$dataset)
+      Proteins$treatment<-as.factor(Proteins$treatment)
     }
     
     
-    Proteins<-dplyr::bind_rows(Proteins) %>% dplyr::group_split(Accession,sample_id,sample_name,dataset) 
-  
+    Proteins<-dplyr::bind_rows(Proteins) %>% dplyr::group_split(Accession,sample_id,sample_name,treatment) 
+    
     if (.Platform$OS.type=="windows"){
       Proteins<-parallel::mclapply(Proteins,missing_label)
     }else{
