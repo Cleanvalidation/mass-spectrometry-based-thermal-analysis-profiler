@@ -4809,13 +4809,13 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
   #   df<-purrr::map(df,function(x) dplyr::bind_rows(x) %>% dplyr::group_split(uniqueID,time_point))
   # }
   fit_gam<-function(x){
-    y = x %>% dplyr::filter(!is.infinite(I)) %>% dplyr::mutate(M1 = list(tryCatch(mgcv::gam(x$I ~ s(x$C,by = treatment,k=5), data = x , method = "REML"),
+    y = x %>% dplyr::filter(!is.infinite(I)) %>% dplyr::mutate(M1 = list(tryCatch(mgcv::gam(x$I ~ s(x$C,by = treatment,k=5), data = x , method = "REML",optimizer="efs"),
                                                                                   error = function(cond) {
                                                                                     message("Here's the original error message:")
                                                                                     message(cond)
                                                                                     # Choose a return value in case of error
                                                                                     return(NA)})),
-                                                               M2 = list(tryCatch(mgcv::gam(x$I ~ s(x$C,by = treatment,k=6), data = x , method = "REML"),
+                                                               M2 = list(tryCatch(mgcv::gam(x$I ~ s(x$C,by = treatment,k=5)+treatment, data = x , method = "REML",optimizer="efs"),
                                                                                   error = function(cond) {
                                                                                     message("Here's the original error message:")
                                                                                     message(cond)
@@ -4824,7 +4824,22 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
     )
     return(y)
   }
-  
+  fit_scam<-function(x){
+    y = x %>% dplyr::filter(!is.infinite(I)) %>% dplyr::mutate(M1 = list(tryCatch(scam::scam(x$I ~ s(x$C,by = treatment,k=5,bs="mpd"), data = x , method = "REML",optimizer="efs"),
+                                                                                  error = function(cond) {
+                                                                                    message("Here's the original error message:")
+                                                                                    message(cond)
+                                                                                    # Choose a return value in case of error
+                                                                                    return(NA)})),
+                                                               M2 = list(tryCatch(scam::scam(x$I ~ s(x$C,by = treatment,k=6,bs="mpd")+treatment, data = x , method = "REML",optimizer="efs"),
+                                                                                  error = function(cond) {
+                                                                                    message("Here's the original error message:")
+                                                                                    message(cond)
+                                                                                    # Choose a return value in case of error
+                                                                                    return(NA)}))
+    )
+    return(y)
+  }
   populate_fit<-function(x) {
     if(any(stringr::str_detect(names(x),"File.ID"))&!any(names(x)=="sample_id")){
       x<-x %>% dplyr::rename("sample_id"="File.ID")
