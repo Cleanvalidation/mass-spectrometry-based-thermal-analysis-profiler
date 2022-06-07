@@ -434,21 +434,25 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
         df2<-df2 %>% dplyr::rename("uniqueID"="Protein.Accessions")
       }
       #df2 is PSM data
-      df2<-df2 %>%
+      df2<-dplyr::bind_rows(df2) %>%
         dplyr::group_by(sample_name) %>%
         dplyr::group_split()
       
-      
+      mutate_missing<-function(x){
+        if(any(names(x)=="replicate")){
+          x<-x %>%  dplyr::group_by(uniqueID,Annotated_Sequence,treatment,sample_id,replicate) %>%
+            dplyr::mutate(missing_pct=ifelse(all(is.na(.$value)),100,(100*(sum(as.numeric(is.na(.$value))))/nrow(.))))%>% ungroup(.)
+          
+        }else{
+          x<-x %>%  dplyr::group_by(uniqueID,Annotated_Sequence,treatment,sample_id,Fraction) %>%
+            dplyr::mutate(missing_pct=ifelse(all(is.na(.$value)),100,(100*(sum(as.numeric(is.na(.$value))))/nrow(.))))%>% ungroup(.)
+        }
+      }
       df2<-furrr::future_map(df2,function(x) mutate_missing(x))
       df2<-dplyr::bind_rows(df2)
       df2<-df2 %>% 
-        tidylog::pivot_longer(cols=colnames(df2)[stringr::str_detect(colnames(df2),"[:digit:][:digit:][:digit:][N|C]|126|131")],
-                              names_to = "id",
-                              values_to ="value") %>% 
         dplyr::mutate(treatment= ifelse(stringr::str_detect(.$Spectrum.File,solvent),"vehicle","treated"),
                       CC= ifelse(stringr::str_detect(.$Spectrum.File,solvent),0,1),
-                      sample_id = stringr::str_extract(.$id,"[[:upper:]]+[[:digit:]]+"),
-                      temp_ref = stringr::str_extract(.$id,"[:digit:][:digit:][:digit:][N|C]|126|131"),
                       value = as.numeric(value),
                       sample_name = ifelse(length(unique(.$sample_id))==4,
                                            unique(stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+"))[2],
