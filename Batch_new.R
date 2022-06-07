@@ -313,7 +313,9 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
     
     if(!is.na(sub)&any(class(sub)=="numeric")){#if there's only a subset of PSMs
       n<-as.numeric(sub)
-      PSMs<-PSMs %>% dplyr::group_by(Accession) %>% group_split()
+      PSMs<-dplyr::bind_rows(PSMs) %>%
+        dplyr::group_by(Protein.Accessions) %>%
+        group_split()
       #subset a set number of PSMs
       PSMs<-PSMs[1:n]
     }else if(is.na(sub)){
