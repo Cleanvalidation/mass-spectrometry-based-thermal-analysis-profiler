@@ -1,3 +1,11 @@
+source('Libraries.R')
+source('Rcpp_quantile.R')
+source('Datapreprocessing.R')
+source('Normalize_cetsa.R')
+source('statistics_cetsa.R')
+memory.limit(175921900000)#set for 16 GB RAM
+plan(multicore,workers=availableCores())
+options(future.globals.maxSize = 8000 * 1024^2)
 
 df.t <- function(n,temperatures,protein_path,sample_mapping_name=NA){
   if(!is.logical(sample_mapping_name)){
@@ -21,6 +29,5 @@ df.t <- function(n,temperatures,protein_path,sample_mapping_name=NA){
 
 
 df.temps<-df.t(11,temperatures=c(37.3, 40.6, 43.9, 47.2, 50.5, 53.8, 57.1, 60.4, 64, 67,68))
-df_raw <- read_cetsa("C:/Users/tushi/OneDrive/Desktop/Project","C:/Users/tushi/OneDrive/Desktop/Project","_Proteins",Peptide="PG",Frac=TRUE,CFS=FALSE,solvent="Control",CARRIER=FALSE,rank=TRUE,sub=NA,temperatures=df.temps,baseline="min",NORM="QUANTILE")
-
+df_raw <- read_cetsa("C:/Users/tushi/OneDrive/Desktop/Project","C:/Users/tushi/OneDrive/Desktop/Project","_Proteins",Peptide="PG",Frac=TRUE,CFS=FALSE,solvent="Control",CARRIER=FALSE,rank=TRUE,sub=50,temperatures=df.temps,baseline="min",NORM="QUANTILE")
 
