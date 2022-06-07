@@ -185,6 +185,11 @@ Get_FDR<-function(og_pvals,operm,alpha,B){
   V_est = sum(length(pj_b[pj_b<alpha]),na.rm=TRUE)/B #null hypothesis
   #compute plug-in FDR for a two-sample t-test
   FDR = V_est/R
-  return(FDR)
+  FDR=round(FDR,3)
+  df = data.frame(FDR=FDR,alpha=alpha,B=B)
+  return(df)
 }
-Get_FDR(og_pvals,operm,0.05,10)
+FDR_0_05<-Get_FDR(og_pvals,operm,0.05,10)
+FDR_0_01<-Get_FDR(og_pvals,operm,0.01,10)
+
+FDR_df<-rbind(FDR_0_01,FDR_0_05)
