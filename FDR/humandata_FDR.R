@@ -20,26 +20,27 @@ filter_good_data = function(data){
   return(good_data)
 }
 
-humandata = readRDS("All_Proteins_Human_dataset.rds")
-humandata_good = humandata |> filter_good_data()
-ct = humandata_good |> group_by(Accession) |> summarise(n=n(),ntmt=length(unique(treatment)))
-min(ct$n) #check filters
-min(ct$ntmt)
+humandata = readRDS("All_Proteins_Human_dataset.RDS")
+humandata_good = humandata |> filter_good_data() 
+# ct = humandata_good |> group_by(Accession) |> summarise(n=n(),ntmt=length(unique(treatment)))
+# min(ct$n) #check filters
+# min(ct$ntmt)
 
 
 ground_truth_data = readRDS("Ground_truth_Human_dataset.rds")
 ground_truth_data_good = ground_truth_data |> filter_good_data()
 
-bothdata_good = bind_rows(humandata_good,ground_truth_data_good)
+bothdata_good_ = bind_rows(humandata_good,ground_truth_data_good) 
+bothdata_good_filtered = bind_rows(humandata_good,ground_truth_data_good) %>% dplyr::filter(confidence=="high"&Protein.FDR.Confidence.Combined=="High")
 rm(humandata_good,humandata)
 
 
 #a = ground_truth_data |> filter(Accession=="P36507") #Bad: O60330,O43805,O43829 #Good: P3607, Q02750
-a = bothdata_good |> filter(Accession=="O60306")
-asplit = a |> group_split(temperature)
-
-ground_truth_split = ground_truth_data_good |> group_split(Accession,temperature)
-
+# a = bothdata_good |> filter(Accession=="O60306")
+# asplit = a |> group_split(temperature)
+# 
+# ground_truth_split = ground_truth_data_good |> group_split(Accession,temperature)
+# 
 
 
 fit_scam_nlm = function(accession_data){
@@ -166,23 +167,24 @@ compute_permutation_null_dist = function(fulldata,workers=8,runs=10){
 system.time(gpermuted <- permute_treatment_within_group(ground_truth_split))
 
 accessions = unique(bothdata_good$Accession)
-
-partialbothdata_good = bothdata_good |> filter(Accession %in% accessions[1:300]) #just to test initially 
-
-accessions[290:295] #this had the bad range
+# 
+# partialbothdata_good = bothdata_good |> filter(Accession %in% accessions[1:300]) #just to test initially 
+# 
+# accessions[290:295] #this had the bad range
 
 start=proc.time()
 og_pvals = compute_pvalues_df(bothdata_good)
 end=proc.time()
 print(end-start)
 
-og_pvals |> filter(is.na(p.value))
-
-
-start=proc.time()
-operm = compute_permutation_null_dist(bothdata_good,runs=1) #1 run to test for now
-end=proc.time()
-print(end-start)
-
-
-## TO DO: original NA p value proteins should also not be considered in the permutation, and should be filtered out first. 
+Get_FDR<-function(og_pvals,operm,alpha,B){
+  pj<-og_pvals
+  pj_b<-operm
+  #get parameters for FDR for a two-sample t-test
+  R = sum(nrow(pj[pj$p.value<alpha,]),na.rm=TRUE) #alternative
+  V_est = sum(length(pj_b[pj_b<alpha]),na.rm=TRUE)/B #null hypothesis
+  #compute plug-in FDR for a two-sample t-test
+  FDR = V_est/R
+  return(FDR)
+}
+Get_FDR(og_pvals,operm,0.05,10)
