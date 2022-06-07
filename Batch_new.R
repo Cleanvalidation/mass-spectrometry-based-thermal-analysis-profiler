@@ -173,7 +173,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
         df2<-df2 %>% dplyr::mutate(sample_name=paste0(ifelse(stringr::str_detect(Spectrum.File,"NOcarrier")==TRUE,"nC",ifelse(stringr::str_detect(Spectrum.File,"carrier")==TRUE,"C",NA)),'_',
                                                       ifelse(stringr::str_detect(Spectrum.File,"NO_FAIMS")==TRUE,"nF",ifelse(stringr::str_detect(Spectrum.File,"r_FAIMS")==TRUE,"F",NA)),'_',
                                                       ifelse(stringr::str_detect(Spectrum.File,"S_eFT")==TRUE,"E",ifelse(stringr::str_detect(Spectrum.File,"S_Phi")==TRUE,"S",NA))),
-                                   dataset=ifelse(stringr::str_detect(Spectrum.File,solvent),"vehicle","treated"),
+                                   treatment=ifelse(stringr::str_detect(Spectrum.File,solvent),"vehicle","treated"),
                                    CC=ifelse(stringr::str_detect(Spectrum.File,solvent),0,1))
         if(any(stringr::str_detect(df2$File.ID,"."))){
           df2<-df2 %>% dplyr::mutate(Fraction=stringr::str_remove(.$File.ID,"[[:upper:]]+[[:digit:]]+."),
@@ -184,7 +184,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
         
       }else{#if this experiment does not have Carrier FAIMS and PhiSDM involved shorten he file names
         df2<-df2 %>% dplyr::mutate(
-          dataset=ifelse(stringr::str_detect(Spectrum.File,solvent),"vehicle","treated"),
+          treatment=ifelse(stringr::str_detect(Spectrum.File,solvent),"vehicle","treated"),
           sample_name = ifelse(stringr::str_detect(Spectrum.File,solvent),solvent,stringr::str_extract(stringr::str_to_lower(Spectrum.File),"[[:lower:]]+_[[:digit:]]+_")),
           CC=ifelse(stringr::str_detect(Spectrum.File,solvent),0,1))
         if(any(stringr::str_detect(df2$File.ID,"."))){
@@ -291,7 +291,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
       tidylog::pivot_longer(cols=colnames(df2)[stringr::str_detect(colnames(df2),"[:digit:][:digit:][:digit:][N|C]|126|131")],
                             names_to = "id",
                             values_to ="value") %>% 
-      dplyr::mutate(dataset=ifelse(stringr::str_detect(.$id,solvent),"vehicle","treated"),
+      dplyr::mutate(treatment=ifelse(stringr::str_detect(.$id,solvent),"vehicle","treated"),
                     CC=ifelse(stringr::str_detect(.$id,solvent),0,1),
                     sample_id = stringr::str_extract(.$id,"F[[:digit:]]+"),
                     temp_ref = unlist(stringr::str_extract(.$id,"[:digit:][:digit:][:digit:][N|C]|126|131")),
