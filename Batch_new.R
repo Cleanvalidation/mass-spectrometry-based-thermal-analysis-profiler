@@ -9838,44 +9838,7 @@ medianPolish <- function(intensities, num_channels){
   tmp_fit$overall + tmp_fit$col
 }
 
-#Renaming the protein, peptide, psms
-
-
-
-#create a function to parallelize gam fits
-
-###############################
-memory.limit(175921900000)#set for 16 GB RAM
-plan(multicore,workers=future::availableCores())
-options(future.globals.maxSize = 8000 * 1024^2)
-##################################
-#benchmark data with TPP
-#hi<-purrr::map(df_norm1[2],function(x) try(runTPP(x,df.temps)))
-
-df.temps<-df.t(11,temperatures=c(37.3, 40.6, 43.9, 47.2, 50.5, 53.8, 57.1, 60.4, 64, 67,68))
-
-# #Zebra
-df.temps<-df.t(10,temperatures=c(34,37.3,40.6,43.9,47.2,50.5,53.8,57.1,60.4,64))
-df.temps$temperature<-df.temps$temperature[order(df.temps$temperature,decreasing=TRUE)]
-# #Covid
-df.temps<-df.t(16,temperatures=NA,sample_mapping_name="sample_mapping.xlsx")
-
-df_raw <- read_cetsa("E:/Zebrafish","E:/Zebrafish","_Proteins",Peptide="PSMs",Frac=TRUE,CFS=FALSE,solvent="Control",CARRIER=FALSE,rank=TRUE,sub=10,temperatures=df.temps,baseline="min",NORM="QUANTILE",keep_shared_proteins=FALSE)     
-df_raw <- read_cetsa("/work/ivanovlab/figueroa-navedo.a/Scripts/Files/Zebra/Napabucasin/Trembl","/work/ivanovlab/figueroa-navedo.a/Scripts/Files/Zebra/Napabucasin/Trembl","_Proteins",Peptide="PSMs",Frac=TRUE,CFS=FALSE,solvent="Control",CARRIER=FALSE,rank=TRUE,sub="Filter",temperatures=df.temps,baseline="min",NORM="QUANTILE",keep_shared_proteins=FALSE)     
-
-df_raw <- read_cetsa("~/Files/Scripts/Files/Covid","~/Files/Scripts/Files/Covid","_Proteins",Peptide=FALSE,CFS=FALSE,Frac=TRUE,solvent="AM",CARRIER=FALSE,rank=TRUE,sub=NA,temperatures=df.temps,baseline="min",NORM="QUANTILE",keep_shared_proteins==FALSE)                                                              
-df_raw <- read_cetsa("~/CS7290/Protein_analysis","~/CS7290/Protein_analysis","_Proteins",Peptide="PG",CFS=TRUE,Frac=TRUE,solvent="Control",CARRIER=FALSE,rank=FALSE,sub=1000,temperatures=df.temps,baseline="min",NORM="QUANTILE",keep_shared_proteins==FALSE)                                                              
-
-df_raw <- read_cetsa("/work/ivanovlab/figueroa-navedo.a/Scripts/Files/2.4/CFS_vs_CFE/Fractions_I/Shared",
-                     "/work/ivanovlab/figueroa-navedo.a/Scripts/Files/2.4/CFS_vs_CFE/Fractions_I/Shared",
-                     Prot_Pattern = "_Proteins",Peptide="PSMs",Frac=TRUE,solvent="DMSO",CARRIER=TRUE,
-                     CFS=TRUE,rank=TRUE,sub=NA,temperatures=df.temps,baseline="min",NORM="QUANTILE",
-                     keep_shared_proteins=FALSE)                                      
-
-
-#df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS/Unshared","~/Files/Scripts/Files/CONSENSUS/Unshared","_Proteins",Peptide=FALSE,Frac=FALSE,solvent="DMSO",CARRIER=TRUE)                                                              
-#df_raw <- read_cetsa("~/CONSENSUS11","~/CONSENSUS11","_Proteins",Peptide=FALSE,Frac=FALSE,solvent="DMSO")                                                              
-#saveRDS(df_raw,"df_raw.RDS")
+#filter peptides and PSMs
 filter_Peptides<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm,Occupancy,filter_rank=FALSE,keep_shared_proteins=FALSE,CFS=TRUE,Frac=FALSE){
   
   if(!any(names(df_)=="Accession")){
@@ -10006,6 +9969,43 @@ filter_Peptides<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm,
   return(df_)
   
 }
+
+
+
+#create a function to parallelize gam fits
+
+###############################
+memory.limit(175921900000)#set for 16 GB RAM
+plan(multicore,workers=future::availableCores())
+options(future.globals.maxSize = 8000 * 1024^2)
+##################################
+#benchmark data with TPP
+#hi<-purrr::map(df_norm1[2],function(x) try(runTPP(x,df.temps)))
+
+df.temps<-df.t(11,temperatures=c(37.3, 40.6, 43.9, 47.2, 50.5, 53.8, 57.1, 60.4, 64, 67,68))
+
+# #Zebra
+df.temps<-df.t(10,temperatures=c(34,37.3,40.6,43.9,47.2,50.5,53.8,57.1,60.4,64))
+df.temps$temperature<-df.temps$temperature[order(df.temps$temperature,decreasing=TRUE)]
+# #Covid
+df.temps<-df.t(16,temperatures=NA,sample_mapping_name="sample_mapping.xlsx")
+
+df_raw <- read_cetsa("E:/Zebrafish","E:/Zebrafish","_Proteins",Peptide="PSMs",Frac=TRUE,CFS=FALSE,solvent="Control",CARRIER=FALSE,rank=TRUE,sub=10,temperatures=df.temps,baseline="min",NORM="QUANTILE",keep_shared_proteins=FALSE)     
+df_raw <- read_cetsa("/work/ivanovlab/figueroa-navedo.a/Scripts/Files/Zebra/Napabucasin/Trembl","/work/ivanovlab/figueroa-navedo.a/Scripts/Files/Zebra/Napabucasin/Trembl","_Proteins",Peptide="PSMs",Frac=TRUE,CFS=FALSE,solvent="Control",CARRIER=FALSE,rank=TRUE,sub="Filter",temperatures=df.temps,baseline="min",NORM="QUANTILE",keep_shared_proteins=FALSE)     
+
+df_raw <- read_cetsa("~/Files/Scripts/Files/Covid","~/Files/Scripts/Files/Covid","_Proteins",Peptide=FALSE,CFS=FALSE,Frac=TRUE,solvent="AM",CARRIER=FALSE,rank=TRUE,sub=NA,temperatures=df.temps,baseline="min",NORM="QUANTILE",keep_shared_proteins==FALSE)                                                              
+df_raw <- read_cetsa("~/CS7290/Protein_analysis","~/CS7290/Protein_analysis","_Proteins",Peptide="PG",CFS=TRUE,Frac=TRUE,solvent="Control",CARRIER=FALSE,rank=FALSE,sub=1000,temperatures=df.temps,baseline="min",NORM="QUANTILE",keep_shared_proteins==FALSE)                                                              
+
+df_raw <- read_cetsa("/work/ivanovlab/figueroa-navedo.a/Scripts/Files/2.4/CFS_vs_CFE/Fractions_I/Shared",
+                     "/work/ivanovlab/figueroa-navedo.a/Scripts/Files/2.4/CFS_vs_CFE/Fractions_I/Shared",
+                     Prot_Pattern = "_Proteins",Peptide="PSMs",Frac=TRUE,solvent="DMSO",CARRIER=TRUE,
+                     CFS=TRUE,rank=TRUE,sub="Filter",temperatures=df.temps,baseline="min",NORM="QUANTILE",
+                     keep_shared_proteins=FALSE)                                      
+
+
+#df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS/Unshared","~/Files/Scripts/Files/CONSENSUS/Unshared","_Proteins",Peptide=FALSE,Frac=FALSE,solvent="DMSO",CARRIER=TRUE)                                                              
+#df_raw <- read_cetsa("~/CONSENSUS11","~/CONSENSUS11","_Proteins",Peptide=FALSE,Frac=FALSE,solvent="DMSO")                                                              
+#saveRDS(df_raw,"df_raw.RDS")
 
 ####Zebra
 df_raw1<-furrr::future_map(df_raw,function(x) try(filter_Peptides(x,20,0.01,2.3,30,2,1,7,5,80,filter_rank=FALSE,keep_shared_proteins=FALSE,CFS=FALSE,Frac=TRUE)))
