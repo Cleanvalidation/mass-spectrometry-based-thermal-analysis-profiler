@@ -4807,13 +4807,13 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
   #   df<-purrr::map(df,function(x) dplyr::bind_rows(x) %>% dplyr::group_split(uniqueID,time_point))
   # }
   fit_gam<-function(x){
-    y = x %>% dplyr::filter(!is.infinite(I)) %>% dplyr::mutate(M1 = list(tryCatch(mgcv::gam(x$I ~ s(x$C,by = treatment,k=5), data = x , method = "REML"),
+    y = x %>% dplyr::filter(!is.infinite(I)) %>% dplyr::mutate(M1 = list(tryCatch(mgcv::gam(x$I ~ s(x$C,by = treatment,k=5), data = x , method = "REML",optimizer="efs"),
                                                                                   error = function(cond) {
                                                                                     message("Here's the original error message:")
                                                                                     message(cond)
                                                                                     # Choose a return value in case of error
                                                                                     return(NA)})),
-                                                               M2 = list(tryCatch(mgcv::gam(x$I ~ s(x$C,by = treatment,k=6), data = x , method = "REML"),
+                                                               M2 = list(tryCatch(mgcv::gam(x$I ~ s(x$C,by = treatment,k=6), data = x , method = "REML",optimizer="efs"),
                                                                                   error = function(cond) {
                                                                                     message("Here's the original error message:")
                                                                                     message(cond)
@@ -4842,6 +4842,7 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
                                                    missing_pct=ifelse(any(names(x)=="missing_pct"),.$missing_pct[1],NA),
                                                    replicate=replicate) %>% 
                     dplyr::ungroup(.))
+    y=dplyr::bind_rows(y)
     
     return(y)
   }
@@ -4862,13 +4863,18 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
   }else{
     m <- parallel::mclapply(m,populate_fit,mc.cores = future::availableCores())
   }
-  
-  if(any(names(m[[1]])=="Annotated_Sequence")){
+  if(any(names(m[[1]])=="Annotated_Sequence")&any(names(m[[1]])=="replicate")){
     m<-dplyr::bind_rows(m) %>%
       dplyr::group_split(uniqueID,Annotated_Sequence,treatment,sample_id,replicate)
-  }else{
+  }else if(any(names(m[[1]])=="uniqueID")&any(names(m[[1]])=="replicate")){
     m<-dplyr::bind_rows(m) %>%
       dplyr::group_split(uniqueID,treatment,sample_id,replicate)
+  }else if (any(names(m[[1]])=="Annotated_Sequence")&any(names(m[[1]])=="Fraction")){
+    m<-dplyr::bind_rows(m) %>%
+      dplyr::group_split(uniqueID,Annotated_Sequence,treatment,sample_id,Fraction)
+  }else if (any(names(m[[1]])=="uniqueID")&any(names(m[[1]])=="Fraction")){
+    m<-dplyr::bind_rows(m) %>%
+      dplyr::group_split(uniqueID,treatment,sample_id,Fraction)
   }
   
   m<-purrr::map(m,function(x)x %>%  
@@ -4891,12 +4897,18 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
   }else{
     m1 <-parallel::mclapply(m1,populate_fit,mc.cores = future::availableCores())
   }
-  if(any(names(m1[[1]])=="Annotated_Sequence")){
+  if(any(names(m1[[1]])=="Annotated_Sequence")&any(names(m1[[1]])=="replicate")){
     m1<-dplyr::bind_rows(m1) %>%
       dplyr::group_split(uniqueID,Annotated_Sequence,treatment,sample_id,replicate)
-  }else{
+  }else if(any(names(m1[[1]])=="uniqueID")&any(names(m1[[1]])=="replicate")){
     m1<-dplyr::bind_rows(m1) %>%
       dplyr::group_split(uniqueID,treatment,sample_id,replicate)
+  }else if (any(names(m1[[1]])=="Annotated_Sequence")&any(names(m1[[1]])=="Fraction")){
+    m1<-dplyr::bind_rows(m1) %>%
+      dplyr::group_split(uniqueID,Annotated_Sequence,treatment,sample_id,Fraction)
+  }else if (any(names(m1[[1]])=="uniqueID")&any(names(m1[[1]])=="Fraction")){
+    m1<-dplyr::bind_rows(m1) %>%
+      dplyr::group_split(uniqueID,treatment,sample_id,Fraction)
   }
   
   m1<-purrr::map(m1,function(x)x %>%  
@@ -4922,14 +4934,19 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
   if(length(mn)==0){
     warning("No fits were possible for the null treatment")
   }else{
-    if(any(names(mn[[1]])=="Annotated_Sequence")){
+    if(any(names(mn[[1]])=="Annotated_Sequence")&any(names(mn[[1]])=="replicate")){
       mn<-dplyr::bind_rows(mn) %>%
         dplyr::group_split(uniqueID,Annotated_Sequence,treatment,sample_id,replicate)
-    }else{
+    }else if(any(names(mn[[1]])=="uniqueID")&any(names(mn[[1]])=="replicate")){
       mn<-dplyr::bind_rows(mn) %>%
         dplyr::group_split(uniqueID,treatment,sample_id,replicate)
+    }else if (any(names(mn[[1]])=="Annotated_Sequence")&any(names(mn[[1]])=="Fraction")){
+      mn<-dplyr::bind_rows(mn) %>%
+        dplyr::group_split(uniqueID,Annotated_Sequence,treatment,sample_id,Fraction)
+    }else if (any(names(mn[[1]])=="uniqueID")&any(names(mn[[1]])=="Fraction")){
+      mn<-dplyr::bind_rows(mn) %>%
+        dplyr::group_split(uniqueID,treatment,sample_id,Fraction)
     }
-    
     mn<-purrr::map(mn,function(x)x %>%  
                      dplyr::mutate(fitted_values=list(data.frame(temperature=x$M1[[1]]$model$`x$C`,I=x$M1[[1]]$fitted.values))))
   }
@@ -5036,55 +5053,62 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
   mean1_1<-mean1_1 %>% dplyr::group_split(uniqueID)
   mean3<-mean3 %>% dplyr::group_split(uniqueID)
   
-  #Cliff
-  results<-dplyr::bind_rows(mean1,mean1_1,mean3) %>%
-    dplyr::group_split(uniqueID,replicate)
-  results<-purrr::map(results,function(x) x %>%
-                        dplyr::mutate(dTm=x[which(x$treatment=="treated"),]$Tm[1]-x[which(x$treatment=="vehicle"),]$Tm[1]))
+  #combine vehicle and treated data to calculate dTm values
   
-  #only keep data with vehicle and treated values
-  results<-dplyr::bind_rows(results) %>%
-    dplyr::group_by(uniqueID,replicate) %>%
-    dplyr::group_split(.)
-  #make sure we keep proteins with both treated and vehicle data
-  results<-results%>%
-    purrr::keep(function(x) length(unique(x$treatment))>1)
-  if(!isTRUE(Peptide)){
-    results_<-dplyr::bind_rows(results) %>% dplyr::group_split(uniqueID,sample_name,replicate)
-    results_<-results_ %>% purrr::keep(function(x) nrow(x)>1)
-    results_<-purrr::map(results_,function(x) x %>%dplyr::group_by(replicate) %>% dplyr::mutate(dTm=(.$Tm[which(.$treatment=="treated")]-.$Tm[which(.$treatment=="vehicle")])))
-  }else{#if this is a peptide file,calculate dTm for each PSM
+  if(isTRUE(Peptide)){
+    results<-dplyr::bind_rows(mean1,mean1_1) %>% dplyr::filter(!is.na(Tm))
     results_<-dplyr::bind_rows(results) %>%
-      dplyr::select(uniqueID,Annotated_Sequence,sample_name,sample_id,treatment,C,I,replicate) %>%
-      distinct(.) %>% dplyr::group_split(uniqueID,Annotated_Sequence,sample_name,sample_id)
+      dplyr::select(uniqueID,Annotated_Sequence,sample_name,sample_id,treatment,C,I,Tm) %>%
+      dplyr::group_by(uniqueID,sample_name) %>% 
+      distinct(.) %>% dplyr::group_split()
+    results_<-results_ %>% purrr::keep(function(x) nrow(x)>1&length(unique(x$sample_id))>3)
+    results_<-purrr::map(results_,function(x) x %>% dplyr::mutate(dTm=(mean(x$Tm[x$treatment=="treated"],na.rm=TRUE)-mean(x$Tm[x$treatment=="vehicle"],na.rm=TRUE))))
     
-    results_<-dplyr::bind_rows(results_) %>%dplyr::group_split(uniqueID,replicate)
-    results_<-purrr::map(results_,function(x) x %>% dplyr::mutate(dTm=(.$Tm[.$treatment=="treated"][1]-.$Tm[.$treatment=="vehicle"][1])))
+  }else if(!isTRUE(Peptide)){
+    results<-dplyr::bind_rows(mean1,mean1_1)  %>% dplyr::filter(!is.na(Tm))
+    results_<-dplyr::bind_rows(results) %>%
+      dplyr::select(uniqueID,sample_name,sample_id,treatment,C,I,Tm) %>%
+      dplyr::group_by(uniqueID,sample_name) %>% 
+      distinct(.) %>% dplyr::group_split()
+    results_<-results_ %>% purrr::keep(function(x) nrow(x)>1&length(unique(x$sample_id))>3)
+    results_<-purrr::map(results_,function(x) x %>% dplyr::mutate(dTm=(mean(.$Tm[.$treatment=="treated"],na.rm=TRUE)-mean(.$Tm[.$treatment=="vehicle"],na.rm=TRUE))))
     
   }
+  mean3<-dplyr::bind_rows(mean3) %>% dplyr::mutate(dTm=NA)
+  
+  #make sure we keep proteins with both treated and vehicle data
+  results_<-results_%>%
+    purrr::keep(function(x) length(unique(x$treatment))>1)
   
   results_2<-dplyr::bind_rows(results_) %>%
     dplyr::group_split(uniqueID,treatment)
   #nest the columns that dont involve Tm t-test calculation 
-  nesting<-names(results_2[[1]])[!names(results_2[[1]]) %in% c("uniqueID","sample_id","treatment","Tm","replicate","sample_name","dTm","missing_pct")]
+  nesting<-names(results_2[[1]])[!names(results_2[[1]]) %in% c("uniqueID","sample_id","treatment","Tm","replicate","sample_name","dTm")]
   
   results_2<-purrr::map(results_2,function(x) x %>% tidyr::nest(data=nesting))
   #only keep replicates with Tm values
   results_2<-dplyr::bind_rows(results_2) %>%
     dplyr::group_split(uniqueID)
-  results_2<-purrr::map(results_2,function(x) x %>%
-                          dplyr::filter(replicate %in% unique(x$replicate[duplicated(x$replicate)])))
+  if(any(names(results_2[[1]])=="replicate")){
+    #check data for duplicate replicate values and recalculate dTm after using distinct(.)
+    results_2<-purrr::map(results_2,function(x) x %>%
+                            dplyr::filter(replicate %in% unique(x$replicate[duplicated(x$replicate)])))
+    
+    results_3<-dplyr::bind_rows(results_2) %>%  dplyr::group_split(uniqueID,replicate)
+    results_3<-purrr::map(results_3,function(x) x %>%
+                            distinct(.) %>%
+                            dplyr::mutate(
+                              dTm=x$Tm[x$treatment %in% "treated"][1]-x$Tm[x$treatment %in% "vehicle"][1])%>% dplyr::ungroup(.)) 
+    
+    results_<-results_3 %>% purrr::keep(function(x) any(!is.na(x$dTm)))
+  }else{
+    results_3<-results_2
+  }
   
-  results_3<-dplyr::bind_rows(results_2) %>%  dplyr::group_split(uniqueID,replicate)
-  
-  results_<-results_3 %>% purrr::keep(function(x) any(!is.na(x$dTm)))
   if(length(results_)==0){
     warning(paste0(results_2[[1]]$sample_name[1], " has at least one Tm value missing"))
   }
-  results_3<-purrr::map(results_3,function(x) x %>%
-                          distinct(.) %>%
-                          dplyr::mutate(
-                            dTm=x$Tm[x$treatment %in% "treated"][1]-x$Tm[x$treatment %in% "vehicle"][1])%>% dplyr::ungroup(.)) 
+  
   results_<-results_3 %>% purrr::keep(function(x) !is.na(x$dTm[1]))
   results_<-dplyr::bind_rows(results_) %>% dplyr::group_split(sample_name)
   results_<-results_ %>% purrr::keep(.,function(x) length(unique(x$treatment))>1)
@@ -5381,10 +5405,13 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
 }
 
 spf<-function(spresults,DFN,filters = TRUE){
-  spresults<-spresults %>% 
-    dplyr::mutate(replicate=as.numeric(replicate)) %>%
-    dplyr::group_split(uniqueID)
-  DFN<-DFN %>% dplyr::mutate(replicate=as.numeric(replicate)) 
+  if(any(names(spresults)=="replicate")){
+    spresults<-spresults %>% 
+      dplyr::mutate(replicate=as.numeric(replicate)) %>%
+      dplyr::group_split(uniqueID)
+    DFN<-DFN %>% dplyr::mutate(replicate=as.numeric(replicate)) 
+  }
+  
   if(!isTRUE(filters)){
     sl<-purrr::map(seq_len(length(spresults)),function(x) as.numeric({paste(x)})) 
     sp<-purrr::map2(spresults,sl,~.x %>% dplyr::mutate(id = as.numeric(.y)))  
@@ -5458,15 +5485,40 @@ spf<-function(spresults,DFN,filters = TRUE){
 spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulations=FALSE,CI=TRUE,Peptide=FALSE,CARRIER=TRUE,Protein=Protein,raw=FALSE){
   null<-data.frame()
   i<-i
+  df2<-dplyr::bind_rows(df2)
+  
   if(isTRUE(Peptide)){
-    df2<-dplyr::bind_rows(df2)
-    df2<-df2[,!stringr::str_detect(names(df2),"File.ID|Channel|RT|Confidence|Protein|p|Percolator|DeltaM|Tm|rsq|CC|k_|AUC")]
-    df2<-df2[,!names(df2)=="rss"]
-    df2<-df2%>% distinct(.) %>%
-      dplyr::group_split(uniqueID,replicate,treatment,C)
     Df1<-dplyr::bind_rows(Df1) %>%
-      distinct(.) %>%
-      dplyr::group_split(uniqueID,treatment,C)
+      dplyr::group_by(uniqueID,Annotated_Sequence,treatment,C,sample_name) %>% 
+      dplyr::group_split()
+    Df1<-purrr::map(Df1,function(x)x %>% dplyr::mutate(Replicate=row.names(x)))
+    
+    df2<-dplyr::bind_rows(df2) %>%
+      dplyr::group_by(uniqueID,Annotated_Sequence,treatment,C,sample_name) %>% 
+      dplyr::group_split()
+    df2<-purrr::map(df2,function(x)x %>% dplyr::mutate(Replicate=row.names(x)))
+    if(any(names(Df1)=="replicate")){
+      Df1<-purrr::map(Df1,function(x) x %>% dplyr::mutate(replicate=Replicate))
+      df2<-purrr::map(df2,function(x) x %>% dplyr::mutate(replicate=Replicate))
+    }else{
+      Df1<-dplyr::bind_rows(Df1) %>%
+        dplyr::group_by(uniqueID,treatment,C,sample_name) %>% 
+        dplyr::group_split()
+      Df1<-purrr::map(Df1,function(x)x %>% dplyr::mutate(Replicate=row.names(x)))
+      
+      df2<-dplyr::bind_rows(df2) %>%
+        dplyr::group_by(uniqueID,treatment,C,sample_name) %>% 
+        dplyr::group_split()
+      df2<-purrr::map(df2,function(x)x %>% dplyr::mutate(Replicate=row.names(x)))
+      if(any(names(Df1[[1]])=="replicate")){
+        Df1<-purrr::map(Df1,function(x) x %>% dplyr::mutate(replicate=Replicate))
+        df2<-purrr::map(df2,function(x) x %>% dplyr::mutate(replicate=Replicate))
+      }
+    }
+    df2<-dplyr::bind_rows(df2)
+    df2<-df2[,!stringr::str_detect(names(df2),"File.ID|Channel|RT|Confidence|Protein|Percolator|DeltaM|Tm|rsq|CC|k_|AUC")]
+    df2<-df2[,!names(df2)=="rss"]
+    
     
   }
   df2<-dplyr::bind_rows(df2) %>%
@@ -5589,8 +5641,8 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
   pred$CI<-"vehicle"
   pred$CI<-as.factor(pred$CI)
   
-  plot<-ggplot(pred,mapping= ggplot2::aes(x = C,y=fit,color=treatment))+
-    geom_point(BSvar, mapping=ggplot2::aes(x=C,y=I,color = treatment,shape=factor(replicate)))+
+  plot<-ggplot(pred,mapping= ggplot2::aes(x = temperature,y=fit,color=treatment))+
+    geom_point(BSvar, mapping=ggplot2::aes(x=temperature,y=I,color = treatment))+
     geom_ribbon(aes(ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2) +
     ggplot2::xlab("Temperature (\u00B0C)")+ggplot2::ylab("Relative Intensity")+ ggplot2::ggtitle("")+ylim(-0.4,1.6)+xlim(37,68)+theme(legend.position="bottom")
   
@@ -5713,10 +5765,42 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
     BSVar<-dplyr::bind_rows(BSVar) %>% distinct(.)
     BSVar1<-dplyr::bind_rows(BSVar1) %>% distinct(.)
     if(isTRUE(Peptide)){
-      if(any(names(BSVar)=="replicate")&isTRUE(Peptide)){
-        BSVar$Replicate<-as.factor(BSVar$Replicate)
-        BSVar1$Replicate<-as.factor(BSVar1$Replicate)
-      }else if(any(names(BSVar)=="Charge")){
+      if(!any(names(BSVar)=="Fraction")){#if there is no replicate column
+        BSVar<-dplyr::bind_rows(BSVar) %>%
+          dplyr::select(uniqueID,treatment,sample_name,C,I) %>% 
+          distinct(.) %>%
+          dplyr::group_by(uniqueID,treatment,sample_name,C,I) %>%
+          dplyr::group_split()
+        BSVar<-lapply(BSVar,function(x) x %>% dplyr::mutate(Replicate=as.factor(row.names(x))))
+        BSVar<-dplyr::bind_rows(BSVar) %>% dplyr::ungroup()
+        
+        BSVar1<-dplyr::bind_rows(BSVar1) %>%
+          dplyr::select(uniqueID,treatment,sample_name,C,I) %>% 
+          distinct(.) %>%
+          dplyr::group_by(uniqueID,treatment,sample_name,C,I) %>%
+          dplyr::group_split()
+        BSVar1<-lapply(BSVar1,function(x) x %>% dplyr::mutate(Replicate=as.factor(row.names(x))))
+        BSVar1<-dplyr::bind_rows(BSVar1) %>% dplyr::ungroup()
+        
+      }else if(any(names(BSVar)=="Fraction")){#if there is no replicate column
+        BSVar<-dplyr::bind_rows(BSVar) %>%
+          dplyr::select(uniqueID,treatment,sample_name,Fraction,C,I) %>% 
+          distinct(.) %>%
+          dplyr::group_by(uniqueID,treatment,sample_name,Fraction,C,I) %>%
+          dplyr::group_split()
+        BSVar<-lapply(BSVar,function(x) x %>% dplyr::mutate(Replicate=as.factor(row.names(x))))
+        BSVar<-dplyr::bind_rows(BSVar) %>% dplyr::ungroup()
+        
+        BSVar1<-dplyr::bind_rows(BSVar1) %>%
+          dplyr::select(uniqueID,treatment,sample_name,Fraction,C,I) %>% 
+          distinct(.) %>%
+          dplyr::group_by(uniqueID,treatment,sample_name,Fraction,C,I) %>%
+          dplyr::group_split()
+        BSVar1<-lapply(BSVar1,function(x) x %>% dplyr::mutate(Replicate=as.factor(row.names(x))))
+        BSVar1<-dplyr::bind_rows(BSVar1) %>% dplyr::ungroup()
+        
+      }
+      if(any(names(BSVar)=="Charge")){
         BSVar$PSMs_Charge<-as.factor(BSVar$Charge)
         BSVar1$PSMs_Charge<-as.factor(BSVar1$Charge)
       }
@@ -5729,7 +5813,7 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
       }
       if(!isTRUE(raw)&!all(BSVar$Stroke)==0){#if I isnt raw and there's no rank column for the data
         plot1<-ggplot2::ggplot(BSVar,ggplot2::aes(x =C,y = I,color=treatment))+
-          ggplot2::geom_point(BSVar,mapping=ggplot2::aes(x=C,y=I,color = treatment,shape=factor(Replicate)))+
+          ggplot2::geom_point(BSVar,mapping=ggplot2::aes(x=C,y=I,color = treatment,shape=Replicate))+
           geom_point(data=BSVar[BSVar$Stroke==1,],
                      pch=21, fill=NA, size=4, colour="black", stroke=1)+
           ggplot2::geom_ribbon(data.frame(fit_v),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2 ) +
@@ -5754,7 +5838,7 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
         
         
         plot<-plot1+
-          ggplot2::geom_point(BSVar1,mapping=ggplot2::aes(x=C,y=I,color=treatment,shape=factor(Replicate)))+
+          ggplot2::geom_point(BSVar1,mapping=ggplot2::aes(x=C,y=I,color=treatment,shape=Replicate))+
           geom_point(data=BSVar1[BSVar1$Stroke==1,],
                      pch=21, fill=NA, size=4)+
           ggplot2::geom_ribbon(data.frame(fit_t),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=treatment), alpha = 0.2 ) +
@@ -5777,10 +5861,9 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
         
         return(plot)
       }else if(!isTRUE(raw)&BSVar$Stroke==0){#if I is raw and there's no rank column for the data
-        BSVar$Num_PSMs<-as.factor(BSVar$Num_PSMs)#the number of PSMs found for this particular annotated_Sequence
-        BSVar1$Num_PSMs<-as.factor(BSVar1$Num_PSMs)
+        
         plot1<-ggplot2::ggplot(BSVar,ggplot2::aes(x =C,y = I,color=treatment))+
-          ggplot2::geom_point(BSVar,mapping=ggplot2::aes(x=C,y=I,color = treatment,shape=factor(Replicate)))+
+          ggplot2::geom_point(BSVar,mapping=ggplot2::aes(x=C,y=I,color = treatment,shape=Replicate))+
           geom_point()+
           ggplot2::geom_ribbon(data.frame(fit_v),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2 ) +
           ggplot2::geom_ribbon(data.frame(fit_v),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrS, ymax = uprS ,fill=CI), alpha = 0.2,linetype=0) +
@@ -5804,7 +5887,7 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
         
         
         plot<-plot1+
-          ggplot2::geom_point(BSVar1,mapping=ggplot2::aes(x=C,y=I,color=treatment,shape=factor(Replicate)))+
+          ggplot2::geom_point(BSVar1,mapping=ggplot2::aes(x=C,y=I,color=treatment,shape=Replicate))+
           geom_point()+
           ggplot2::geom_ribbon(data.frame(fit_t),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=treatment), alpha = 0.2 ) +
           ggplot2::geom_ribbon(data.frame(fit_t),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrS, ymax = uprS ,fill=CI), alpha = 0.2,linetype=0) +
@@ -5826,7 +5909,7 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
         
         return(plot)
       }else{#if there is a rank column present, use the stroke to label low-ranking Peptides
-        plot1<-ggplot2::ggplot(BSVar,ggplot2::aes(x =C,y = I,color=treatment))+
+        plot1<-ggplot2::ggplot(BSVar,ggplot2::aes(x =C,y = I,color=treatment,shape=Replicate))+
           geom_point(data=BSVar[BSVar$Stroke==1,],
                      pch=21, size=4, colour="black", stroke=1)+
           ggplot2::geom_ribbon(data.frame(fit_v),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2 ) +
@@ -5851,7 +5934,7 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
         
         
         plot<-plot1+
-          ggplot2::geom_point(BSVar1,mapping=ggplot2::aes(x=C,y=I,color=treatment,shape=factor(replicate)))+
+          ggplot2::geom_point(BSVar1,mapping=ggplot2::aes(x=C,y=I,color=treatment,shape=Replicate))+
           geom_point(data=BSVar1[BSVar1$Stroke==1,],
                      pch=21, size=4, color=treatment)+
           ggplot2::geom_ribbon(data.frame(fit_t),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=treatment), alpha = 0.2 ) +
@@ -5876,21 +5959,44 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
       }
       
     }else{#if this is a protein file
-      if(!any(stringr::str_detect(names(BSVar),"replicate"))){
+      if(any(stringr::str_detect(names(BSVar),"replicate"))){
         BSVar$Replicate<-as.factor(BSVar$replicate)
         BSvar1$Replicate<-as.factor(BSVar1$replicate)
       }
-      if(!any(stringr::str_detect(names(BSVar),"Replicate"))){#if there is no replicate column
-        BSVar<-BSVar %>% dplyr::group_by(C,treatment) %>% distinct(.) %>%dplyr::group_split()
-        BSVar<-lapply(BSVar,function(x) x %>% dplyr::mutate(replicate=row.names(x)))
+      if(!any(stringr::str_detect(names(BSVar),"Replicate"))&!any(names(BSVar)=="Fraction")){#if there is no replicate column
+        BSVar<-dplyr::bind_rows(BSVar) %>%
+          dplyr::select(uniqueID,treatment,temperature,sample_name,C,I) %>% 
+          distinct(.) %>%
+          dplyr::group_by(uniqueID,treatment,temperature,sample_name,C,I) %>%
+          dplyr::group_split()
+        BSVar<-lapply(BSVar,function(x) x %>% dplyr::mutate(Replicate=as.factor(row.names(x))))
         BSVar<-dplyr::bind_rows(BSVar) %>% dplyr::ungroup()
         
-        BSvar1<-BSvar1  %>% dplyr::group_by(C,treatment) %>% distinct(.) %>%dplyr::group_split()
-        BSvar1<-lapply(BSvar1,function(x) x %>% dplyr::mutate(replicate=row.names(x)))
-        BSvar1<-dplyr::bind_rows(BSvar1) %>% dplyr::ungroup()
+        BSVar1<-dplyr::bind_rows(BSVar1) %>%
+          dplyr::select(uniqueID,treatment,temperature,sample_name,C,I) %>% 
+          distinct(.) %>%
+          dplyr::group_by(uniqueID,treatment,temperature,sample_name,C,I) %>%
+          dplyr::group_split()
+        BSVar1<-lapply(BSVar1,function(x) x %>% dplyr::mutate(Replicate=as.factor(row.names(x))))
+        BSVar1<-dplyr::bind_rows(BSVar1) %>% dplyr::ungroup()
         
-        BSVar$Replicate<-as.factor(BSVar$replicate)
-        BSvar1$Replicate<-as.factor(BSvar1$replicate)
+      }else if(!any(stringr::str_detect(names(BSVar),"Replicate"))&any(names(BSVar)=="Fraction")){#if there is no replicate column
+        BSVar<-dplyr::bind_rows(BSVar) %>%
+          dplyr::select(uniqueID,treatment,temperature,sample_name,Fraction,C,I) %>% 
+          distinct(.) %>%
+          dplyr::group_by(uniqueID,treatment,temperature,sample_name,Fraction,C,I) %>%
+          dplyr::group_split()
+        BSVar<-lapply(BSVar,function(x) x %>% dplyr::mutate(Replicate=as.factor(row.names(x))))
+        BSVar<-dplyr::bind_rows(BSVar) %>% dplyr::ungroup()
+        
+        BSVar1<-dplyr::bind_rows(BSVar1) %>%
+          dplyr::select(uniqueID,treatment,temperature,sample_name,Fraction,C,I) %>% 
+          distinct(.) %>%
+          dplyr::group_by(uniqueID,treatment,temperature,sample_name,Fraction) %>%
+          dplyr::group_split()
+        BSVar1<-lapply(BSVar1,function(x) x %>% dplyr::mutate(Replicate=as.factor(row.names(x))))
+        BSVar1<-dplyr::bind_rows(BSVar1) %>% dplyr::ungroup()
+        
       }
       if(any(names(BSVar)=="rank_l")){#if this protein file has a rank column
         
@@ -5898,7 +6004,7 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
         BSVar1$Stroke<-ifelse(BSVar1$rank_l==TRUE,1,0)
         
         plot1<-ggplot2::ggplot(BSVar,ggplot2::aes(x =C,y = I,color=treatment))+
-          ggplot2::geom_point(BSVar,mapping=ggplot2::aes(x=C,y=I,color = treatment,shape=factor(Replicate)))+
+          ggplot2::geom_point(BSVar,mapping=ggplot2::aes(x=C,y=I,color = treatment,shape=Replicate))+
           geom_point(data=BSVar[BSVar$Stroke==1,],
                      pch=21, size=4, color=treatment, stroke=1)+
           ggplot2::geom_ribbon(data.frame(pred),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2) +
@@ -5923,7 +6029,7 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
         
         
         plot<-plot1+
-          ggplot2::geom_point(BSvar1,mapping=ggplot2::aes(x=C,y=I,color=treatment,shape=factor(Replicate)))+
+          ggplot2::geom_point(BSVar1,mapping=ggplot2::aes(x=C,y=I,color=treatment,shape=Replicate))+
           geom_point(data=BSVar1[BSVar1$Stroke==1,],
                      pch=21, size=4, color=treatment, stroke=1)+
           ggplot2::geom_ribbon(pred1,mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2) +
@@ -5959,7 +6065,7 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
         
         
         plot<-plot1+
-          ggplot2::geom_point(BSvar1,mapping=ggplot2::aes(x=C,y=I,color=treatment,shape=Replicate))+
+          ggplot2::geom_point(BSVar1,mapping=ggplot2::aes(x=C,y=I,color=treatment,shape=Replicate))+
           ggplot2::geom_point()+
           ggplot2::geom_ribbon(pred1,mapping=ggplot2::aes(x=C,y=fit,ymin = lwrP, ymax = uprP ,fill=CI), alpha = 0.2) +
           ggplot2::geom_ribbon(data.frame(pred1),mapping=ggplot2::aes(x=C,y=fit,ymin = lwrS, ymax = uprS ,fill=CI), alpha = 0.2,linetype=0) +
@@ -10099,7 +10205,7 @@ Int_plot<-function(x,Peptide=FALSE,raw=FALSE){
   }
   
 }
-plot_I<-purrr::map(df_clean_mean,function(x) try(Int_plot(x,Peptide=TRUE,raw=TRUE)))
+plot_I<-purrr::map(df_norm,function(x) try(Int_plot(x,Peptide=TRUE,raw=FALSE)))
 plot_I1<-purrr::map(df_clean_sum,function(x) try(Int_plot(x,Peptide=TRUE,raw=TRUE)))
 check<-ggplot2::ggplot_build(plot_I[[1]])
 y<-get_legend(check$plot)
@@ -10310,7 +10416,7 @@ plot_Splines<-function(x,Protein="Q02750",df.temps,Filters=FALSE,fT=TRUE,show_re
     
   }
   if(any(names(x)=="Accession")&!any(names(x)=="uniqueID")){
-    x<-x %>% dplyr::rename("uniqueID"="Accession")
+    x<-x %>% dplyr::mutate(uniqueID=Accession)
     
   }
   
@@ -10362,13 +10468,9 @@ plot_Splines<-function(x,Protein="Q02750",df.temps,Filters=FALSE,fT=TRUE,show_re
     #get spline results
     spresults<-list()
     spresults_PI<-list()
-    
+    spresults<-spstat(DFN,df_,df_1,Ftest=fT,show_results=show_results,filters=Filters)
     if(isTRUE(show_results)){
-      spresults<-spstat(DFN,df_,df_1,Ftest=fT,show_results=show_results,filters=Filters)
       return(spresults)
-    }else{
-      spresults<-spstat(DFN,df_,df_1,Ftest=fT,show_results=show_results,filters=Filters)
-      
     }
     if(any(class(spresults)=="list")){
       spresults<-dplyr::bind_rows(spresults)
@@ -10482,7 +10584,7 @@ plot_Splines<-function(x,Protein="Q02750",df.temps,Filters=FALSE,fT=TRUE,show_re
 #"Q499B1","F1Q7F3","Q1XB72","Q0H2G3")))#GCLC
 df_norm1<-list(dplyr::bind_rows(df_norm1))
 df_norm<-list(dplyr::bind_rows(df_norm))
-plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"F1QLV5",df.temps,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=TRUE,simulations=FALSE,CARRIER=FALSE,Frac=TRUE,raw=TRUE)))
+plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"F1Q7F3",df.temps,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=TRUE,simulations=FALSE,CARRIER=FALSE,Frac=TRUE,raw=FALSE)))
 P1<-plotS2
 #saveRDS(plotS2,"Napabucasin_Protein_unique_data.RDS")
 #A4QNT9 F1Q7F3 F1QLV5 Q0H2G3 Q6NV46 Q90Y03
@@ -10509,7 +10611,7 @@ y<-get_legend(check$plot)
 P2<-plotS2
 #P3<-ggarrange(plotlist=plotS2,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-plotS2 <- purrr::map(df_clean_ch,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=TRUE,simulations=FALSE,CARRIER=TRUE,Frac=TRUE,raw=TRUE)))
+plotS2 <- purrr::map(df_clean_ch,function(x) try(plot_Splines(x,"F1Q7F3",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=TRUE,simulations=FALSE,CARRIER=TRUE,Frac=TRUE,raw=TRUE)))
 check<-ggplot2::ggplot_build(plotS2[[1]])
 y<-get_legend(check$plot)
 # data<-unlist(lapply(plotS2,function(x) x$labels$title))
