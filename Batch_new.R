@@ -1115,7 +1115,18 @@ clean_cetsa <- function(df, temperatures = NULL,samples = NA,Peptide=FALSE,solve
   df$sample_id<-as.factor(df$sample_id)
   
   df<-dplyr::bind_rows(df) 
+  
+  df<-filter_good_data(df)
   return(df)
+}
+filter_good_data = function(data){
+  
+  good_data = data |> group_by(Accession,sample_name) |> filter(length(unique(treatment))==2,
+                                                                length(I)>= 30,
+                                                                length(I[treatment=="vehicle"])>=20,
+                                                                length(I[treatment=="treated"])>=20) |> ungroup()
+  #max(I) <=1.5) |> ungroup()
+  return(good_data)
 }
 FC_to_ref<-function(x,baseline){ 
   if(baseline=="min"){
@@ -4762,10 +4773,11 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
   df1$I<-as.numeric(as.character(df1$I))
   df$I<-as.numeric(as.character(df$I))
   DF$I<-as.numeric(as.character(DF$I))
-  
-  df1$C<-as.numeric(as.character(df1$C))
-  df$C<-as.numeric(as.character(df$C))
-  DF$C<-as.numeric(as.character(DF$C))
+  if(any(names(df)=="temperature")&!any(names(df)=="C")){
+  df1$C<-as.numeric(as.character(df1$temperature))
+  df$C<-as.numeric(as.character(df$temperature))
+  DF$C<-as.numeric(as.character(DF$temperature))
+  }
   #mutate to get CV values
   DF<-DF %>% dplyr::group_split(C,uniqueID) 
   DF<- purrr::map(DF,function(x) x %>% dplyr::mutate(CV_pct = 100*sd(.$I,na.rm=TRUE)/mean(.$I,na.rm=TRUE)))
@@ -10594,7 +10606,7 @@ y<-get_legend(check$plot)
 # plotS2<-plotS2[order(data)]
 #P1<-ggarrange(plotlist=plotS2,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"P36507",df.temps,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE,simulations=FALSE,CARRIER=TRUE,Frac=FALSE,raw=FALSE)))
+plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"P36507",df.temps,Filters=FALSE,fT=TRUE,show_results=TRUE,Peptide=FALSE,simulations=FALSE,CARRIER=TRUE,Frac=TRUE,raw=FALSE)))
 P3<-plotS2
 
 check<-ggplot2::ggplot_build(plotS2[[1]])
@@ -10603,7 +10615,7 @@ y<-get_legend(check$plot)
 # plotS2<-plotS2[order(data)]
 #ggarrange(plotlist=plotS2,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-plotS2 <- purrr::map(df_clean,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=TRUE,simulations=FALSE,CARRIER=TRUE,Frac=TRUE,raw=TRUE)))
+plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE,simulations=FALSE,CARRIER=TRUE,Frac=TRUE,raw=FALSE)))
 check<-ggplot2::ggplot_build(plotS2[[1]])
 y<-get_legend(check$plot)
 # data<-unlist(lapply(plotS2,function(x) x$labels$title))
@@ -10712,7 +10724,7 @@ pdf("volcano_splines_Peptide_filtered_IMAATSA_gof_panels.pdf",encoding="CP1253.e
 P2
 dev.off()
 
-check<-TPPbenchmark_generic(f,volcano=FALSE,filters="HQ",Peptide=TRUE,filter=FALSE)
+check<-TPPbenchmark_generic(f,volcano=FALSE,filters="HQ",Peptide=FALSE,filter=FALSE)
 
 pdf("TPP_HQ_Peptide_filt_techreps_fractions.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 check1
