@@ -199,6 +199,9 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
     if(any(names(df2)=="Spectrum_File")){
       df2<-purrr::map(df2,function(x) x %>% dplyr::mutate(Spectrum.File=Spectrum_File))
     }
+    if(any(names(df2)=="File_ID")){
+      df2<-df2 %>% dplyr::mutate(File.ID=File_ID)
+    }
     return(df2)
   }
   
@@ -296,7 +299,9 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
                     temp_ref = unlist(stringr::str_extract(.$id,"[:digit:][:digit:][:digit:][N|C]|126|131")),
                     value = as.numeric(value))
     
-    
+    if(any(names(df2)=="File_ID")){
+      df2<-df2 %>% dplyr::mutate(File.ID=File_ID)
+    }
     
     return(df2)
   }
@@ -335,9 +340,9 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
       PSMs<-dplyr::bind_rows(PSMs) %>%
         dplyr::group_by(sample_name) %>% 
         dplyr::group_split()
-      if(any(stringr::str_detect(names(PSMs[[1]]),"File_ID"))){
+      if(any(stringr::str_detect(names(PSMs[[1]]),"File.ID"))){
         PSMs<-dplyr::bind_rows(PSMs) %>%
-          dplyr::rename("File.ID"="File_ID")%>%
+          dplyr::rename("File.ID"="File.ID")%>%
           dplyr::group_by(sample_name) %>% 
           dplyr::group_split()
       }
@@ -479,6 +484,18 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
       df.raw<-dplyr::bind_rows(df.raw1)
       
       PG<-read_PD(df.raw)#read in peptide groups
+      
+      if(sub=="Filter"&keep_shared_proteins==FALSE){
+        PG<-filter_Peptides(PG,20,0.01,2.3,30,2,1,7,5,80,filter_rank=FALSE,keep_shared_proteins=FALSE,CFS=CFS,Frac=Frac)
+      }else{
+        PG<-filter_Peptides(PG,20,0.01,2.3,30,2,1,7,5,80,filter_rank=FALSE,keep_shared_proteins=TRUE,CFS=CFS,Frac=Frac)
+      }
+      if(any(names(PSMs[[1]])=="File_ID")){
+        PSMs<-purrr::map(PSMs,function(x)x %>% dplyr::mutate(File.ID=File_ID))
+      }
+      if(any(names(PSMs[[1]])=="Spectrum_File")){
+        PSMs<-purrr::map(PSMs,function(x)x %>% dplyr::mutate(Spectrum.File=Spectrum_File))
+      }
       
       PSMs<- furrr::future_map(PSMs,function(x) x %>%
                                  dplyr::select(Accession,File.ID,Spectrum.File) %>%
@@ -4740,7 +4757,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs,CARRIER=
 #   
 #   return(results)
 # }
-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=FALSE,Peptide=FALSE){
+spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=FALSE,Peptide=FALSE){
   if(!any(names(df)=="C")&!any(names(df)=="temperature")){
     DF<-DF %>% dplyr::rename("C"="temperature")
     df<-df %>% dplyr::rename("C"="temperature")
@@ -4791,23 +4808,10 @@ function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=FALSE,Pe
   
   #If there's enough NA data present, remove the proteins before fitting
   
-  DF_filt<-DF %>% purrr::keep(function(x) 100*(sum(is.na(x$I)/nrow(x)))<30)
-  df_filt<-df %>% purrr::keep(function(x) 100*(sum(is.na(x$I)/nrow(x)))<30)
-  df1_filt<-df1 %>% purrr::keep(function(x) 100*(sum(is.na(x$I)/nrow(x)))<30)
+  DF<-DF %>% purrr::keep(function(x) 100*(sum(is.na(x$I))/nrow(x))<30)
+  df<-df %>% purrr::keep(function(x) 100*(sum(is.na(x$I))/nrow(x))<30)
+  df1<-df1 %>% purrr::keep(function(x) 100*(sum(is.na(x$I))/nrow(x))<30)
   
-  #notify the user the % of filtered missing
-  null<-100*(length(DF)-length(DF_filt)/length(DF))
-  vehicle<-100*(length(DF)-length(df_filt)/length(df))
-  treated<-100*(length(DF)-length(df1_filt)/length(df1))
-  message(paste0("Removed ",null," percent of the proteins in the null dataset, ",
-                 vehicle," percent of the proteins in the vehicle dataset, and",
-                 treated," percent of the proteins in the treated dataset which have > 30% missing values"))
-  CID<-dplyr::intersect(unique(dplyr::bind_rows(df)$uniqueID),unique(dplyr::bind_rows(df1)$uniqueID))
-  CID<-dplyr::intersect(unique(dplyr::bind_rows(DF)$uniqueID),CID)
-  #make sure the number of accessions is the same on all datasets
-  df_filt<-df_filt %>% purrr::keep(function(x) x$uniqueID %in% CID)
-  df1_filt<-df1_filt %>% purrr::keep(function(x) x$uniqueID %in% CID)
-  DF_filt<-DF_filt %>% purrr::keep(function(x) x$uniqueID %in% CID)
   #alternative spline fit method : Generalized Additive Models
   #fit penalized splines
   # if(any(names(df[[1]])=="time_point")){
@@ -4816,14 +4820,12 @@ function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=FALSE,Pe
   fit_gam<-function(x){
     y = x %>% dplyr::filter(!is.infinite(I)) %>% dplyr::mutate(M1 = list(tryCatch(mgcv::gam(x$I ~ s(x$C,k=5), data = x , method = "REML",optimizer="efs"),
                                                                                   error = function(cond) {
-                                                                                    message("Here's the original error message from spstat function:")
-                                                                                    message(cond)
+                                                                                
                                                                                     # Choose a return value in case of error
                                                                                     return(NA)})),
                                                                M2 = list(tryCatch(scam::scam(x$I ~ s(x$C,k=6,bs="mpd"), data = x,optimizer="efs"),
                                                                                   error = function(cond) {
-                                                                                    message("Here's the original error message from spstat function:")
-                                                                                    message(cond)
+                                  
                                                                                     # Choose a return value in case of error
                                                                                     return(NA)}))
     )
@@ -4850,8 +4852,10 @@ function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=FALSE,Pe
       x<-x %>% dplyr::rename("sample_id"="File.ID")
     }
     x<-x %>% dplyr::group_by(sample_id) %>% dplyr::group_split()
-    y<-purrr::map(x,function(x) x %>% dplyr::mutate(pr=list(predict(.$M1[[1]]))))
+    x<-x %>% purrr::keep(function(x) !any(class(x$M1)=="logical"))
+    y<-purrr::map(x,function(x) x %>% dplyr::mutate(pr=list(predict(x[[1]]$M1[[1]]))))
     y<-purrr::map(y,function(x) x %>% dplyr::mutate(Tm = stats::approx(y[[1]]$pr[[1]],y[[1]]$M1[[1]]$model$`x$C`, xout=min(y[[1]]$pr[[1]],na.rm=TRUE)+(0.5*(max(y[[1]]$pr[[1]], na.rm=TRUE)-min(y[[1]]$pr[[1]], na.rm=TRUE))))$y))
+    if(any(names(y[[1]])=="replicate")){
     y<-purrr::map(y,function(x)x %>% dplyr::mutate(uniqueID=.$uniqueID[1],
                                                    k_ = .$M1[[1]]$rank,
                                                    treatment=.$treatment[1],
@@ -4864,6 +4868,19 @@ function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=FALSE,Pe
                                                    missing_pct=ifelse(any(names(x)=="missing_pct"),.$missing_pct[1],NA),
                                                    replicate=replicate) %>% 
                     dplyr::ungroup(.))
+    }else{
+      y<-purrr::map(y,function(x)x %>% dplyr::mutate(uniqueID=.$uniqueID[1],
+                                                     k_ = .$M1[[1]]$rank,
+                                                     treatment=.$treatment[1],
+                                                     rss=deviance(.$M1[[1]]),
+                                                     CV_pct = ifelse(!is.null(.$CV_pct),.$CV_pct,NA),
+                                                     AUC = pracma::trapz(.$M1[[1]]$fitted.values[(which(abs(.$M1[[1]]$fitted.values-0.5)==min(abs(.$M1[[1]]$fitted.values-0.5)))-1):(which(abs(.$M1[[1]]$fit-0.5)==min(abs(.$M1[[1]]$fitted.values-0.5)))+1)]),
+                                                     rsq=summary(x$M1[[1]])$r.sq,
+                                                     n = ifelse(any(class(dplyr::first(.$M1))=="gam"),1,0),
+                                                     sample_name=.$sample_name[1],
+                                                     missing_pct=ifelse(any(names(x)=="missing_pct"),.$missing_pct[1],NA)) %>% 
+                      dplyr::ungroup(.))
+    }
     y=dplyr::bind_rows(y)
     
     return(y)
