@@ -529,7 +529,8 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
                                 ifelse(stringr::str_detect(df3$Spectrum.File,"NO_FAIMS")==TRUE,"nF",ifelse(stringr::str_detect(df3$Spectrum.File,"r_FAIMS")==TRUE,"F",NA)),'_',
                                 ifelse(stringr::str_detect(df3$Spectrum.File,"S_eFT")==TRUE,"E",ifelse(stringr::str_detect(df3$Spectrum.File,"S_Phi")==TRUE,"S",NA)))
       }
-      
+      df3$treatment<-ifelse(stringr::str_detect(df3$Spectrum.File,solvent),"vehicle","treated")
+      df3$CC<-ifelse(df3$treatment=="vehicle",0,1)
       
       df3<-dplyr::bind_rows(df3) %>%
         dplyr::group_split(sample_name)#peptide groups
@@ -717,7 +718,6 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
   df2<-dplyr::bind_rows(df2) %>% distinct(.)
   return(df2)
 }
-
 
 #'Choose PSMs
 #'
@@ -4782,11 +4782,10 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
   df1$I<-as.numeric(as.character(df1$I))
   df$I<-as.numeric(as.character(df$I))
   DF$I<-as.numeric(as.character(DF$I))
-  if(any(names(df)=="temperature")&!any(names(df)=="C")){
-    df1$C<-as.numeric(as.character(df1$temperature))
-    df$C<-as.numeric(as.character(df$temperature))
-    DF$C<-as.numeric(as.character(DF$temperature))
-  }
+  
+  df1$C<-as.numeric(as.character(df1$C))
+  df$C<-as.numeric(as.character(df$C))
+  DF$C<-as.numeric(as.character(DF$C))
   #mutate to get CV values
   DF<-DF %>% dplyr::group_split(C,uniqueID) 
   DF<- purrr::map(DF,function(x) x %>% dplyr::mutate(CV_pct = 100*sd(.$I,na.rm=TRUE)/mean(.$I,na.rm=TRUE)))
@@ -4802,16 +4801,25 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
   DF<-dplyr::bind_rows(DF)
   
   #convert back to list
-  
-  DF<-dplyr::bind_rows(DF) %>% dplyr::group_split(uniqueID,sample_name)
-  df<-dplyr::bind_rows(df) %>% dplyr::group_split(uniqueID,sample_name)
-  df1<-dplyr::bind_rows(df1) %>% dplyr::group_split(uniqueID,sample_name)
-  
-  #If there's enough NA data present, remove the proteins before fitting
-  
-  DF<-DF %>% purrr::keep(function(x) 100*(sum(is.na(x$I))/nrow(x))<30)
-  df<-df %>% purrr::keep(function(x) 100*(sum(is.na(x$I))/nrow(x))<30)
-  df1<-df1 %>% purrr::keep(function(x) 100*(sum(is.na(x$I))/nrow(x))<30)
+  if(any(names(DF)=="replicate")&any(names(DF)=="Fraction")){
+    DF<-dplyr::bind_rows(DF) %>% dplyr::group_split(uniqueID,Fraction,replicate)
+    df<-dplyr::bind_rows(df) %>% dplyr::group_split(uniqueID,Fraction,replicate)
+    df1<-dplyr::bind_rows(df1) %>% dplyr::group_split(uniqueID,Fraction,replicate)
+    
+  }else if(any(names(DF)=="Fraction")){
+    DF<-dplyr::bind_rows(DF) %>% dplyr::group_split(uniqueID,Fraction)
+    df<-dplyr::bind_rows(df) %>% dplyr::group_split(uniqueID,Fraction)
+    df1<-dplyr::bind_rows(df1) %>% dplyr::group_split(uniqueID,Fraction)
+  }else if (any(names(DF)=="replicate")){
+    DF<-dplyr::bind_rows(DF) %>% dplyr::group_split(uniqueID,replicate)
+    df<-dplyr::bind_rows(df) %>% dplyr::group_split(uniqueID,replicate)
+    df1<-dplyr::bind_rows(df1) %>% dplyr::group_split(uniqueID,replicate)
+    
+  }else{
+    DF<-dplyr::bind_rows(DF) %>% dplyr::group_split(uniqueID)
+    df<-dplyr::bind_rows(df) %>% dplyr::group_split(uniqueID)
+    df1<-dplyr::bind_rows(df1) %>% dplyr::group_split(uniqueID)
+  }
   
   #alternative spline fit method : Generalized Additive Models
   #fit penalized splines
@@ -4819,44 +4827,29 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
   #   df<-purrr::map(df,function(x) dplyr::bind_rows(x) %>% dplyr::group_split(uniqueID,time_point))
   # }
   fit_gam<-function(x){
-    y = x %>% dplyr::filter(!is.infinite(I)) %>% dplyr::mutate(M1 = list(tryCatch(mgcv::gam(x$I ~ s(x$C,k=5), data = x , method = "REML",optimizer="efs"),
+    y = x %>% dplyr::filter(!is.infinite(I)) %>% dplyr::mutate(M1 = list(tryCatch(mgcv::gam(x$I ~ s(x$C,by = treatment,k=5), data = x , method = "REML",optimizer="efs"),
                                                                                   error = function(cond) {
-                                                                                
-                                                                                    # Choose a return value in case of error
-                                                                                    return(NA)})),
-                                                               M2 = list(tryCatch(scam::scam(x$I ~ s(x$C,k=6,bs="mpd"), data = x,optimizer="efs"),
-                                                                                  error = function(cond) {
-                                  
-                                                                                    # Choose a return value in case of error
-                                                                                    return(NA)}))
-    )
-    return(y)
-  }
-  fit_gam_together<-function(x){
-    y = x %>% dplyr::filter(!is.infinite(I)) %>% dplyr::mutate(M1 = list(tryCatch(mgcv::gam(x$I ~ s(x$C,k=5,by=treatment)+treatment, data = x , method = "REML",optimizer="efs"),
-                                                                                  error = function(cond) {
-                                                                                    message("Here's the original error message from spstat function:")
+                                                                                    message("Here's the original error message:")
                                                                                     message(cond)
                                                                                     # Choose a return value in case of error
                                                                                     return(NA)})),
-                                                               M2 = list(tryCatch(scam::scam(x$I ~ s(x$C,k=5,bs="mpd",by=treatment)+treatment, data = x,optimizer="efs"),
+                                                               M2 = list(tryCatch(mgcv::gam(x$I ~ s(x$C,by = treatment,k=6), data = x , method = "REML",optimizer="efs"),
                                                                                   error = function(cond) {
-                                                                                    message("Here's the original error message from spstat function:")
+                                                                                    message("Here's the original error message:")
                                                                                     message(cond)
                                                                                     # Choose a return value in case of error
                                                                                     return(NA)}))
     )
     return(y)
   }
+  
   populate_fit<-function(x) {
     if(any(stringr::str_detect(names(x),"File.ID"))&!any(names(x)=="sample_id")){
       x<-x %>% dplyr::rename("sample_id"="File.ID")
     }
     x<-x %>% dplyr::group_by(sample_id) %>% dplyr::group_split()
-    x<-x %>% purrr::keep(function(x) !any(class(x$M1)=="logical"))
-    y<-purrr::map(x,function(x) x %>% dplyr::mutate(pr=list(predict(x[[1]]$M1[[1]]))))
+    y<-purrr::map(x,function(x) x %>% dplyr::mutate(pr=list(predict(.$M1[[1]]))))
     y<-purrr::map(y,function(x) x %>% dplyr::mutate(Tm = stats::approx(y[[1]]$pr[[1]],y[[1]]$M1[[1]]$model$`x$C`, xout=min(y[[1]]$pr[[1]],na.rm=TRUE)+(0.5*(max(y[[1]]$pr[[1]], na.rm=TRUE)-min(y[[1]]$pr[[1]], na.rm=TRUE))))$y))
-    if(any(names(y[[1]])=="replicate")){
     y<-purrr::map(y,function(x)x %>% dplyr::mutate(uniqueID=.$uniqueID[1],
                                                    k_ = .$M1[[1]]$rank,
                                                    treatment=.$treatment[1],
@@ -4869,19 +4862,6 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
                                                    missing_pct=ifelse(any(names(x)=="missing_pct"),.$missing_pct[1],NA),
                                                    replicate=replicate) %>% 
                     dplyr::ungroup(.))
-    }else{
-      y<-purrr::map(y,function(x)x %>% dplyr::mutate(uniqueID=.$uniqueID[1],
-                                                     k_ = .$M1[[1]]$rank,
-                                                     treatment=.$treatment[1],
-                                                     rss=deviance(.$M1[[1]]),
-                                                     CV_pct = ifelse(!is.null(.$CV_pct),.$CV_pct,NA),
-                                                     AUC = pracma::trapz(.$M1[[1]]$fitted.values[(which(abs(.$M1[[1]]$fitted.values-0.5)==min(abs(.$M1[[1]]$fitted.values-0.5)))-1):(which(abs(.$M1[[1]]$fit-0.5)==min(abs(.$M1[[1]]$fitted.values-0.5)))+1)]),
-                                                     rsq=summary(x$M1[[1]])$r.sq,
-                                                     n = ifelse(any(class(dplyr::first(.$M1))=="gam"),1,0),
-                                                     sample_name=.$sample_name[1],
-                                                     missing_pct=ifelse(any(names(x)=="missing_pct"),.$missing_pct[1],NA)) %>% 
-                      dplyr::ungroup(.))
-    }
     y=dplyr::bind_rows(y)
     
     return(y)
@@ -9917,7 +9897,7 @@ filter_Peptides<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm,
     pep<-names(df_)[stringr::str_detect(names(df_),"Average_Reporter")]
     df_<-df_ %>% dplyr::rename("AR_S_N"=pep)
   }
-  if(any(stringr::str_detect(names(df_),"value"))){
+  if(any(stringr::str_detect(names(df_),"value"))&!any(names(df_)=="I")){
     pep<-names(df_)[stringr::str_detect(names(df_),"value")]
     df_<-df_ %>% dplyr::mutate("I"=pep)
   }
@@ -9993,7 +9973,9 @@ filter_Peptides<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm,
     
   }
   if(any(names(df_)=="value")&!any(names(df_)=="uniqueID")){
-    df_<-df_%>% dplyr::rename("uniqueID"="Accession","I"="value","PEP"="P_PEP")
+    df_<-df_%>% dplyr::mutate(uniqueID=Accession,
+                              I=value,
+                              PEP=P_PEP)
   }
   if(length(XCor)==2){
     df_<-df_ %>% dplyr::filter(XCorr>XCor[1],XCorr<XCor[2])
@@ -10038,22 +10020,9 @@ df_raw <- read_cetsa("~/CS7290/Protein_analysis","~/CS7290/Protein_analysis","_P
 
 df_raw <- read_cetsa("/work/ivanovlab/figueroa-navedo.a/Scripts/Files/2.4/CFS_vs_CFE/Fractions_I/Shared",
                      "/work/ivanovlab/figueroa-navedo.a/Scripts/Files/2.4/CFS_vs_CFE/Fractions_I/Shared",
-                     Prot_Pattern = "_Proteins",Peptide="PSMs",Frac=TRUE,solvent="DMSO",CARRIER=TRUE,
+                     Prot_Pattern = "_Proteins",Peptide="PG",Frac=TRUE,solvent="DMSO",CARRIER=TRUE,
                      CFS=TRUE,rank=TRUE,sub="Filter",temperatures=df.temps,baseline="min",NORM="QUANTILE",
                      keep_shared_proteins=FALSE)                                      
-
-
-#df_raw <- read_cetsa("~/Files/Scripts/Files/CONSENSUS/Unshared","~/Files/Scripts/Files/CONSENSUS/Unshared","_Proteins",Peptide=FALSE,Frac=FALSE,solvent="DMSO",CARRIER=TRUE)                                                              
-#df_raw <- read_cetsa("~/CONSENSUS11","~/CONSENSUS11","_Proteins",Peptide=FALSE,Frac=FALSE,solvent="DMSO")                                                              
-#saveRDS(df_raw,"df_raw.RDS")
-
-####Zebra
-df_raw1<-furrr::future_map(df_raw,function(x) try(filter_Peptides(x,20,0.01,2.3,30,2,1,7,5,80,filter_rank=FALSE,keep_shared_proteins=FALSE,CFS=FALSE,Frac=TRUE)))
-
-#######
-df_raw1<-furrr::future_map(df_raw,function(x) try(filter_Peptides(x,20,0.01,2.3,30,2,1,7,5,80,filter_rank=FALSE,keep_shared_proteins=FALSE,CFS=FALSE,Frac=TRUE)))
-df_raw1<-furrr::future_map(df_raw1,function(x) try(filter_Peptides(x,20,0.01,2.3,30,2,1,7,5,80,filter_rank=FALSE,keep_shared_proteins=TRUE,CFS=TRUE,Frac=FALSE)))
-df_raw1<-df_raw1 %>% purrr::keep(function(x) !nrow(x)==0)
 
 #average peptides to the protein level
 Mean_Ab<-function(x){
@@ -10157,7 +10126,8 @@ df_clean_mean <- furrr::future_map(df_raw_mean,function(x) try(clean_cetsa(x, te
 
 df_clean_sum <- furrr::future_map(df_raw_sum,function(x) try(clean_cetsa(x, temperatures = df.temps,samples = df.samples,Peptide=TRUE,solvent="Control",CFS=FALSE,CARRIER=FALSE,baseline="min")))#assgns temperature and replicate values
 
-df_raw <- furrr::future_map(df_raw,function(x) try(clean_cetsa(x, temperatures = df.temps,samples = df.samples,Peptide=TRUE,solvent="Control",CFS=FALSE,CARRIER=FALSE,baseline="min")))#assgns temperature and replicate values
+df_clean <- furrr::future_map(df_raw,function(x) try(clean_cetsa(x, temperatures = df.temps,samples = df.samples,Peptide=TRUE,solvent="Control",CFS=FALSE,CARRIER=FALSE,baseline="min")))#assgns temperature and replicate values
+df_clean <- furrr::future_map(df_raw,function(x) try(clean_cetsa(x, temperatures = df.temps,samples = df.samples,Peptide=TRUE,solvent="DMSO",CFS=TRUE,CARRIER=TRUE,baseline="min")))#assgns temperature and replicate values
 
 #Covid data
 #df_clean<-purrr::map(seq_along(df_clean),function(x) rbind(df_clean[[1]],x))
@@ -10211,7 +10181,7 @@ Int_plot<-function(x,Peptide=FALSE,raw=FALSE){
         ylab("Raw intensity")+
         ggtitle(x$sample_name[1])+
         theme(legend.position="bottom")+labs(colour = "Temperature (\u00B0C)")+
-        ylim(0,10000000)
+        ylim(0,1000000)
     }
   }else{#if this is a peptide file
     if(!isTRUE(raw)){
@@ -10231,7 +10201,7 @@ Int_plot<-function(x,Peptide=FALSE,raw=FALSE){
         ylab("Raw intensity")+
         ggtitle(x$sample_name[1])+
         theme(legend.position="bottom")+labs(colour = "Temperature (\u00B0C)")+
-        ylim(0,10000000)
+        ylim(0,1000000)
     }else{#if this is a PG file
       list<-ggplot2::ggplot(x,mapping=aes(x=C,y=I))+
         geom_jitter(position=position_jitter(2),alpha=0.5)+
@@ -10245,16 +10215,16 @@ Int_plot<-function(x,Peptide=FALSE,raw=FALSE){
   }
   
 }
-plot_I<-purrr::map(df_norm,function(x) try(Int_plot(x,Peptide=TRUE,raw=FALSE)))
+plot_I<-purrr::map(df_raw,function(x) try(Int_plot(x,Peptide=TRUE,raw=TRUE)))
 plot_I1<-purrr::map(df_clean_sum,function(x) try(Int_plot(x,Peptide=TRUE,raw=TRUE)))
 check<-ggplot2::ggplot_build(plot_I[[1]])
 y<-get_legend(check$plot)
 data<-unlist(lapply(plot_I,function(x) x$labels$title))
 plot_I<-plot_I[order(data)]
-P<-ggpubr::ggarrange(plotlist=c(plot_I,plot_I1),ncol=1,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
+P<-ggpubr::ggarrange(plotlist=c(plot_I),ncol=2,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
 P1<-ggpubr::ggarrange(plotlist=c(plot_I1),ncol=2,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
-pdf("Zebra_after_mean_sum_PG.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+pdf("CFE_CFS_after_filtering_PG.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 P
 dev.off()
 ##Generate upset plots for missing value data###
@@ -10634,7 +10604,7 @@ y<-get_legend(check$plot)
 # plotS2<-plotS2[order(data)]
 #P1<-ggarrange(plotlist=plotS2,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"P36507",df.temps,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE,simulations=FALSE,CARRIER=TRUE,Frac=TRUE,raw=FALSE)))
+plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"P36507",df.temps,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE,simulations=FALSE,CARRIER=TRUE,Frac=FALSE,raw=FALSE)))
 P3<-plotS2
 
 check<-ggplot2::ggplot_build(plotS2[[1]])
