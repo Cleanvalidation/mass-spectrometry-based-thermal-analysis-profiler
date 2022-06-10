@@ -199,6 +199,9 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
     if(any(names(df2)=="Spectrum_File")){
       df2<-purrr::map(df2,function(x) x %>% dplyr::mutate(Spectrum.File=Spectrum_File))
     }
+    if(any(names(df2)=="File_ID")){
+      df2<-df2 %>% dplyr::mutate(File.ID=File_ID)
+    }
     return(df2)
   }
   
@@ -296,11 +299,12 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
                     temp_ref = unlist(stringr::str_extract(.$id,"[:digit:][:digit:][:digit:][N|C]|126|131")),
                     value = as.numeric(value))
     
-    
+    if(any(names(df2)=="File_ID")){
+      df2<-df2 %>% dplyr::mutate(File.ID=File_ID)
+    }
     
     return(df2)
   }
-  
   #read_PSMs and proteins
   if (.Platform$OS.type=="windows"){
     Proteins<-parallel::mclapply(f,read_xl)
@@ -480,6 +484,12 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
       
       PG<-read_PD(df.raw)#read in peptide groups
       
+      if(any(names(PSMs[[1]])=="File_ID")){
+        PSMs<-purrr::map(PSMs,function(x)x %>% dplyr::mutate(File.ID=File_ID))
+      }
+      if(any(names(PSMs[[1]])=="Spectrum_File")){
+        PSMs<-purrr::map(PSMs,function(x)x %>% dplyr::mutate(Spectrum.File=Spectrum_File))
+      }
       PSMs<- furrr::future_map(PSMs,function(x) x %>%
                                  dplyr::select(Accession,File.ID,Spectrum.File) %>%
                                  distinct())
@@ -4740,7 +4750,7 @@ tlCI<-function(i,df1,df2,Df1,overlay=TRUE,residuals=FALSE,df.temps,PSMs,CARRIER=
 #   
 #   return(results)
 # }
-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=FALSE,Peptide=FALSE){
+spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=FALSE,Peptide=FALSE){
   if(!any(names(df)=="C")&!any(names(df)=="temperature")){
     DF<-DF %>% dplyr::rename("C"="temperature")
     df<-df %>% dplyr::rename("C"="temperature")
@@ -4791,9 +4801,9 @@ function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=FALSE,Pe
   
   #If there's enough NA data present, remove the proteins before fitting
   
-  DF_filt<-DF %>% purrr::keep(function(x) 100*(sum(is.na(x$I)/nrow(x)))<30)
-  df_filt<-df %>% purrr::keep(function(x) 100*(sum(is.na(x$I)/nrow(x)))<30)
-  df1_filt<-df1 %>% purrr::keep(function(x) 100*(sum(is.na(x$I)/nrow(x)))<30)
+  DF_filt<-DF %>% purrr::keep(function(x) 100*(sum(is.na(x$I))/nrow(x))<30)
+  df_filt<-df %>% purrr::keep(function(x) 100*(sum(is.na(x$I))/nrow(x))<30)
+  df1_filt<-df1 %>% purrr::keep(function(x) 100*(sum(is.na(x$I))/nrow(x))<30)
   
   #notify the user the % of filtered missing
   null<-100*(length(DF)-length(DF_filt)/length(DF))
