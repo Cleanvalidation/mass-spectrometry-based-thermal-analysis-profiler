@@ -198,6 +198,9 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
       }
       
     }
+    if(any(names(df2)=="Spectrum_File")){
+      df2<-purrr::map(df2,function(x) x %>% dplyr::mutate(Spectrum.File=Spectrum_File))
+    }
     return(df2)
   }
   
@@ -297,6 +300,8 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
                     temp_ref = unlist(stringr::str_extract(.$id,"[:digit:][:digit:][:digit:][N|C]|126|131")),
                     value = as.numeric(value))
     
+    
+    
     return(df2)
   }
   
@@ -308,6 +313,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
     Proteins<-parallel::mclapply(f,read_xl,mc.cores = future::availableCores())
     PSMs<-parallel::mclapply(h,read_xl,mc.cores = future::availableCores())
   }
+  
   
   if(any(stringr::str_detect(Peptide,c("PG","PSMs")))){
     
@@ -426,9 +432,9 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
         df2<-dplyr::bind_rows(df2) %>% dplyr::rename("uniqueID"="Accession")
       }
       if(isTRUE(Frac)){
-        PSMs<-dplyr::bind_rows(df2) %>% dplyr::select(uniqueID,Spectrum_File,sample_name,sample_id,Fraction)
+        PSMs<-dplyr::bind_rows(df2) %>% dplyr::select(uniqueID,Spectrum.File,sample_name,sample_id,Fraction)
       }else{#if this isnt fractionated
-        PSMs<-dplyr::bind_rows(df2) %>% dplyr::select(uniqueID,Spectrum_File,sample_name,sample_id)
+        PSMs<-dplyr::bind_rows(df2) %>% dplyr::select(uniqueID,Spectrum.File,sample_name,sample_id)
       }
       
       if(any(stringr::str_detect(names(df2),"Protein.Accessions"))&!any(stringr::str_detect(names(df2),"uniqueID"))){
@@ -556,7 +562,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
     name<-dplyr::intersect(names(Proteins),names(PSMs))#dfP is PSMs df3 is proteins
     #Join protein and PSM file
     Proteins<-Proteins  %>%
-      dplyr::right_join(PSMs,by=name) %>%  #Add spectrum_File values
+      dplyr::right_join(PSMs,by=name) %>%  #Add Spectrum.File values
       distinct(.)
     Proteins<-Proteins %>% tibble::as_tibble()
     #Select protein columns
@@ -1115,18 +1121,7 @@ clean_cetsa <- function(df, temperatures = NULL,samples = NA,Peptide=FALSE,solve
   df$sample_id<-as.factor(df$sample_id)
   
   df<-dplyr::bind_rows(df) 
-  
-  df<-filter_good_data(df)
   return(df)
-}
-filter_good_data = function(data){
-  
-  good_data = data |> group_by(Accession,sample_name) |> filter(length(unique(treatment))==2,
-                                                                length(I)>= 30,
-                                                                length(I[treatment=="vehicle"])>=20,
-                                                                length(I[treatment=="treated"])>=20) |> ungroup()
-  #max(I) <=1.5) |> ungroup()
-  return(good_data)
 }
 FC_to_ref<-function(x,baseline){ 
   if(baseline=="min"){
@@ -4773,11 +4768,10 @@ spstat<-function(DF,df,df1,Ftest=TRUE,show_results=TRUE,filters=TRUE,scaled_dof=
   df1$I<-as.numeric(as.character(df1$I))
   df$I<-as.numeric(as.character(df$I))
   DF$I<-as.numeric(as.character(DF$I))
-  if(any(names(df)=="temperature")&!any(names(df)=="C")){
-  df1$C<-as.numeric(as.character(df1$temperature))
-  df$C<-as.numeric(as.character(df$temperature))
-  DF$C<-as.numeric(as.character(DF$temperature))
-  }
+  
+  df1$C<-as.numeric(as.character(df1$C))
+  df$C<-as.numeric(as.character(df$C))
+  DF$C<-as.numeric(as.character(DF$C))
   #mutate to get CV values
   DF<-DF %>% dplyr::group_split(C,uniqueID) 
   DF<- purrr::map(DF,function(x) x %>% dplyr::mutate(CV_pct = 100*sd(.$I,na.rm=TRUE)/mean(.$I,na.rm=TRUE)))
@@ -10436,8 +10430,8 @@ plot_Splines<-function(x,Protein="Q02750",df.temps,Filters=FALSE,fT=TRUE,show_re
     return(warning("Please check that you have vehicle and treated samples in your data.  Only one of the conditions read."))
   }
   
-  if(any(names(x)=="Annotated_Sequence")&any(names(x)=="Spectrum_File")){
-    x<-dplyr::bind_rows(x) %>% dplyr::select(-Spectrum_File) %>%
+  if(any(names(x)=="Annotated_Sequence")&any(names(x)=="Spectrum.File")){
+    x<-dplyr::bind_rows(x) %>% dplyr::select(-Spectrum.File) %>%
       distinct(.) %>% 
       dplyr::group_by(uniqueID,Annotated_Sequence,temp_ref,treatment,sample_name) %>% 
       dplyr::group_split()
@@ -10448,8 +10442,8 @@ plot_Splines<-function(x,Protein="Q02750",df.temps,Filters=FALSE,fT=TRUE,show_re
       dplyr::group_by(uniqueID,Annotated_Sequence,temp_ref,treatment,sample_name) %>% 
       dplyr::group_split()
     x<-purrr::map(x,function(x)x %>% dplyr::mutate(replicate=row.names(.)))
-  }else if(any(names(x)=="Spectrum_File")){
-    x<-dplyr::bind_rows(x) %>% dplyr::select(-Spectrum_File) %>%
+  }else if(any(names(x)=="Spectrum.File")){
+    x<-dplyr::bind_rows(x) %>% dplyr::select(-Spectrum.File) %>%
       distinct(.) %>% 
       dplyr::group_by(uniqueID,temp_ref,treatment,sample_name) %>% 
       dplyr::group_split()
@@ -10606,7 +10600,7 @@ y<-get_legend(check$plot)
 # plotS2<-plotS2[order(data)]
 #P1<-ggarrange(plotlist=plotS2,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"P36507",df.temps,Filters=FALSE,fT=TRUE,show_results=TRUE,Peptide=FALSE,simulations=FALSE,CARRIER=TRUE,Frac=TRUE,raw=FALSE)))
+plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"P36507",df.temps,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE,simulations=FALSE,CARRIER=TRUE,Frac=FALSE,raw=FALSE)))
 P3<-plotS2
 
 check<-ggplot2::ggplot_build(plotS2[[1]])
@@ -10615,7 +10609,7 @@ y<-get_legend(check$plot)
 # plotS2<-plotS2[order(data)]
 #ggarrange(plotlist=plotS2,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE,simulations=FALSE,CARRIER=TRUE,Frac=TRUE,raw=FALSE)))
+plotS2 <- purrr::map(df_clean,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=TRUE,simulations=FALSE,CARRIER=TRUE,Frac=TRUE,raw=TRUE)))
 check<-ggplot2::ggplot_build(plotS2[[1]])
 y<-get_legend(check$plot)
 # data<-unlist(lapply(plotS2,function(x) x$labels$title))
@@ -10724,7 +10718,7 @@ pdf("volcano_splines_Peptide_filtered_IMAATSA_gof_panels.pdf",encoding="CP1253.e
 P2
 dev.off()
 
-check<-TPPbenchmark_generic(f,volcano=FALSE,filters="HQ",Peptide=FALSE,filter=FALSE)
+check<-TPPbenchmark_generic(f,volcano=FALSE,filters="HQ",Peptide=TRUE,filter=FALSE)
 
 pdf("TPP_HQ_Peptide_filt_techreps_fractions.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 check1
