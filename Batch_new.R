@@ -7394,8 +7394,8 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
   #read data
   df_TPP<-lapply(f,function(x) read_excel(x,.name_repair = "unique"))
   #extract experiment names
-  f<-str_extract_all(f,c("C_F_E","C_F_S","C_nF_E","C_nF_S","nC_F_E","nC_F_S","nC_nF_E","nC_nF_S"))
-  
+  f<-stringr::str_extract(f,c("C_F_E","C_F_S","C_nF_E","C_nF_S","nC_F_E","nC_F_S","nC_nF_E","nC_nF_S"))
+  f<-as.list(f[!is.na(f)])
   f<-lapply(f,function(x) data.frame(sample_name=as.factor(x)))
   f<-f %>% purrr::keep(function(x) nrow(x)>0)
   #join data
@@ -7474,7 +7474,7 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
     # if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"
     df_TPP2$diffexpressed[df_TPP2$dTm < -2 & df_TPP2$p_dTm < 0.05] <- "Destabilized"
     df_TPP2$delabel <- NA
-    df_TPP2$delabel[df_TPP2$Protein_ID %in%c("P36507","Q02750")] <- as.character(df_TPP2$Protein_ID[df_TPP2$Protein_ID %in%c("P36507","Q02750")])
+    df_TPP2$delabel[df_TPP2$Protein_ID %in%c("P36507","Q02750","P84077","Q9H1A4")] <- as.character(df_TPP2$Protein_ID[df_TPP2$Protein_ID %in%c("P36507","Q02750","P84077","Q9H1A4")])
     #get overlaps in data
     #df_TPP2$Stroke <- NA
     #df_TPP2$Stroke<-ifelse(df_TPP2$diffexpressed=="Stabilized" | df_TPP2$diffexpressed=="Destabilized",ifelse(df_TPP2$Protein_ID %in% overlaps,TRUE,FALSE),FALSE)
@@ -7484,8 +7484,8 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
     df_TPP2<-dplyr::bind_rows(df_TPP2) %>% distinct(.) %>%  dplyr::group_split(sample_name,Protein_ID)
     df_TPP2<-purrr::map(df_TPP2,function(x) x[1,])
     df_TPP2<-dplyr::bind_rows(df_TPP2) %>% dplyr::group_split(sample_name)
-    flevels<-data.frame(treatment=c("No","Destabilized","Stabilized"),
-                        colors=c("black","green","purple"))
+    flevels<-data.frame(treatment=c("Destabilized","No","Stabilized"),
+                        colors=c("green","black","purple"))
     
     df_TPP3<-purrr::map(df_TPP2,function(x)
       ggplot(data=x,mapping=aes(x=dTm,y=-log10(p_dTm),color=diffexpressed))+geom_point()+ geom_vline(xintercept=c(-2, 2), col="red") +
@@ -7536,8 +7536,8 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
   colors1$y<-c(1,0.42,-0.38,-0.88,-0.88,-0.38,0.42,1)[1:length(unique(colors1$sample_name))]
   df_TPP1<-df_1
   
-  if(!nrow(colors1)==8){
-    check1<-df_TPP1 %>% count(sample_name) %>%
+  if(nrow(colors1)==8){
+    check1<-df_TPP1 %>% dplyr::count(sample_name) %>%
       #mutate(focus = ifelse(sample_name == "C_F_Φ", 0.2, 0)) %>%
       ggplot() +
       ggforce::geom_arc_bar(aes(x0 = 0, y0 = 0, r0 = 0.7, r = 1, amount = n, fill = sample_name), stat = "pie") +
@@ -7547,7 +7547,7 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
       ggplot2::geom_label(mapping=aes(x=colors1$x,y=colors1$y,label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
       ggtitle("Number of fitted curves")
   }else{
-    check1<-df_TPP1 %>% count(sample_name) %>%
+    check1<-df_TPP1 %>% dplyr::count(sample_name) %>%
       mutate(focus = ifelse(sample_name == "C_F_Φ", 0.2, 0)) %>%
       ggplot() +
       ggforce::geom_arc_bar(aes(x0 = 0, y0 = 0, r0 = 0.7, r = 1, amount = n, fill = sample_name,explode=focus), stat = "pie") +
@@ -7555,7 +7555,7 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
       scale_fill_manual(values = colors1$hex,aesthetics="fill")+
       xlim(-1.1,1.45)+
       ggplot2::geom_label(mapping=aes(x=colors1$x,y=colors1$y,label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
-      ggtitle("Number of fitted curves")
+      ggtitle(paste0("Number of sigmoidal curves fitted with TPP for ",df_TPP1$sample_name[1]))
     return(check1)
   }
   # 
@@ -9601,24 +9601,6 @@ pValsBin <- function(mpDiffs){
   return(pV)
 }
 replicate_labels<-function(x){
-  if(any(names(x)=="Annotated_Sequence")&any(names(x)=="Accession")){
-    x<-x%>% dplyr::group_by(Accession,Annotated_Sequence,treatment,sample_id) %>% 
-      dplyr::mutate(replicate=row.names(.))
-  }else if (any(names(x)=="uniqueID")&any(names(x)=="Annotated_Sequence")){
-    x<-x%>% dplyr::group_by(uniqueID,Annotated_Sequence,treatment,sample_id) %>% 
-      dplyr::mutate(replicate=row.names(.))
-  }else if (any(names(x)=="uniqueID")){
-    x<-x%>% dplyr::group_by(uniqueID,treatment,sample_id) %>% 
-      dplyr::mutate(replicate=row.names(.))
-  }else if (any(names(x) == "Accession")){
-    x<-x%>% dplyr::group_by(Accession,treatment,sample_id) %>% 
-      dplyr::mutate(replicate=row.names(.))
-  }
-}
-rename_TPP<-function(x,temps=df.temps,string=FALSE){#rename script data to run TPP
-  if(any(names(x)=="Accession")&!any(names(x)=="uniqueID")){
-    x$uniqueID<-x$Accession
-  }
   #add replicates
   if(any(names(x)=="Annotated_Sequence")&!(any(names(x)=="replicate"))){
     x<-dplyr::bind_rows(x) 
@@ -9635,89 +9617,66 @@ rename_TPP<-function(x,temps=df.temps,string=FALSE){#rename script data to run T
     x<-purrr::map(x,function(x)x %>% dplyr::mutate(Replicate=row.names(.),
                                                    replicate=row.names(.)))
   }
-  TPP_Cliff<-x %>% dplyr::rename("Condition"="treatment")
-  
-  if(any(names(x)=="I3")){
-    TPP_Cliff<-TPP_Cliff %>% dplyr::rename("I"="I3")
-    
-    # ss <- data.frame(gene_name=proteins$preferred_name,uniqueID=as.character(AnnotationDbi::mapIds(org.Hs.eg.db, proteins$preferred_name, 'UNIPROT', 'SYMBOL')))
-    # TPP_Cliff<-TPP_Cliff %>% dplyr::right_join(ss,by="uniqueID")
-    if(isTRUE(string)){
-      string_db <- STRINGdb$new( version="10", species=9606,score_threshold=400, input_directory="")
-    }
-    TPP_Cliff$gene_name<-TPP_Cliff$uniqueID
-    TPP_Cliff$gene_name<-as.character(TPP_Cliff$gene_name)
-    TPP_Cliff<-dplyr::bind_rows(TPP_Cliff) %>% 
-      dplyr::select(sample_id,Condition,Annotated_Sequence,gene_name,temp_ref,I) %>%
-      distinct(.)
-    data<-TPP_Cliff %>% 
-      dplyr::select(sample_id,Condition,gene_name,Annotated_Sequence) %>% 
-      distinct(.) %>% 
-      dplyr::group_split(Condition,gene_name)
-    if (.Platform$OS.type=="windows"){
-      data<-parallel::mclapply(data,replicate_labels)
-    }else{
-      data<-parallel::mclapply(data,replicate_labels,mc.cores=future::availableCores())
-    }
-    
-    
-    data<-dplyr::bind_rows(data)
+}
+rename_TPP<-function(x,temps=df.temps,string=FALSE){#rename script data to run TPP
+  if(any(names(x)=="Accession")&!any(names(x)=="uniqueID")){
+    x$uniqueID<-x$Accession
+  }
+  if(any(names(x)=="uniqueID")&!any(names(x)=="gene_name")){
+    x$gene_name<-x$uniqueID
+  }
+  if(any(names(x)=="treatment")&!any(names(x)=="Condition")){
+    x$Condition<-x$treatment
+  }
+  if(any(names(x)=="dataset")&!any(names(x)=="Condition")){
+    x$Condition<-x$dataset
+  }
+  if(any(names(x)=="uniqueID")&!any(names(x)=="gene_name")){
+    x$gene_name<-x$uniqueID
+  }
+  if(any(names(x)=="C")&!any(names(x)=="temperature")){
+    x$temperature<-x$C
+  }
+  if(any(names(x)=="value")&!any(names(x)=="I")){
+    x$I<-x$value
+  }
+  #add replicate columns
+  x<-replicate_labels(x)
+  TPP_Cliff<-dplyr::bind_rows(x) 
+  #split data by tretment and protein id
+
+  if(!any(names(x)=="Fraction")){
     TPP_Cliff<-TPP_Cliff %>%
-      dplyr::right_join(data,by=names(data)[!names(data) %in% "replicate"])
-    
-    TPP_Cliff<-pivot_wider(
-      TPP_Cliff,
-      id_cols = NULL,
-      names_from = temp_ref,
-      names_prefix = "rel_fc_",
-      names_sep = "_",
-      names_repair = "minimal",
-      values_from = I
-    )
+      dplyr::select(gene_name,sample_id,temperature,I,replicate,Condition,temp_ref)%>%
+      dplyr::group_by(gene_name,Condition,temperature) %>% dplyr::group_split()
   }else{
-    
-    TPP_Cliff$gene_name<-TPP_Cliff$uniqueID
-    TPP_Cliff$gene_name<-as.character(TPP_Cliff$gene_name)
-    
-    
-    TPP_Cliff<-dplyr::bind_rows(TPP_Cliff) %>% 
-      dplyr::select(sample_id,Condition,gene_name,temp_ref,I) %>%
-      distinct(.)
-    
-    
-    data<-TPP_Cliff %>% 
-      dplyr::select(sample_id,Condition,gene_name) %>% 
-      distinct(.) %>% 
-      dplyr::group_split(Condition,gene_name) 
-    if (.Platform$OS.type=="windows"){
-      data<-parallel::mclapply(data,replicate_labels)
-    }else{
-      data<-parallel::mclapply(data,replicate_labels,mc.cores=future::availableCores())
-    }
-    
-    data<-dplyr::bind_rows(data)
     TPP_Cliff<-TPP_Cliff %>%
-      dplyr::right_join(data,by=names(data)[!names(data) %in% "replicate"])
-    
-    TPP_Cliff<-pivot_wider(
+      dplyr::select(gene_name,Fraction,sample_id,temperature,I,replicate,Condition,temp_ref) %>% 
+      dplyr::group_by(gene_name,Condition,temperature) %>% dplyr::group_split()
+  }
+  filtered<-TPP_Cliff %>% purrr::keep(function(x) nrow(x)>=2)
+  message(paste0("Filtered ",round(length(filtered)/length(TPP_Cliff)*100,1)," percent of the data with one replicate"))
+  TPP_Cliff<-dplyr::bind_rows(filtered) %>% dplyr::select(-temperature)   
+  TPP_Cliff<-pivot_wider(
       TPP_Cliff,
       id_cols = NULL,
       names_from = temp_ref,
       names_prefix = "rel_fc_",
       names_sep = "_",
       names_repair = "minimal",
-      values_from = I
+      values_from = I,
+      values_fn=unique
       
     )
-  }
+  
   TPP_Cliff<-TPP_Cliff %>% distinct(.)
   check<-names(TPP_Cliff)
-  check1<-check[str_detect(check,"[:digit:][:upper:]")]
+  check1<-check[stringr::str_detect(check,"[:digit:][:upper:]")]
   #column numbers that have reporter ion data
   data2<-which(check %in% check1)
   #replace C or N with L and H
-  check1<-str_replace(check1,"C","H")
-  check1<-str_replace(check1,"N","L")
+  check1<-stringr::str_replace(check1,"C","H")
+  check1<-stringr::str_replace(check1,"N","L")
   #replace names
   check[data2]<-check1
   names(TPP_Cliff)<-check
@@ -9736,16 +9695,16 @@ rename_TPP<-function(x,temps=df.temps,string=FALSE){#rename script data to run T
   data2<-which(check %in% check1)
   
   config<-TPP_Cliff
-  names(config)<-str_replace(names(config),"rel_fc_","")
+  names(config)<-stringr::str_replace(names(config),"rel_fc_","")
   check<-c(config %>% dplyr::select(Experiment,Condition,ComparisonVT1,ComparisonVT2),config[data2])
-  temp_ref<-str_replace(df.temps$temp_ref,"C","H")
-  temp_ref<-str_replace(temp_ref,"N","L")
+  temp_ref<-stringr::str_replace(df.temps$temp_ref,"C","H")
+  temp_ref<-stringr::str_replace(temp_ref,"N","L")
   
   temps<-df.temps %>% dplyr::mutate(temp_ref=temp_ref) %>% distinct(.)
   temps<-pivot_wider(temps,names_from=temp_ref,values_from=temperature)
   temps<-purrr::map_dfr(seq_len(nrow(TPP_Cliff)), ~temps)
-  temp_ref<-str_replace(names(temps),"C","H")
-  temp_ref<-str_replace(temp_ref,"N","L")
+  temp_ref<-stringr::str_replace(names(temps),"C","H")
+  temp_ref<-stringr::str_replace(temp_ref,"N","L")
   names(temps)<-temp_ref
   TPP_Cliff<-cbind(TPP_Cliff,temps)
   #keep two replicates
@@ -9758,62 +9717,51 @@ rename_TPP<-function(x,temps=df.temps,string=FALSE){#rename script data to run T
 }
 
 runTPP<-function(x,df.temps){
-  
   TPP<- rename_TPP(x,df.temps)
-  
-  TPPconfig<-TPP %>% distinct(.)
-  
-  temp_ref<-str_replace(df.temps$temp_ref,"C","H")
-  temp_ref<-str_replace(temp_ref,"N","L")
+  temp_ref<-stringr::str_replace(df.temps$temp_ref,"C","H")
+  temp_ref<-stringr::str_replace(temp_ref,"N","L")
   hi<-TPP %>% 
     dplyr::select(Experiment,Condition,ComparisonVT1,ComparisonVT2,temp_ref)
   hi<-hi[,1:14] %>% distinct(.)
   hi<-hi[!is.na(hi$Experiment),]
   row.names(hi)<-seq(nrow(hi))
-  
-  gene_names<-data.frame(gene_name=dplyr::bind_rows(TPP)$gene_name,
-                         sample_id=dplyr::bind_rows(TPP)$sample_id,
-                         Condition=dplyr::bind_rows(TPP)$Condition)
-  
-  gene_names$n<-row.names(gene_names)
-  
-  TPP<-TPP %>% dplyr::right_join(gene_names,by=c("gene_name","sample_id","Condition")) %>% distinct(.)
-  
-  TPP<-TPP %>% 
-    dplyr::mutate(n=make.names(TPP$n,unique=TRUE)) 
+
+  #sort data
+  TPPconfig<-TPP %>%
+    dplyr::select(Experiment,Condition,ComparisonVT1,ComparisonVT2,tidyr::starts_with("126"),tidyr::starts_with("127L"),tidyr::starts_with("127H"),tidyr::starts_with("128L"),tidyr::starts_with("128H"),tidyr::starts_with("129L"),tidyr::starts_with("129H"),tidyr::starts_with("130"),tidyr::starts_with("130H"),tidyr::starts_with("131L")) %>%
+    distinct(.)%>%
+    dplyr::mutate(Experiment=as.character(Experiment)) %>% 
+    dplyr::arrange(Experiment)  
   
   
   TPPdata<-TPP %>% 
-    dplyr::select(gene_name,Experiment,qssm,qupm,n,tidyr::starts_with("rel_fc"),-tidyr::ends_with("rel_fc_NA")) %>%
+    dplyr::select(gene_name,Experiment,qssm,qupm,tidyr::starts_with("rel_fc"),-tidyr::ends_with("rel_fc_NA")) %>%
     distinct(.) %>% 
-    dplyr::filter(!is.na(Experiment)) %>% 
-    dplyr::group_split(Experiment) %>% 
-    setNames(unique(dplyr::bind_rows(.)$Experiment)) %>% 
-    purrr::map(.,function(y) y %>%
-                 magrittr::set_rownames(stringr::str_extract(y$n,"X")))
-  
-  
+    dplyr::filter(!is.na(Experiment)) %>%
+    dplyr::arrange(Experiment) %>% 
+    dplyr::mutate(Experiment=as.character(Experiment)) %>% 
+    dplyr::group_split(gene_name)
+  TPPdata<-TPPdata %>% purrr::keep(function(x) length(unique(x$Experiment))==4)
+ 
+    # dplyr::group_by(Experiment) %>% 
+    # stats::setNames(unique(Experiment)) %>% 
+    # as.data.frame() %>% 
+    # magrittr::set_rownames(stringr::str_extract(.$n,"X"))
+  TPPdata<-dplyr::bind_rows(TPPdata) %>% dplyr::group_split(Experiment)
+  names(TPPdata)<-unique(TPPconfig$Experiment)
   resultPath<-file.path(getwd())
-  #sort data
-  TPPconfig<-TPP %>% dplyr::select(Experiment,Condition,ComparisonVT1,ComparisonVT2,tidyr::starts_with("126"),tidyr::starts_with("127L"),tidyr::starts_with("127H"),tidyr::starts_with("128L"),tidyr::starts_with("128H"),tidyr::starts_with("129L"),tidyr::starts_with("129H"),tidyr::starts_with("130"),tidyr::starts_with("130H"),tidyr::starts_with("131L")) %>% distinct(.)
-  TPPdata<-TPPdata[order(unique(TPPconfig$Experiment))]
-  TPPdata<-lapply(TPPdata,function(x) as.data.frame(x) %>%
-                    dplyr::ungroup(.) %>% dplyr::select(-n,-Experiment))
   
-  #import TPPtr
-  if(any(!isTRUE(TPPconfig$Experiment==names(TPPdata)))){
-    TPPdata<-TPPdata[order(unique(TPPconfig$Experiment))]
-  }
-  if(any(!isTRUE(TPPconfig$Experiment==names(TPPdata)))){
-    TPPdata<-TPPdata[order(unique(TPPconfig$Experiment))]
-  }
-  trData <- tpptrImport(configTable = TPPconfig, data = TPPdata)
+  
+  TPPdata<-purrr::map(TPPdata,function(x) x %>% dplyr::filter(!is.na(rel_fc_126)))
+  TPPdata1<-purrr::map(TPPdata,function(x) x %>% dplyr::filter(!is.na(gene_name)) %>% reshape2::melt())
+  check<-purrr::map2(TPPdata,TPPdata1,function(x,y)y %>% dplyr::right_join(x))
+  trData <- tpptrImport(configTable = TPPconfig, data = check)
   TRresults <- analyzeTPPTR(configTable = TPPconfig, 
                             methods = "meltcurvefit",
-                            data = TPPdata, 
+                            data = check, 
                             nCores = future::availableCores(),
                             resultPath = resultPath, 
-                            plotCurves = FALSE,
+                            plotCurves = TRUE,
                             normalize = FALSE)
   return(TRresults)
 }
@@ -10715,7 +10663,7 @@ pdf("volcano_splines_Peptide_filtered_IMAATSA_gof_panels.pdf",encoding="CP1253.e
 P2
 dev.off()
 
-check<-TPPbenchmark_generic(f,volcano=FALSE,filters="HQ",Peptide=TRUE,filter=FALSE)
+check<-TPPbenchmark_generic(f,volcano=FALSE,filters="HQ",Peptide=FALSE,filter=FALSE)
 
 pdf("TPP_HQ_Peptide_filt_techreps_fractions.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 check1
