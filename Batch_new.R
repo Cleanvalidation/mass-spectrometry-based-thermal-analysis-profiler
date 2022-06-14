@@ -9615,18 +9615,38 @@ replicate_labels<-function(x){
       dplyr::mutate(replicate=row.names(.))
   }
 }
-rename_TPP<-function(x,temps=df.temps){#rename script data to run TPP
-  string_db <- STRINGdb$new( version="10", species=9606,score_threshold=400, input_directory="")
-  
+rename_TPP<-function(x,temps=df.temps,string=FALSE){#rename script data to run TPP
+  if(any(names(x)=="Accession")&!any(names(x)=="uniqueID")){
+    x$uniqueID<-x$Accession
+  }
+  #add replicates
+  if(any(names(x)=="Annotated_Sequence")&!(any(names(x)=="replicate"))){
+    x<-dplyr::bind_rows(x) 
+    distinct(.) %>% 
+      dplyr::group_by(uniqueID,Annotated_Sequence,temp_ref,treatment,sample_name) %>% 
+      dplyr::group_split()
+    x<-purrr::map(x,function(x)x %>% dplyr::mutate(Replicate=row.names(.),
+                                                   replicate=row.names(.)))
+  }else if(!any(names(x)=="replicate")){
+    x<-dplyr::bind_rows(x) %>%
+      distinct(.) %>% 
+      dplyr::group_by(uniqueID,temp_ref,treatment,sample_name) %>% 
+      dplyr::group_split()
+    x<-purrr::map(x,function(x)x %>% dplyr::mutate(Replicate=row.names(.),
+                                                   replicate=row.names(.)))
+  }
   TPP_Cliff<-x %>% dplyr::rename("Condition"="treatment")
+  
   if(any(names(x)=="I3")){
     TPP_Cliff<-TPP_Cliff %>% dplyr::rename("I"="I3")
     
     # ss <- data.frame(gene_name=proteins$preferred_name,uniqueID=as.character(AnnotationDbi::mapIds(org.Hs.eg.db, proteins$preferred_name, 'UNIPROT', 'SYMBOL')))
     # TPP_Cliff<-TPP_Cliff %>% dplyr::right_join(ss,by="uniqueID")
+    if(isTRUE(string)){
+      string_db <- STRINGdb$new( version="10", species=9606,score_threshold=400, input_directory="")
+    }
     TPP_Cliff$gene_name<-TPP_Cliff$uniqueID
     TPP_Cliff$gene_name<-as.character(TPP_Cliff$gene_name)
-    
     TPP_Cliff<-dplyr::bind_rows(TPP_Cliff) %>% 
       dplyr::select(sample_id,Condition,Annotated_Sequence,gene_name,temp_ref,I) %>%
       distinct(.)
@@ -10213,7 +10233,7 @@ df_norm_sum<-df_clean_mean
 # df_norm<-df_norm %>% purrr::keep(function(x) nrow(x)>1)
 df_norm1<-df_norm
 df_norm<-purrr::map(df_norm_sum,function(x)x %>% dplyr::filter(Accession %in% c("P36507","Q02750")))
-df_norm1<-purrr::map(df_norm1,function(x)x %>% dplyr::filter(Accession %in% c("P36507","Q02750","Q9Y2Q5","P61981","P60709","P40763","P31785")))
+df_norm1<-purrr::map(df_norm1,function(x)x %>% dplyr::filter(Accession %in% c("P36507","Q02750","Q9Y2Q5","P61981","P60709","P40763","P31785","P27361","P23458")))
 
 #Zebra
 df_norm<-purrr::map(df_norm,function(x) x %>% dplyr::mutate(uniqueID=as.character(uniqueID)))
@@ -10334,7 +10354,7 @@ PlotTrilinear<-function(df_norm,target,df.temps,Ft,filt,Peptide=FALSE,show_resul
   return(plotTL1)
 }
 
-plot<-purrr::map(df_norm,function(x) try(PlotTrilinear(x,"P36507",df.temps,Ft=FALSE,filt=FALSE,Peptide=TRUE,show_results=FALSE)))
+plot<-purrr::map(df_norm,function(x) try(PlotTrilinear(x,"P23458",df.temps,Ft=FALSE,filt=FALSE,Peptide=TRUE,show_results=FALSE)))
 #plot<-purrr::map(df_norm,function(x) try(PlotTrilinear(x,"P48506",df.temps,Ft=FALSE,filt=FALSE,Peptide=FALSE,show_results=FALSE)))
 
 check<-ggplot2::ggplot_build(plot[[1]])
@@ -10567,7 +10587,7 @@ if(isTRUE(fT)){
 #"Q499B1","F1Q7F3","Q1XB72","Q0H2G3")))#GCLC
 df_norm1<-list(dplyr::bind_rows(df_norm1))
 df_norm<-list(dplyr::bind_rows(df_norm))
-plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"P36507",df.temps,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE,simulations=FALSE,CARRIER=TRUE,Frac=TRUE,raw=FALSE)))
+plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"P27361",df.temps,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE,simulations=FALSE,CARRIER=TRUE,Frac=TRUE,raw=FALSE)))
 P1<-plotS2
 #saveRDS(plotS2,"Napabucasin_Protein_unique_data.RDS")
 #A4QNT9 F1Q7F3 F1QLV5 Q0H2G3 Q6NV46 Q90Y03
@@ -10577,7 +10597,7 @@ y<-get_legend(check$plot)
 # plotS2<-plotS2[order(data)]
 #P1<-ggarrange(plotlist=plotS2,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"P36507",df.temps,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE,simulations=FALSE,CARRIER=TRUE,Frac=TRUE,raw=FALSE)))
+plotS2 <- purrr::map(df_norm1,function(x) try(plot_Splines(x,"P23458",df.temps,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE,simulations=FALSE,CARRIER=TRUE,Frac=TRUE,raw=FALSE)))
 P3<-plotS2
 
 check<-ggplot2::ggplot_build(plotS2[[1]])
