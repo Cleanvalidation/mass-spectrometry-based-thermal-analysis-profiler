@@ -801,6 +801,7 @@ choose_PSM<-function(x,Frac=Frac,NORM=NORM,CARRIER=CARRIER,subset=subset,baselin
   ))
   
   check<-NA
+  df2<-df2 %>% purrr::keep(function(x)!is.na(x))
   df2<-dplyr::bind_rows(df2)
   #group data by sample_id name
   df2<-df2 %>%
@@ -9724,6 +9725,7 @@ renameNPARC<-function(x){
   }
   #set replicates
   x<-replicate_labels(x)
+  x<-dplyr::bind_rows(x)
   if(any(names(x)==".Unique.Peptides")&!any(names(x)=="uniquePeptideMatches")){
     x$uniquePeptideMatches<-x$.Unique.Peptides
   }
@@ -9736,7 +9738,27 @@ renameNPARC<-function(x){
   if(any(names(x)=="treatment")&!any(names(x)=="dataset")){
     x$dataset<-x$treatment
   }
+
+  return(x)
 }
+
+runNPARC<-function(x){
+  #rename data if necessary
+  x<-renameNPARC(x)
+  #pre-filter the data to avoid model fitting convergence issues
+  x<-fit_good_data(x)
+  
+  #run NPARC
+  x<-x %>% dplyr::group_by(uniqueID) %>% dplyr::group_split()
+  x<-x %>% purrr::keep(function(y) sum(is.na(y$relAbundance))/nrow(y)<0.3)
+  x<-dplyr::bind_rows(x)
+  testResults <- NPARC::runNPARC(x = x$temperature,
+                          y = x$relAbundance,
+                          id = x$uniqueID,
+                          groupsAlt = x$CC,
+                          dfType = "empirical")
+  return(testResults)
+}                         
 runTPP<-function(x,df.temps){
   TPP<- rename_TPP(x,df.temps)
   temp_ref<-stringr::str_replace(df.temps$temp_ref,"C","H")
