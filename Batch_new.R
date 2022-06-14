@@ -7555,7 +7555,7 @@ TPPbenchmark_generic<-function(f,overlaps=NA,volcano=TRUE,filters="TPP",Peptide=
       scale_fill_manual(values = colors1$hex,aesthetics="fill")+
       xlim(-1.1,1.45)+
       ggplot2::geom_label(mapping=aes(x=colors1$x,y=colors1$y,label=n,color=sample_name),inherit.aes=TRUE,vjust="top",show.legend = FALSE)+
-      ggtitle(paste0("Number of sigmoidal curves fitted with TPP for ",df_TPP1$sample_name[1]))
+      ggtitle(paste0("Number of sigmoidal curves fitted with TPP"))
     return(check1)
   }
   # 
@@ -9715,7 +9715,28 @@ rename_TPP<-function(x,temps=df.temps,string=FALSE){#rename script data to run T
   TPP_Cliff$qupm<-as.integer(10)
   return(TPP_Cliff)
 }
-
+renameNPARC<-function(x){
+ if(any(names(x)=="Accession")&!any(names(x)=="uniqueID")){
+   x$uniqueID<-x$Accession
+ }
+  if(any(names(x)=="I")&!any(names(x)=="relAbundance")){
+    x$relAbundance<-x$I
+  }
+  #set replicates
+  x<-replicate_labels(x)
+  if(any(names(x)==".Unique.Peptides")&!any(names(x)=="uniquePeptideMatches")){
+    x$uniquePeptideMatches<-x$.Unique.Peptides
+  }
+  if(any(names(x)=="C")&!any(names(x)=="temperature")){
+    x$temperature<-x$C
+  }
+  if(any(names(x)=="CC")&!any(names(x)=="compoundConcentration")){
+    x$compoundConcentration<-x$CC
+  }
+  if(any(names(x)=="treatment")&!any(names(x)=="dataset")){
+    x$dataset<-x$treatment
+  }
+}
 runTPP<-function(x,df.temps){
   TPP<- rename_TPP(x,df.temps)
   temp_ref<-stringr::str_replace(df.temps$temp_ref,"C","H")
@@ -9836,10 +9857,7 @@ filter_Peptides<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm,
     df_<-df_ %>% dplyr::mutate("I"=pep)
   }
   
-  if(any(names(df_)=="Fraction")&!any(names(df_)=="replicate")){
-    df_$replicate<-as.numeric(df_$Fraction)
-    df_$Fraction<-as.numeric(df_$Fraction)
-  }
+ 
   if(any(stringr::str_detect(df_$Accession,";"))&!isTRUE(keep_shared_proteins)){
     df_<-df_[!stringr::str_detect(df_$Accession,";"),]
   }
