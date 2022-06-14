@@ -801,7 +801,7 @@ choose_PSM<-function(x,Frac=Frac,NORM=NORM,CARRIER=CARRIER,subset=subset,baselin
   ))
   
   check<-NA
-  df2<-df2 %>% purrr::keep(function(x)!is.na(x))
+  df2<-df2 %>% purrr::keep(function(x)nrow(x)>1)
   df2<-dplyr::bind_rows(df2)
   #group data by sample_id name
   df2<-df2 %>%
