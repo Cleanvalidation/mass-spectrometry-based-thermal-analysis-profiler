@@ -9064,24 +9064,71 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
   
 }
 
-volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,Peptide=FALSE,benchmark=TRUE,Fhist=TRUE,labels=FALSE,type=NA){
-  f<-f %>% purrr::keep(function(x) !class(x)=='try-error')
+volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,NPARC=FALSE,Peptide=FALSE,benchmark=TRUE,Fhist=TRUE,labels=FALSE,type=NA){
+ if( any(class(f)=="list")){
+   f<-f %>% purrr::keep(function(x) !class(x)=='try-error')
+ }
   f<-data.frame(dplyr::bind_rows(f))
   if(any(names(f)=="sample_id")){
-    if(any(names(f)=="sample_id")){
-      f<-f %>% dplyr::select(-sample_id)
-    }
     f<-f %>% dplyr::rename("sample_id"="sample_id")
   }
   if(any(names(f)=="I3")){
     f<-f %>% dplyr::rename("I"="I3")
+  }
+  if(any(names(f)==fStat)){
+    f$fStatistic<-f$fStat
+  }
+  if(any(names(f)=="id")){
+    f$uniqueID<-f$id
+  }
+  if(isTRUE(NPARC)){
+    f$dRSS<-f$rssNull-f$rssAlt
+    f$diffexpressed <- "Not Shifted"
+    f$diffexpressed[f$pAdj < 0.05 & f$pVal<0.05] <- "Shifted pVal < 0.05"
+    f$diffexpressed[f$pAdj < 0.01 & f$pVal<0.01] <- "Shifted pAdj < 0.01"
+    f$diffexpressed<-as.factor(f$diffexpressed)
+    f$targets<-NA
+    f$delabel <- NA
+    others<-as.character(f$uniqueID[which(f$pAdj < 0.05)])
+    f$targets[f$uniqueID %in%c("P36507","Q02750")] <- as.character(f$uniqueID[f$uniqueID %in%c("P36507","Q02750")])
+    f$delabel[f$uniqueID %in%c("P36507","Q02750","P40763","Q9Y2Q5","P31785")] <- as.character(f$uniqueID[f$uniqueID %in%c("P36507","Q02750","P40763","Q9Y2Q5","P31785")])
+    flevels<-data.frame(colors=c("#762a83","#b35806","#1b7837"),
+                        labels=c("Shifted pVal < 0.05","Not Shifted","Shifted pAdj < 0.01"))
+    flevels<-flevels %>% dplyr::filter(labels %in% unique(f$diffexpressed))
+  
+    f$dRSS<-sign(sqrt(f$dRSS))
+    if(!isTRUE(Fhist)){
+      check<-ggplot(data=f,mapping=aes(y=log2(fStat+1),x=dRSS,color=diffexpressed))+geom_point()+
+        #geom_hline(yintercept=-log10(0.01), col="red")+ 
+        labs(y=expression(log["2"]*F["vals"]+1),x=expression(sign("k")*sqrt(RSS["0"]-RSS["1"])))+
+        scale_color_manual("Stabilization",values=as.character(flevels$colors),labels = flevels$labels)+
+        theme(legend.position="bottom", legend.box = "horizontal")+
+        xlim(0.999,1.001)
+      if(isTRUE(labels)){
+        if(type=="targets" | is.na(type)){
+          check<-check+
+            geom_label_repel(f,mapping=aes(y=log2(fStat+1),x=dRSS,label=targets),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 50),
+                             nudge_x = 1,
+                             force = 3,
+                             box.padding = 3,
+                             segment.alpha = .5)
+        }else{
+          check<-check+
+            geom_label_repel(f,mapping=aes(y=log2(fStat+1),x=dRSS,label=delabel),color="black",max.overlaps = getOption("ggrepel.max.overlaps", default = 50),
+                             nudge_x = 1,
+                             force = 3,
+                             box.padding = 3,
+                             segment.alpha = .5)
+        }
+      }
+    }
   }
   if(isTRUE(benchmark)){
     if(isTRUE(Peptide)){
       
       f<-f %>% 
         dplyr::select(uniqueID,sample_id,sample_name,dTm,p_dTm,AUC,rsq,fStatistic,pValue,pAdj,treatment,Fvals,p_dTm,dRSS,d1,d2,rss1,RSS)
-      f$sample_name<-str_replace(f$sample_name,"S","\u03A6")
+      f$sample_name<-stringr::str_replace(f$sample_name,"S","\u03A6")
       
       f<-dplyr::bind_rows(f)
       f$diffexpressed <- "Not Shifted"
