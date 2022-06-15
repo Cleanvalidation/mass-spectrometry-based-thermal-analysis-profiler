@@ -9881,6 +9881,16 @@ medianPolish <- function(intensities, num_channels){
   tmp_fit <- stats::medpolish(wide, na.rm = TRUE, trace.iter = FALSE)
   tmp_fit$overall + tmp_fit$col
 }
+filter_good_data = function(data){
+  
+  good_data = data |> 
+    group_by(Accession,sample_name) |> filter(length(unique(treatment))==2,
+                                              length(I)>= 30,
+                                              length(I[treatment=="vehicle"])>=20,
+                                              length(I[treatment=="treated"])>=20) |> ungroup()
+  #max(I) <=1.5) |> ungroup()
+  return(good_data)
+}
 
 #filter peptides and PSMs
 filter_Peptides<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm,Occupancy,filter_rank=FALSE,keep_shared_proteins=FALSE,CFS=TRUE,Frac=FALSE){
