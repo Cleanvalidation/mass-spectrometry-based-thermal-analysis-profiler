@@ -1553,7 +1553,9 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     }
     
     ## split the data by replicate 
-    l.bytype <- split.data.frame(df.jointP, df.jointP$sample_id)
+    l.bytype <- df.jointP %>%
+      dplyr::group_by(sample_id,treatment) %>% 
+      dplyr::group_split()
     
     ## determine which replicate (F1 through FN) contains the greatest number of curves and use this for normalization
     n.filter <- lapply(l.bytype, nrow)
@@ -1565,34 +1567,16 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     df.mynormset <- df %>% base::subset(Accession %in% norm.accessions)
     
     df.median <- df %>%
-      dplyr::group_by(temperature) %>%
+      dplyr::group_by(temperature,treatment) %>% 
       dplyr::mutate(value = median(I,na.rm=TRUE)) %>% dplyr::ungroup(.)
-    #
-    # nls3 = purrr::quietly(.f = nls)
-    # qtwolevel_fun = function(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl
-    #                          start = c(Pl=0, a = 550, b = 10)
-    #                          data = list(x=temperature,y=value)
-    #                          na.action = na.exclude
-    #                          algorithm = "port"
-    #                          lower = c(0.0,1e-5,1e-5)
-    #                          upper = c(1.5,15000,300)
-    #                          control = nls.control(maxiter = 50))
-    
-    
+   
     ## fit curves to the median data for each sample_id (F1 through FN)
     df.fit <- df.median %>%
-      dplyr::group_by(sample_id) %>% 
-      dplyr::mutate(fit=list(try(cetsa_fit(.,norm=FALSE))))
-    # dplyr::mutate(fit = list(try(nls(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl,
-    #                                  start = c(Pl=0, a = 550, b = 10),
-    #                                  data = list(x=temperature,y=value),
-    #                                  na.action = na.exclude,
-    #                                  algorithm = "port",
-    #                                  lower = c(0.0,1e-5,1e-5),
-    #                                  upper = c(1.5,15000,300),
-    #                                  control = nls.control(maxiter = 50))
-    #)))
-    df.fit<-df.fit %>% dplyr::group_by(sample_id) %>% dplyr::group_split()
+      dplyr::group_by(sample_id,treatment) %>% 
+      dplyr::mutate(fit=list(try(cetsa_fit(.,norm=FALSE)))) %>%
+      dplyr::group_split()
+   
+    #check that the curve was fit and filter out replicates that did not converge
     df.fit<-df.fit %>% purrr::keep(function(x) class(x$fit[[1]])=='nls')
     df.fit<-dplyr::bind_rows(df.fit)
     df.fit<-df.fit%>% dplyr::group_by(sample_id) %>% 
