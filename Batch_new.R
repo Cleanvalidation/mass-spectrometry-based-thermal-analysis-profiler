@@ -1154,17 +1154,23 @@ FC_to_ref<-function(x,baseline){
   }
 }
 FC_calc<-function(x,y) {
-  y<-x %>%  
+  y<-x %>%  dplyr::group_by(treatment) %>% 
     dplyr::mutate(.,T7 = try(mean(x[which(x$temperature==unique(x$temperature)[order(unique(x$temperature))=="7"]),]$I/x[which(x$temperature==y),"I"]$I)),
                   T9 = try(mean(x[which(x$temperature==unique(x$temperature)[order(unique(x$temperature))=="9"]),]$I/x[which(x$temperature==y),"I"]$I)),
-                  T10 = try(mean(x[which(x$temperature==max(x$temperature,na.rm=TRUE)),"I"]$I/x[which(x$temperature==y),"I"]$I)))
+                  T10 = try(mean(x[which(x$temperature==max(x$temperature,na.rm=TRUE)),"I"]$I/x[which(x$temperature==y),"I"]$I))) %>% 
+    dplyr::ungroup()
   return(y)
 }
 FC_filter<-function(x){
-  y<-x%>% dplyr::filter(T7 >= 0.4, T7 <= 0.6,T9 < 0.3) %>% 
-    dplyr::select(-T7,-T9,-n)
+  y<-x%>%dplyr::group_by(treatment) %>% 
+    dplyr::filter(T7 >= 0.4, T7 <= 0.6,T9 < 0.3) %>% 
+    dplyr::select(-T7,-T9,-n) %>% dplyr::ungroup()
   if(any(names(x)=="T10" & all(!is.na(x$T10)))){
-    y<- y %>% subset(T10 < 0.2)%>% dplyr::select(-T10)#normalization from TPP
+    y<- y %>%dplyr::group_by(treatment) %>% 
+      subset(T10 < 0.2)%>%
+      dplyr::select(-T10)%>%
+      dplyr::ungroup()
+    #normalization from TPP
   }
   return(y)
 }
@@ -1518,10 +1524,10 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     df$Accession<-as.factor(df$Accession)
     if(any(names(df)=="replicate")){
       df<-df %>%
-        dplyr::group_split(Accession,sample_id,replicate)
+        dplyr::group_split(Accession,sample_id,replicate,treatment)
     }else if(any(names(df)=="Fraction")){
       df<-df %>%
-        dplyr::group_split(Accession,sample_id,Fraction)
+        dplyr::group_split(Accession,sample_id,Fraction,treatment)
     }
     
     
@@ -10053,7 +10059,13 @@ df_raw <- read_cetsa("/work/ivanovlab/figueroa-navedo.a/Scripts/Files/2.4/CFS_vs
                      "/work/ivanovlab/figueroa-navedo.a/Scripts/Files/2.4/CFS_vs_CFE/Fractions_I/Shared",
                      Prot_Pattern = "_Proteins",Peptide="PG",Frac=TRUE,solvent="DMSO",CARRIER=TRUE,
                      CFS=TRUE,rank=TRUE,sub="Filter",temperatures=df.temps,baseline="min",NORM="QUANTILE",
-                     keep_shared_proteins=FALSE)                                      
+                     keep_shared_proteins=FALSE)     
+
+df_raw <- read_cetsa("E:/Covid/Fractions",
+                     "E:/Covid/Fractions",
+                     Prot_Pattern = "_Proteins",Peptide="PG",Frac=TRUE,solvent="DMSO",CARRIER=TRUE,
+                     CFS=TRUE,rank=TRUE,sub="Filter",temperatures=df.temps,baseline="min",NORM="QUANTILE",
+                     keep_shared_proteins=FALSE)                
 
 #average peptides to the protein level
 Mean_Ab<-function(x){
