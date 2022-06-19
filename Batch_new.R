@@ -47,7 +47,8 @@ pacman::p_load(minpack.lm,
                report,
                equatiomatic,
                plyr,
-               performance)
+               performance,
+               install=FALSE)
 #install.packages("BiocManager")
 library(BiocManager)
 BiocManager::install(c("minpack.lm",
@@ -144,9 +145,9 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
     if (any(names(df2)=="Master.Protein.Accessions")&!any(names(df2)=="Accession")){
       df2<-df2 %>% dplyr::rename("Accession"="Master.Protein.Accessions")
     }else if(any(stringr::str_detect(names(df2),"Master"))&!any(names(df2)=="Accession")){
-      df2<-df2 %>% dplyr::mutate("Accession"=names(df2)[stringr::str_detect(names(df2),"Master")])
+      df2<-df2 %>% dplyr::rename("Accession"=names(df2)[stringr::str_detect(names(df2),"Master")])
     }else if(any(stringr::str_detect(names(df2),"Accession"))){
-      df2<-df2 %>% dplyr::mutate("Accession"=names(df2)[stringr::str_detect(names(df2),"Accession")][1])
+      df2<-df2 %>% dplyr::rename("Accession"=names(df2)[stringr::str_detect(names(df2),"Accession")][1])
     }
     if(any(names(df2)=="Average.Reporter.S.N")){
       df2<-df2 %>% dplyr::rename("Average_Reporter_S/N"="Average.Reporter.S.N")
@@ -545,40 +546,28 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
                                dplyr::mutate(File.ID=stringr::str_extract(File.ID,"[:upper:][[:digit:]]+")) %>% 
                                distinct())
     Proteins<-dplyr::bind_rows(Proteins)
-    if(isTRUE(Frac)){
-      Proteins <- Proteins %>% 
-        tidylog::pivot_longer(cols=colnames(Proteins)[stringr::str_detect(colnames(Proteins),"[:digit:][:digit:][:digit:][N|C]|126|131")],
-                              names_to = "id",
-                              values_to ="value") %>% 
-        dplyr::mutate(File.ID = stringr::str_extract(id,"[:upper:][[:digit:]]+"),
-                      Fraction=stringr::str_remove(id,"[:upper:][[:digit:]]+."),
-                      temp_ref = stringr::str_extract(id,'[:digit:][:digit:][:digit:][N|C]|126|131'),
-                      value = as.numeric(value),
-                      Fraction = stringr::str_remove(File.ID,"[:upper:][[:digit:]]+."),
-                      sample_id = stringr::str_extract(File.ID,"[:upper:][[:digit:]]+"))
-      Proteins<-Proteins %>% dplyr::right_join(temperatures, by ="temp_ref")
-      
-    }else{
-      Proteins <- Proteins %>% 
-        tidylog::pivot_longer(cols=colnames(Proteins)[stringr::str_detect(colnames(Proteins),"[:digit:][:digit:][:digit:][N|C]|126|131")],
-                              names_to = "id",
-                              values_to ="value") %>% 
-        dplyr::mutate(File.ID = stringr::str_extract(id,"[:upper:][[:digit:]]+"),
-                      temp_ref = stringr::str_extract(id,'[:digit:][:digit:][:digit:][N|C]|126|131'),
-                      value = as.numeric(value),
-                      Fraction = stringr::str_remove(File.ID,"[:upper:][[:digit:]]+."),
-                      sample_id = stringr::str_extract(File.ID,"[:upper:][[:digit:]]+"))
-      Proteins<-Proteins %>% dplyr::right_join(temperatures, by ="temp_ref")
-    }
+    
+    Proteins <- Proteins %>% 
+      tidylog::pivot_longer(cols=colnames(Proteins)[stringr::str_detect(colnames(Proteins),"[:digit:][:digit:][:digit:][N|C]|126|131")],
+                            names_to = "id",
+                            values_to ="value") %>% 
+      dplyr::mutate(File.ID = stringr::str_extract(id,"[:upper:][[:digit:]]+"),
+                    temp_ref = stringr::str_extract(id,'[:digit:][:digit:][:digit:][N|C]|126|131'),
+                    value = as.numeric(value),
+                    sample_id = stringr::str_extract(File.ID,"[:upper:][[:digit:]]+"),
+                    temp_ref=stringr::str_extract(id,"[:digit:][:digit:][:digit:][N|C]|126|131"))
+    Proteins<-Proteins %>% dplyr::right_join(temperatures, by ="temp_ref") %>% distinct(.)
+    
+    
     Proteins<-data.table::data.table(dplyr::bind_rows(Proteins))
-    PSMs<-data.table::data.table(dplyr::bind_rows(PSMs))
+    PSMs<-data.table::data.table(dplyr::bind_rows(PSMs)) %>%
+      dplyr::mutate(Spectrum.File=stringr::str_remove(Spectrum.File,"[[:digit:]]+.raw")) %>% 
+      dplyr::distinct(.)
     
     name<-dplyr::intersect(names(Proteins),names(PSMs))#dfP is PSMs df3 is proteins
     #Join protein and PSM file
-    Proteins<-Proteins  %>%
-      dplyr::right_join(PSMs,by=name) %>%  #Add Spectrum.File values
-      distinct(.)
-    Proteins<-Proteins %>% tibble::as_tibble()
+    Proteinsj<-merge(Proteins,PSMs,all.x=TRUE,by=name)
+    Proteins<-data.frame(Proteinsj)
     #Select protein columns
     if(any(names(Proteins)=="Biological.Process")&any(names(Proteins[[1]]=="MW.kDa."))){
       Proteins<-dplyr::bind_rows(Proteins) %>% 
@@ -590,14 +579,25 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
       Proteins<-dplyr::bind_rows(Proteins) %>% 
         dplyr::rename("Coverage"="Coverage.")
     }
-    #Pivot longer
+    #Add additional information from the experiment
     if(isTRUE(Frac)){
-      Proteins <- Proteins %>% 
-        dplyr::mutate(CC = ifelse(stringr::str_detect(Spectrum.File,solvent),0,1),
-                      treatment = ifelse(stringr::str_detect(Spectrum.File,solvent),"vehicle","treated"),
-                      sample_name = ifelse(length(unique(.$sample_id))==4,
-                                           unique(stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+"))[2],
-                                           stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+")))
+      Proteins <- dplyr::bind_rows(Proteins) %>% 
+        as.data.frame() %>% 
+        dplyr::mutate(Fraction=stringr::str_extract(Spectrum.File,"[:digit:]+.raw|1[:digit:].raw"),
+                      sample_id=stringr::str_extract(File.ID,"[:upper:][[:digit:]]+"),
+                      CC = ifelse(stringr::str_detect(Spectrum.File,solvent),0,1),
+                      treatment = ifelse(stringr::str_detect(Spectrum.File,solvent),"vehicle","treated"))
+      
+      Proteins<-Proteins %>% dplyr::mutate(Fraction=as.factor(stringr::str_extract(Fraction,"[[:digit:]]+")))
+      if(!isTRUE(CFS)){
+        Proteins<-Proteins %>% dplyr::mutate(sample_name = ifelse(length(unique(.$sample_id))==4,
+                                                                  unique(stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+"))[2],
+                                                                  stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+")))
+      }else if(isTRUE(CFS)){
+        Proteins$sample_name<-paste0(ifelse(stringr::str_detect(Proteins$Spectrum.File,"NOcarrier")==TRUE,"nC",ifelse(stringr::str_detect(Proteins$Spectrum.File,"carrier")==TRUE,"C",NA)),'_',
+                                     ifelse(stringr::str_detect(Proteins$Spectrum.File,"NO_FAIMS")==TRUE,"nF",ifelse(stringr::str_detect(Proteins$Spectrum.File,"r_FAIMS")==TRUE,"F",NA)),'_',
+                                     ifelse(stringr::str_detect(Proteins$Spectrum.File,"S_eFT")==TRUE,"E",ifelse(stringr::str_detect(Proteins$Spectrum.File,"S_Phi")==TRUE,"S",NA)))
+      }
       Proteins$treatment<-as.factor(Proteins$treatment)
     }else{#if this isnt fractionated
       Proteins <- Proteins %>%  
@@ -606,7 +606,15 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
                       sample_name = ifelse(length(unique(.$sample_id))==4,
                                            unique(stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+"))[2],
                                            stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+")))
-      
+      if(!isTRUE(CFS)){
+        Proteins<-Proteins %>% dplyr::mutate(sample_name = ifelse(length(unique(.$sample_id))==4,
+                                                                  unique(stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+"))[2],
+                                                                  stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+")))
+      }else if(isTRUE(CFS)){
+        Proteins$sample_name<-paste0(ifelse(stringr::str_detect(Proteins$Spectrum.File,"NOcarrier")==TRUE,"nC",ifelse(stringr::str_detect(Proteins$Spectrum.File,"carrier")==TRUE,"C",NA)),'_',
+                                     ifelse(stringr::str_detect(Proteins$Spectrum.File,"NO_FAIMS")==TRUE,"nF",ifelse(stringr::str_detect(Proteins$Spectrum.File,"r_FAIMS")==TRUE,"F",NA)),'_',
+                                     ifelse(stringr::str_detect(Proteins$Spectrum.File,"S_eFT")==TRUE,"E",ifelse(stringr::str_detect(Proteins$Spectrum.File,"S_Phi")==TRUE,"S",NA)))
+      }
       Proteins$treatment<-as.factor(Proteins$treatment)
     }
     
@@ -615,7 +623,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
     missing_label<-function(x) {
       x<-x %>% dplyr::group_by(Accession,sample_id,sample_name,treatment) %>%
         distinct(.) %>% dplyr::mutate(missing=is.na(value),
-                                      missing_pct=sum(is.na(value))/nrow(.))
+                                      missing_pct=100*sum(is.na(value))/nrow(.))
       return(x)
     }
     if (.Platform$OS.type=="windows"){
@@ -623,52 +631,35 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
     }else{
       Proteins<-parallel::mclapply(Proteins,missing_label,mc.cores=future::availableCores())
     }
-    if(isTRUE(Frac)){#if this is a fractionated treatment
-      
-      if(baseline=="min"){
-        rank_label<-function(x){#if baseline is min and this is a fractionated treatment
-          x<-x%>% dplyr::filter(temperature==min(temperature,na.rm=TRUE)) %>%
-            dplyr::mutate(rank=dplyr::ntile(value,3))%>%
-            dplyr::select(sample_id,sample_name,Accession,rank,id,Fraction,Spectrum.File)%>%
-            dplyr::filter(!is.na(rank),!is.na(id),rank==min(.$rank,na.rm=TRUE)) %>% dplyr::select(-id) %>% distinct(.)
-          return(x)
-        }
-      }else{#if baseline is max and this is a fractionated treatment
-        rank_label<-function(x){
-          x<-x%>% dplyr::filter(temp_ref==unique(x$temperature)[length(unique(x$temperature))]) %>%
-            dplyr::mutate(rank=dplyr::ntile(value,3))%>%
-            dplyr::select(sample_id,sample_name,Accession,rank,id,Fraction,Spectrum.File)%>%
-            dplyr::filter(!is.na(rank),!is.na(id),rank==min(.$rank,na.rm=TRUE)) %>% dplyr::select(-id) %>% distinct(.)
-          return(x)
-        }
+    
+    
+    if(baseline=="min"){#if baseline is min and this is an unfractionated treatment
+      rank_label<-function(x){
+        x<-x%>% dplyr::filter(temperature==min(temperature,na.rm=TRUE)) %>%
+          dplyr::mutate(rank=dplyr::ntile(value,3))%>%
+          dplyr::select(sample_id,sample_name,Accession,rank,id,Spectrum.File)%>%
+          dplyr::filter(!is.na(rank),!is.na(id)) %>% dplyr::select(-id) %>% distinct(.)
+        return(x)
       }
-    }else{#if this is unfractionated
-      if(baseline=="min"){#if baseline is min and this is an unfractionated treatment
-        rank_label<-function(x){
-          x<-x%>% dplyr::filter(temperature==min(temperature,na.rm=TRUE)) %>%
-            dplyr::mutate(rank=dplyr::ntile(value,3))%>%
-            dplyr::select(sample_id,sample_name,Accession,rank,id,Spectrum.File)%>%
-            dplyr::filter(!is.na(rank),!is.na(id)) %>% dplyr::select(-id) %>% distinct(.)
-          return(x)
-        }
-      }else{#if baseline is max and this is an unfractionated treatment
-        rank_label<-function(x){
-          x<-x%>% dplyr::filter(temp_ref==unique(x$temperature)[length(unique(x$temperature))]) %>%
-            dplyr::mutate(rank=dplyr::ntile(value,3))%>%
-            dplyr::select(sample_id,sample_name,Accession,rank,id,Spectrum.File)%>%
-            dplyr::filter(!is.na(rank),!is.na(id),rank==min(.$rank,na.rm=TRUE)) %>%
-            dplyr::select(-id) %>% distinct(.)
-          return(x)
-        }
+    }else{#if baseline is max and this is an unfractionated treatment
+      rank_label<-function(x){
+        x<-x%>% dplyr::filter(temp_ref==unique(x$temperature)[length(unique(x$temperature))]) %>%
+          dplyr::mutate(rank=dplyr::ntile(value,3))%>%
+          dplyr::select(sample_id,sample_name,Accession,rank,id,Spectrum.File)%>%
+          dplyr::filter(!is.na(rank),!is.na(id),rank==min(.$rank,na.rm=TRUE)) %>%
+          dplyr::select(-id) %>% distinct(.)
+        return(x)
       }
     }
+    
     if(isTRUE(rank)){
       if (.Platform$OS.type=="windows"){
         df_raw_D_R<-parallel::mclapply(Proteins,rank_label)
       }else{
         df_raw_D_R<-parallel::mclapply(Proteins,rank_label,mc.cores=future::availableCores())
       }
-      if(any(names(Proteins[[1]]$Spectrum.File)=="Fraction")){
+      df_raw_D_R<-df_raw_D_R %>% purrr::keep(function(x) nrow(x)>0)
+      if(any(names(Proteins)=="Fraction")&any(stringr::str_detect(Proteins[[1]]$Spectrum.File,"Fraction"))){
         Proteins<-dplyr::bind_rows(Proteins)
         Proteins$Fraction<-stringr::str_extract(Proteins$Spectrum.File,"Fraction_[[:digit:]]+")
         Proteins$Fraction<-stringr::str_remove(Proteins$Fraction,"Fraction_")
@@ -695,30 +686,17 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
       data.table::setkeyv(Proteins,cols=name)
       df2<-data.table::merge.data.table(Proteins,df_raw_D_R,by=name)
       df2<-df2 %>% as.data.frame(.) %>% distinct(.)
-      
-    }else{
-      if(any(names(Proteins)=="Fraction")){
-        Proteins<-dplyr::bind_rows(Proteins)
-        Proteins$Fraction<-stringr::str_extract(Proteins$Spectrum.File,"Fraction_[[:digit:]]+")
-        Proteins$Fraction<-stringr::str_remove(Proteins$Fraction,"Fraction_")
-        
-        df_raw_D_R<-dplyr::bind_rows(df_raw_D_R)
-        df_raw_D_R$Fraction<-stringr::str_extract(df_raw_D_R$Spectrum.File,"Fraction_[[:digit:]]+")
-        df_raw_D_R$Fraction<-stringr::str_remove(df_raw_D_R$Fraction,"Fraction_")
-      }
-      df2<-dplyr::bind_rows(Proteins)
-      if(isTRUE(CFS)){
-        df2$sample_name<-paste0(ifelse(stringr::str_detect(df2$Spectrum.File,"NOcarrier")==TRUE,"nC",ifelse(stringr::str_detect(df2$Spectrum.File,"carrier")==TRUE,"C",NA)),'_',
-                                ifelse(stringr::str_detect(df2$Spectrum.File,"NO_FAIMS")==TRUE,"nF",ifelse(stringr::str_detect(df2$Spectrum.File,"r_FAIMS")==TRUE,"F",NA)),'_',
-                                ifelse(stringr::str_detect(df2$Spectrum.File,"S_eFT")==TRUE,"E",ifelse(stringr::str_detect(df2$Spectrum.File,"S_Phi")==TRUE,"S",NA)))
-      }
-      
+      df2<-dplyr::bind_rows(df2) %>% distinct(.)
     }
+    if(isTRUE(CFS)){
+      Proteins$sample_name<-paste0(ifelse(stringr::str_detect(Proteins$Spectrum.File,"NOcarrier")==TRUE,"nC",ifelse(stringr::str_detect(Proteins$Spectrum.File,"carrier")==TRUE,"C",NA)),'_',
+                                   ifelse(stringr::str_detect(Proteins$Spectrum.File,"NO_FAIMS")==TRUE,"nF",ifelse(stringr::str_detect(Proteins$Spectrum.File,"r_FAIMS")==TRUE,"F",NA)),'_',
+                                   ifelse(stringr::str_detect(Proteins$Spectrum.File,"S_eFT")==TRUE,"E",ifelse(stringr::str_detect(Proteins$Spectrum.File,"S_Phi")==TRUE,"S",NA)))
+    }
+    df2<-dplyr::bind_rows(df2) %>% distinct(.)
+    return(df2)
   }
-  df2<-dplyr::bind_rows(df2) %>% distinct(.)
-  return(df2)
 }
-
 #'Choose PSMs
 #'
 choose_PSM<-function(x,Frac=Frac,NORM=NORM,CARRIER=CARRIER,subset=subset,baseline=baseline,Prot_Pattern=Prot_Pattern,Peptide=Peptide){
@@ -1569,42 +1547,43 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     df.median <- df %>%
       dplyr::group_by(temperature,treatment) %>% 
       dplyr::mutate(value = median(I,na.rm=TRUE)) %>% dplyr::ungroup(.)
-   
+    
     ## fit curves to the median data for each sample_id (F1 through FN)
     df.fit <- df.median %>%
       dplyr::group_by(sample_id,treatment) %>% 
       dplyr::mutate(fit=list(try(cetsa_fit(.,norm=FALSE)))) %>%
       dplyr::group_split()
-   
+    
     #check that the curve was fit and filter out replicates that did not converge
     df.fit<-df.fit %>% purrr::keep(function(x) class(x$fit[[1]])=='nls')
     df.fit<-dplyr::bind_rows(df.fit)
     df.fit<-df.fit%>% dplyr::group_by(sample_id) %>% 
       dplyr::mutate(fitted_values = ifelse(!is.logical(fit[[1]]),list(data.frame(fitted_values=stats::predict(fit[[1]]))),NA))  %>% 
-      dplyr::select(sample_id,fitted_values,temperature) %>% dplyr::ungroup(.)
+      dplyr::select(sample_id,fitted_values,temperature,treatment) %>% dplyr::ungroup(.)
     
-    d<-df.fit %>% dplyr::group_split(sample_id)
+    d<-df.fit %>% dplyr::group_by(sample_id) %>% dplyr::group_split()
+    #check will contain the median  fitted values from the curves at each temperature
     check <-data.frame(temperature=unique(d[[1]]$temperature),
                        fitted_values=unique(d[[1]]$fitted_values[[1]]))
-    #check<-purrr::map(check,function(x) x %>% unnest(fitted_values) %>% unique(.))#check<-purrr::map(d,function(x) x %>% unnest(c(fitted_values)) %>% unique(.) %>% dplyr::mutate(temperature=temperatures))
-    check<-dplyr::bind_rows(check) %>% unique(.) 
     
-    test<-df %>% dplyr::right_join(check,c('temperature'))
+    check<-dplyr::bind_rows(check) %>% unique(.) 
+    #joint the fitted values to the data by replicate and treatment at each temperature
+    test<-df %>% dplyr::right_join(check,c('temperature','sample_id','treatment'))
     
     
     ## calculate ratios between the fitted curves and the median values
-    df.out <- test %>% dplyr::group_by(sample_id,temperature) %>% 
+    df.out <- test %>% dplyr::group_by(sample_id,temperature,treatment) %>% 
       dplyr::rowwise() %>% 
       dplyr::mutate(correction = ifelse(is.na(fitted_values/I),NA,fitted_values/I)) %>%
-      dplyr::select('temperature','correction','sample_id') %>%
+      dplyr::select('temperature','correction','sample_id','treatment') %>% 
       unique(.) %>%
       dplyr::ungroup(.) %>% 
-      dplyr::group_by(sample_id) %>% 
+      dplyr::group_by(sample_id,treatment,temperature) %>% 
       dplyr::group_split()
     
     df.jointP<-dplyr::bind_rows(df.jointP) %>% unique(.)
     df.jointP$temperature<-as.factor(df.jointP$temperature)
-    df.jointP<-df.jointP %>% dplyr::group_split(sample_id) 
+    df.jointP<-df.jointP %>% dplyr::group_split(sample_id,treatment,temperature)
     
     #apply correction factor by temperature to original data
     df3<-purrr::map2(df.jointP,df.out,function(x,y)tryCatch(x %>% dplyr::mutate(correction=y$correction[1])))
@@ -5974,7 +5953,7 @@ spCI<-function(i,df1,df2,Df1,df.temps,overlay=TRUE,alpha,residuals=FALSE,simulat
         BSVar$Replicate<-as.factor(BSVar$replicate)
         BSvar1$Replicate<-as.factor(BSVar1$replicate)
       }
-     
+      
       if(any(names(BSVar)=="rank_l")){#if this protein file has a rank column
         
         BSVar$Stroke<-ifelse(BSVar$rank_l==TRUE,1,0)
@@ -9055,9 +9034,9 @@ UpSet_curves<-function(f,Trilinear=FALSE,Splines=TRUE,Sigmoidal=FALSE,Peptide=FA
 }
 
 volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,NPARC=FALSE,Peptide=FALSE,benchmark=TRUE,Fhist=TRUE,labels=FALSE,type=NA){
- if( any(class(f)=="list")){
-   f<-f %>% purrr::keep(function(x) !class(x)=='try-error')
- }
+  if( any(class(f)=="list")){
+    f<-f %>% purrr::keep(function(x) !class(x)=='try-error')
+  }
   f<-data.frame(dplyr::bind_rows(f))
   if(any(names(f)=="sample_id")){
     f<-f %>% dplyr::rename("sample_id"="sample_id")
@@ -9085,7 +9064,7 @@ volcano_data<-function(f,Trilinear=FALSE,Splines=FALSE,Sigmoidal=TRUE,NPARC=FALS
     flevels<-data.frame(colors=c("#762a83","#b35806","#1b7837"),
                         labels=c("Shifted pVal < 0.05","Not Shifted","Shifted pAdj < 0.01"))
     flevels<-flevels %>% dplyr::filter(labels %in% unique(f$diffexpressed))
-  
+    
     f$dRSS<-sign(sqrt(f$dRSS))
     if(!isTRUE(Fhist)){
       check<-ggplot(data=f,mapping=aes(y=log2(fStat+1),x=dRSS,color=diffexpressed))+geom_point()+
@@ -9682,7 +9661,7 @@ rename_TPP<-function(x,temps=df.temps,string=FALSE){#rename script data to run T
   x<-replicate_labels(x)
   TPP_Cliff<-dplyr::bind_rows(x) 
   #split data by tretment and protein id
-
+  
   if(!any(names(x)=="Fraction")){
     TPP_Cliff<-TPP_Cliff %>%
       dplyr::select(gene_name,sample_id,temperature,I,replicate,Condition,temp_ref)%>%
@@ -9696,16 +9675,16 @@ rename_TPP<-function(x,temps=df.temps,string=FALSE){#rename script data to run T
   message(paste0("Filtered ",round(length(filtered)/length(TPP_Cliff)*100,1)," percent of the data with one replicate"))
   TPP_Cliff<-dplyr::bind_rows(filtered) %>% dplyr::select(-temperature)   
   TPP_Cliff<-pivot_wider(
-      TPP_Cliff,
-      id_cols = NULL,
-      names_from = temp_ref,
-      names_prefix = "rel_fc_",
-      names_sep = "_",
-      names_repair = "minimal",
-      values_from = I,
-      values_fn=unique
-      
-    )
+    TPP_Cliff,
+    id_cols = NULL,
+    names_from = temp_ref,
+    names_prefix = "rel_fc_",
+    names_sep = "_",
+    names_repair = "minimal",
+    values_from = I,
+    values_fn=unique
+    
+  )
   
   TPP_Cliff<-TPP_Cliff %>% distinct(.)
   check<-names(TPP_Cliff)
@@ -9754,9 +9733,9 @@ rename_TPP<-function(x,temps=df.temps,string=FALSE){#rename script data to run T
   return(TPP_Cliff)
 }
 renameNPARC<-function(x){
- if(any(names(x)=="Accession")&!any(names(x)=="uniqueID")){
-   x$uniqueID<-x$Accession
- }
+  if(any(names(x)=="Accession")&!any(names(x)=="uniqueID")){
+    x$uniqueID<-x$Accession
+  }
   if(any(names(x)=="I")&!any(names(x)=="relAbundance")){
     x$relAbundance<-x$I
   }
@@ -9775,7 +9754,7 @@ renameNPARC<-function(x){
   if(any(names(x)=="treatment")&!any(names(x)=="dataset")){
     x$dataset<-x$treatment
   }
-
+  
   return(x)
 }
 
@@ -9790,10 +9769,10 @@ runNPARC<-function(x){
   x<-x %>% purrr::keep(function(y) sum(is.na(y$relAbundance))/nrow(y)<0.3)
   x<-dplyr::bind_rows(x)
   testResults <- NPARC::runNPARC(x = x$temperature,
-                          y = x$relAbundance,
-                          id = x$uniqueID,
-                          groupsAlt = x$CC,
-                          dfType = "empirical")
+                                 y = x$relAbundance,
+                                 id = x$uniqueID,
+                                 groupsAlt = x$CC,
+                                 dfType = "empirical")
   return(testResults)
 }                         
 runTPP<-function(x,df.temps){
@@ -9805,7 +9784,7 @@ runTPP<-function(x,df.temps){
   hi<-hi[,1:14] %>% distinct(.)
   hi<-hi[!is.na(hi$Experiment),]
   row.names(hi)<-seq(nrow(hi))
-
+  
   #sort data
   TPPconfig<-TPP %>%
     dplyr::select(Experiment,Condition,ComparisonVT1,ComparisonVT2,tidyr::starts_with("126"),tidyr::starts_with("127L"),tidyr::starts_with("127H"),tidyr::starts_with("128L"),tidyr::starts_with("128H"),tidyr::starts_with("129L"),tidyr::starts_with("129H"),tidyr::starts_with("130"),tidyr::starts_with("130H"),tidyr::starts_with("131L")) %>%
@@ -9822,11 +9801,11 @@ runTPP<-function(x,df.temps){
     dplyr::mutate(Experiment=as.character(Experiment)) %>% 
     dplyr::group_split(gene_name)
   TPPdata<-TPPdata %>% purrr::keep(function(x) length(unique(x$Experiment))==4)
- 
-    # dplyr::group_by(Experiment) %>% 
-    # stats::setNames(unique(Experiment)) %>% 
-    # as.data.frame() %>% 
-    # magrittr::set_rownames(stringr::str_extract(.$n,"X"))
+  
+  # dplyr::group_by(Experiment) %>% 
+  # stats::setNames(unique(Experiment)) %>% 
+  # as.data.frame() %>% 
+  # magrittr::set_rownames(stringr::str_extract(.$n,"X"))
   TPPdata<-dplyr::bind_rows(TPPdata) %>% dplyr::group_split(Experiment)
   names(TPPdata)<-unique(TPPconfig$Experiment)
   resultPath<-file.path(getwd())
@@ -9873,11 +9852,11 @@ medianPolish <- function(intensities, num_channels){
 }
 filter_good_data = function(data){
   
-  good_data = data |> 
-    group_by(Accession,sample_name) |> filter(length(unique(treatment))==2,
-                                              length(I)>= 30,
-                                              length(I[treatment=="vehicle"])>=20,
-                                              length(I[treatment=="treated"])>=20) |> ungroup()
+  good_data = data  %>%  
+    group_by(Accession,sample_name) %>% filter(length(unique(treatment))==2,
+                                               length(I)>= 30,
+                                               length(I[treatment=="vehicle"])>=20,
+                                               length(I[treatment=="treated"])>=20) %>% ungroup()
   #max(I) <=1.5) |> ungroup()
   return(good_data)
 }
@@ -9926,7 +9905,7 @@ filter_Peptides<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm,
     df_<-df_ %>% dplyr::mutate("I"=pep)
   }
   
- 
+  
   if(any(stringr::str_detect(df_$Accession,";"))&!isTRUE(keep_shared_proteins)){
     df_<-df_[!stringr::str_detect(df_$Accession,";"),]
   }
@@ -10041,13 +10020,13 @@ df_raw <- read_cetsa("~/CS7290/Protein_analysis","~/CS7290/Protein_analysis","_P
 
 df_raw <- read_cetsa("/work/ivanovlab/figueroa-navedo.a/Scripts/Files/2.4/CFS_vs_CFE/Fractions_I/Shared",
                      "/work/ivanovlab/figueroa-navedo.a/Scripts/Files/2.4/CFS_vs_CFE/Fractions_I/Shared",
-                     Prot_Pattern = "_Proteins",Peptide="PG",Frac=TRUE,solvent="DMSO",CARRIER=TRUE,
+                     Prot_Pattern = "_Proteins",Peptide=FALSE,Frac=TRUE,solvent="DMSO",CARRIER=TRUE,
                      CFS=TRUE,rank=TRUE,sub="Filter",temperatures=df.temps,baseline="min",NORM="QUANTILE",
                      keep_shared_proteins=FALSE)     
 
 df_raw <- read_cetsa("E:/Covid/Fractions",
                      "E:/Covid/Fractions",
-                     Prot_Pattern = "_Proteins",Peptide="PG",Frac=TRUE,solvent="DMSO",CARRIER=TRUE,
+                     Prot_Pattern = "_Proteins",Peptide=FALSE,Frac=TRUE,solvent="DMSO",CARRIER=TRUE,
                      CFS=TRUE,rank=TRUE,sub="Filter",temperatures=df.temps,baseline="min",NORM="QUANTILE",
                      keep_shared_proteins=FALSE)                
 
@@ -10431,9 +10410,9 @@ dev.off()
 
 ###############################
 plot_Splines<-function(x,Protein="Q02750",df.temps,Filters=FALSE,fT=TRUE,show_results=TRUE,Peptide=TRUE,CI=TRUE,simulations=FALSE,CARRIER=FALSE,Frac=TRUE,raw=FALSE){
-if(isTRUE(fT)){
-  show_results=TRUE
-}
+  if(isTRUE(fT)){
+    show_results=TRUE
+  }
   
   if(any(names(x)=="Charge")){
     x$Charge<-as.factor(x$Charge)
@@ -10465,7 +10444,7 @@ if(isTRUE(fT)){
   
   if(any(names(x)=="Annotated_Sequence")){
     x<-dplyr::bind_rows(x) 
-      distinct(.) %>% 
+    distinct(.) %>% 
       dplyr::group_by(uniqueID,Annotated_Sequence,temp_ref,treatment,sample_name) %>% 
       dplyr::group_split()
     x<-purrr::map(x,function(x)x %>% dplyr::mutate(Replicate=row.names(.),
@@ -10487,15 +10466,15 @@ if(isTRUE(fT)){
   }else if(any(names(x)=="Spectrum.File")){
     x<-dplyr::bind_rows(x) %>%
       dplyr::select(-Spectrum.File)
-      distinct(.) %>% 
+    distinct(.) %>% 
       dplyr::group_by(uniqueID,temp_ref,treatment,sample_name) %>% 
       dplyr::group_split()
     x<-purrr::map(x,function(x)x %>% dplyr::mutate(Replicate=row.names(.),
                                                    replicate=row.names(.)))
   }
   
-    x<-dplyr::bind_rows(x)
- 
+  x<-dplyr::bind_rows(x)
+  
   
   if(isTRUE(CARRIER)){
     df.temps<-df.temps %>% dplyr::filter(temperature<68)
