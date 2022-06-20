@@ -566,8 +566,8 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
     
     name<-dplyr::intersect(names(Proteins),names(PSMs))#dfP is PSMs df3 is proteins
     #Join protein and PSM file
-    Proteinsj<-merge(Proteins,PSMs,all.x=TRUE,by=name)
-    Proteins<-data.frame(Proteinsj)
+    Proteinsj<-merge(Proteins,PSMs,all.y=TRUE,by=name)
+    Proteins<-data.frame(Proteinsj) %>% dplyr::filter(!is.na(Accession)) %>% distinct(.)
     #Select protein columns
     if(any(names(Proteins)=="Biological.Process")&any(names(Proteins[[1]]=="MW.kDa."))){
       Proteins<-dplyr::bind_rows(Proteins) %>% 
@@ -580,76 +580,43 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
         dplyr::rename("Coverage"="Coverage.")
     }
     #Add additional information from the experiment
-    if(isTRUE(Frac)){
-      Proteins <- dplyr::bind_rows(Proteins) %>% 
-        as.data.frame() %>% 
-        dplyr::mutate(Fraction=stringr::str_extract(Spectrum.File,"[:digit:]+.raw|1[:digit:].raw"),
-                      sample_id=stringr::str_extract(File.ID,"[:upper:][[:digit:]]+"),
-                      CC = ifelse(stringr::str_detect(Spectrum.File,solvent),0,1),
-                      treatment = ifelse(stringr::str_detect(Spectrum.File,solvent),"vehicle","treated"))
-      
-      Proteins<-Proteins %>% dplyr::mutate(Fraction=as.factor(stringr::str_extract(Fraction,"[[:digit:]]+")))
-      if(!isTRUE(CFS)){
-        Proteins<-Proteins %>% dplyr::mutate(sample_name = ifelse(length(unique(.$sample_id))==4,
-                                                                  unique(stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+"))[2],
-                                                                  stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+")))
-      }else if(isTRUE(CFS)){
-        Proteins$sample_name<-paste0(ifelse(stringr::str_detect(Proteins$Spectrum.File,"NOcarrier")==TRUE,"nC",ifelse(stringr::str_detect(Proteins$Spectrum.File,"carrier")==TRUE,"C",NA)),'_',
-                                     ifelse(stringr::str_detect(Proteins$Spectrum.File,"NO_FAIMS")==TRUE,"nF",ifelse(stringr::str_detect(Proteins$Spectrum.File,"r_FAIMS")==TRUE,"F",NA)),'_',
-                                     ifelse(stringr::str_detect(Proteins$Spectrum.File,"S_eFT")==TRUE,"E",ifelse(stringr::str_detect(Proteins$Spectrum.File,"S_Phi")==TRUE,"S",NA)))
-      }
-      Proteins$treatment<-as.factor(Proteins$treatment)
-    }else{#if this isnt fractionated
-      Proteins <- Proteins %>%  
-        dplyr::mutate(CC = ifelse(stringr::str_detect(Spectrum.File,solvent),0,1),
-                      treatment = ifelse(stringr::str_detect(Spectrum.File,solvent),"vehicle","treated"),
-                      sample_name = ifelse(length(unique(.$sample_id))==4,
-                                           unique(stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+"))[2],
-                                           stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+")))
-      if(!isTRUE(CFS)){
-        Proteins<-Proteins %>% dplyr::mutate(sample_name = ifelse(length(unique(.$sample_id))==4,
-                                                                  unique(stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+"))[2],
-                                                                  stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+")))
-      }else if(isTRUE(CFS)){
-        Proteins$sample_name<-paste0(ifelse(stringr::str_detect(Proteins$Spectrum.File,"NOcarrier")==TRUE,"nC",ifelse(stringr::str_detect(Proteins$Spectrum.File,"carrier")==TRUE,"C",NA)),'_',
-                                     ifelse(stringr::str_detect(Proteins$Spectrum.File,"NO_FAIMS")==TRUE,"nF",ifelse(stringr::str_detect(Proteins$Spectrum.File,"r_FAIMS")==TRUE,"F",NA)),'_',
-                                     ifelse(stringr::str_detect(Proteins$Spectrum.File,"S_eFT")==TRUE,"E",ifelse(stringr::str_detect(Proteins$Spectrum.File,"S_Phi")==TRUE,"S",NA)))
-      }
-      Proteins$treatment<-as.factor(Proteins$treatment)
-    }
     
+    Proteins <- Proteins %>%  
+      dplyr::mutate(CC = ifelse(stringr::str_detect(Spectrum.File,solvent),0,1),
+                    treatment = ifelse(stringr::str_detect(Spectrum.File,solvent),"vehicle","treated"),
+                    sample_name = ifelse(length(unique(.$sample_id))==4,
+                                         unique(stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+"))[2],
+                                         stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+")))
+    if(!isTRUE(CFS)){
+      Proteins<-Proteins %>% dplyr::mutate(sample_name = ifelse(length(unique(.$sample_id))==4,
+                                                                unique(stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+"))[2],
+                                                                stringr::str_extract(stringr::str_to_lower(.$Spectrum.File),"[[:lower:]]+_[[:digit:]]+")))
+    }else if(isTRUE(CFS)){
+      Proteins$sample_name<-paste0(ifelse(stringr::str_detect(Proteins$Spectrum.File,"NOcarrier")==TRUE,"nC",ifelse(stringr::str_detect(Proteins$Spectrum.File,"carrier")==TRUE,"C",NA)),'_',
+                                   ifelse(stringr::str_detect(Proteins$Spectrum.File,"NO_FAIMS")==TRUE,"nF",ifelse(stringr::str_detect(Proteins$Spectrum.File,"r_FAIMS")==TRUE,"F",NA)),'_',
+                                   ifelse(stringr::str_detect(Proteins$Spectrum.File,"S_eFT")==TRUE,"E",ifelse(stringr::str_detect(Proteins$Spectrum.File,"S_Phi")==TRUE,"S",NA)))
+    }
+    Proteins$treatment<-as.factor(Proteins$treatment)
     
     Proteins<-dplyr::bind_rows(Proteins) %>% dplyr::group_split(Accession,sample_id,sample_name,treatment) 
     missing_label<-function(x) {
-      x<-x %>% dplyr::group_by(Accession,sample_id,sample_name,treatment) %>%
-        distinct(.) %>% dplyr::mutate(missing=is.na(value),
-                                      missing_pct=100*sum(is.na(value))/nrow(.))
+      x<-x %>% dplyr::mutate(missing=is.na(value),
+                             missing_pct=round(100*sum(is.na(value))/nrow(.),1))
       return(x)
     }
-    if (.Platform$OS.type=="windows"){
+    if(.Platform$OS.type=="windows"){
       Proteins<-parallel::mclapply(Proteins,missing_label)
+      
     }else{
       Proteins<-parallel::mclapply(Proteins,missing_label,mc.cores=future::availableCores())
     }
     
-    
-    if(baseline=="min"){#if baseline is min and this is an unfractionated treatment
-      rank_label<-function(x){
-        x<-x%>% dplyr::filter(temperature==min(temperature,na.rm=TRUE)) %>%
-          dplyr::mutate(rank=dplyr::ntile(value,3))%>%
-          dplyr::select(sample_id,sample_name,Accession,rank,id,Spectrum.File)%>%
-          dplyr::filter(!is.na(rank),!is.na(id)) %>% dplyr::select(-id) %>% distinct(.)
-        return(x)
-      }
-    }else{#if baseline is max and this is an unfractionated treatment
-      rank_label<-function(x){
-        x<-x%>% dplyr::filter(temp_ref==unique(x$temperature)[length(unique(x$temperature))]) %>%
-          dplyr::mutate(rank=dplyr::ntile(value,3))%>%
-          dplyr::select(sample_id,sample_name,Accession,rank,id,Spectrum.File)%>%
-          dplyr::filter(!is.na(rank),!is.na(id),rank==min(.$rank,na.rm=TRUE)) %>%
-          dplyr::select(-id) %>% distinct(.)
-        return(x)
-      }
+    rank_label<-function(x){
+      x<-x%>% dplyr::filter(temperature==min(temperature,na.rm=TRUE)) %>%
+        dplyr::mutate(rank=dplyr::ntile(value,3))%>%
+        dplyr::select(sample_id,sample_name,Accession,rank,id,Spectrum.File)%>%
+        dplyr::filter(!is.na(rank),!is.na(id)) %>% dplyr::select(-id) %>% distinct(.)
+      return(x)
     }
     
     if(isTRUE(rank)){
@@ -688,14 +655,12 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
       df2<-df2 %>% as.data.frame(.) %>% distinct(.)
       df2<-dplyr::bind_rows(df2) %>% distinct(.)
     }
-    if(isTRUE(CFS)){
-      Proteins$sample_name<-paste0(ifelse(stringr::str_detect(Proteins$Spectrum.File,"NOcarrier")==TRUE,"nC",ifelse(stringr::str_detect(Proteins$Spectrum.File,"carrier")==TRUE,"C",NA)),'_',
-                                   ifelse(stringr::str_detect(Proteins$Spectrum.File,"NO_FAIMS")==TRUE,"nF",ifelse(stringr::str_detect(Proteins$Spectrum.File,"r_FAIMS")==TRUE,"F",NA)),'_',
-                                   ifelse(stringr::str_detect(Proteins$Spectrum.File,"S_eFT")==TRUE,"E",ifelse(stringr::str_detect(Proteins$Spectrum.File,"S_Phi")==TRUE,"S",NA)))
-    }
-    df2<-dplyr::bind_rows(df2) %>% distinct(.)
+    
+    df2<-dplyr::bind_rows(Proteins) %>% distinct(.)
     return(df2)
   }
+  df2<-dplyr::bind_rows(Proteins) %>% distinct(.)
+  return(df2)
 }
 #'Choose PSMs
 #'
@@ -10021,7 +9986,7 @@ df_raw <- read_cetsa("~/CS7290/Protein_analysis","~/CS7290/Protein_analysis","_P
 df_raw <- read_cetsa("/work/ivanovlab/figueroa-navedo.a/Scripts/Files/2.4/CFS_vs_CFE/Fractions_I/Shared",
                      "/work/ivanovlab/figueroa-navedo.a/Scripts/Files/2.4/CFS_vs_CFE/Fractions_I/Shared",
                      Prot_Pattern = "_Proteins",Peptide=FALSE,Frac=TRUE,solvent="DMSO",CARRIER=TRUE,
-                     CFS=TRUE,rank=TRUE,sub="Filter",temperatures=df.temps,baseline="min",NORM="QUANTILE",
+                     CFS=TRUE,rank=FALSE,sub="Filter",temperatures=df.temps,baseline="min",NORM="QUANTILE",
                      keep_shared_proteins=FALSE)     
 
 df_raw <- read_cetsa("E:/Covid/Fractions",
