@@ -6861,38 +6861,93 @@ Violin_panels<-function(df_raw,df.temps,MD=TRUE){
   }
 }
 #Convert to MSStatsTMT
-MSStats_converter<-function(df_raw,solvent,ref){
+MSStats_converter<-function(df_raw,solvent,ref,Frac=TRUE){
   editPSMs2<-data.frame()
   ref<-as.character(ref)
-  editPSMs2<-df_raw %>% dplyr::rename("ProteinName"="Accession",
-                                      "PeptideSequence"="Annotated_Sequence",
-                                      "Run"="Spectrum.File",
-                                      #"PSM"="PSMs_Peptide_ID",
-                                      "Channel"="temp_ref",
-                                      "Intensity"="value")
-  #Condition, Bioreplicate and TechRepMixture need to be filled
-  
-  editPSMs2$Condition<-ifelse(editPSMs2$Channel==ref,"Norm",0)
-  if(nchar(editPSMs2$Run[1])>8){
-    editPSMs2$BioReplicate<-ifelse(stringr::str_detect(editPSMs2$Run,solvent)=="TRUE","vehicle","treated")
-    editPSMs2<-editPSMs2 %>% 
-      dplyr::mutate(Mixture=paste0(ifelse(stringr::str_detect(Run,"NOcarrier"),"nC",ifelse(str_detect(Run,"carrier"),"C",NA)),'_',
-                                   ifelse(stringr::str_detect(Run,"NO_FAIMS"),"nF",ifelse(str_detect(Run,"r_FAIMS"),"F",NA)),'_',
-                                   ifelse(stringr::str_detect(Run,"S_eFT"),"E",ifelse(str_detect(Run,"S_Phi"),"S",NA))))
+  #if there are no technical replicates, add them
+  editPSMs2<-replicate_labels(df_raw)
+  editPSMs2<-dplyr::bind_rows(editPSMs2)
+  #PeptideSequence, PrecursorCharge, FragmentIon and ProductCharge
+  if(any(names(df_raw)=="Annotated_Sequence")){
+    editPSMs2<-editPSMs2 %>%
+      dplyr::rename("ProteinName"="Accession",
+                    "PeptideSequence"="Annotated_Sequence",
+                    "Run"="Spectrum.File",
+                    #"PSM"="PSMs_Peptide_ID",
+                    "Channel"="temp_ref",
+                    "Intensity"="value",
+                    "Condition"="treatment") %>% 
+      dplyr::mutate(IsotopeLabelType="L",
+                  PrecursorCharge=NA,
+                  FragmentIon=NA,
+                  ProductCharge=NA,
+                  BioReplicate=paste0(editPSMs2$treatment,"_",editPSMs2$temp_ref),
+                  Protein.Accessions=ProteinName)
   }else{
-    editPSMs2$BioReplicate<-ifelse(stringr::str_detect(editPSMs2$Run,"01"),1,2)
+    editPSMs2<-editPSMs2 %>%
+      dplyr::rename("ProteinName"="Accession",
+                    "Run"="Spectrum.File",
+                    #"PSM"="PSMs_Peptide_ID",
+                    "Channel"="temp_ref",
+                    "Intensity"="value",
+                    "Condition"="treatment") %>% 
+      dplyr::mutate(PeptideSequence=NA,
+                    PrecursorCharge=NA,
+                    FragmentIon=NA,
+                    ProductCharge=NA,
+                    BioReplicate=paste0(editPSMs2$treatment,"_",editPSMs2$temp_ref),
+                    Protein.Accessions=ProteinName)
+  }
+  
+  #TechRepMixture
+  if(!any(names(x)=="Fraction")&isTRUE(Frac)){
+  editPSMs2$TechRepMixture <- 1
+  editPSMs2<-editPSMs2 %>%
+    dplyr::group_by(ProteinName,sample_name,Condition,Channel) %>% 
+    dplyr::group_split()
+  #remove missing data and re-assign replicates
+  editPSMs2<-furrr::future_map(editPSMs2,function(x) x %>%
+    dplyr::filter(!is.na(Intensity)) %>%
+      dplyr::mutate(Fraction=row.names(.))) %>% 
+    dplyr::bind_rows()
+  }else{
+    editPSMs2$TechRepMixture<-1
+    #remove missing data and re-assign replicates
+    editPSMs2<-furrr::future_map(editPSMs2,function(x) x %>%
+                                   dplyr::filter(!is.na(Intensity)) %>%
+                                   dplyr::mutate(replicate=row.names(.))) %>% 
+      dplyr::bind_rows()
+  }
+  
+  if(nchar(editPSMs2$Run[1])>8&any(stringr::str_detect(editPSMs2$Run,"NOcarrier"))){
     editPSMs2<-editPSMs2 %>% 
-      dplyr::mutate(Mixture=paste0(ifelse(stringr::str_detect(Run,"NOcarrier"),"nC",ifelse(str_detect(Run,"carrier"),"C",NA)),'_',
-                                   ifelse(stringr::str_detect(Run,"NO_FAIMS"),"nF",ifelse(str_detect(Run,"r_FAIMS"),"F",NA)),'_',
-                                   ifelse(stringr::str_detect(Run,"S_eFT"),"E",ifelse(str_detect(Run,"S_Phi"),"S",NA))))
+      dplyr::mutate(Mixture=paste0(ifelse(stringr::str_detect(Run,"NOcarrier"),"nC",ifelse(stringr::str_detect(Run,"carrier"),"C",NA)),'_',
+                                   ifelse(stringr::str_detect(Run,"NO_FAIMS"),"nF",ifelse(stringr::str_detect(Run,"r_FAIMS"),"F",NA)),'_',
+                                   ifelse(stringr::str_detect(Run,"S_eFT"),"E",ifelse(stringr::str_detect(Run,"S_Phi"),"S",NA))))
+  }else{
+    editPSMs2<-editPSMs2 %>% 
+      dplyr::mutate(Mixture=sample_name)
     
   }
-  editPSMs2$TechRepMixture<-1
-  editPSMs2<-editPSMs2 %>% dplyr::select(ProteinName,PeptideSequence,Charge,PSM,Mixture,TechRepMixture,Run,Channel,Condition,BioReplicate,Intensity)
-  
-  Annotation<-editPSMs2 %>% dplyr::select(Run,TechRepMixture,Channel,Condition,Mixture,BioReplicate)
-  Annotation$Fraction<-1
-  Annotation<-Annotation %>% dplyr::group_split(Run)
+  #select annotation file names 
+  annotation<-editPSMs2 %>%
+    dplyr::select(Run,Fraction,TechRepMixture,Mixture,Channel,BioReplicate,Condition) %>% 
+    distinct(.)
+  PSMs<-as.list(list.files(input_files,pattern="PSMs.xlsx"))
+  df_raw<-purrr::map(PSMs,function(x) readxl::read_xlsx(x))
+  df_raw<-dplyr::bind_rows(df_raw)
+ 
+  #Run MSStatsTMT
+  Result<-PDtoMSstatsTMTFormat(df_raw,annotation,
+                               which.proteinid = "Accession",
+                               useNumProteinsColumn = TRUE,
+                               useUniquePeptide = FALSE,
+                               rmPSM_withfewMea_withinRun = TRUE,
+                               rmProtein_with1Feature = TRUE,
+                               summaryforMultipleRows = max,
+                               use_log_file = FALSE,
+                               append=FALSE,
+                               verbose=TRUE)
 }
 
 
@@ -9591,10 +9646,17 @@ replicate_labels<-function(x){
       dplyr::group_split()
     x<-purrr::map(x,function(x)x %>% dplyr::mutate(Replicate=row.names(.),
                                                    replicate=row.names(.)))
-  }else if(!any(names(x)=="replicate")){
+  }else if(!any(names(x)=="replicate")&any(names(x)=="uniqueID")){
     x<-dplyr::bind_rows(x) %>%
       distinct(.) %>% 
       dplyr::group_by(uniqueID,temp_ref,treatment,sample_name) %>% 
+      dplyr::group_split()
+    x<-purrr::map(x,function(x)x %>% dplyr::mutate(Replicate=row.names(.),
+                                                   replicate=row.names(.)))
+  }else if(any(names(x)=="temperature")&any(names(x)=="Accession")){
+    x<-dplyr::bind_rows(x) %>%
+      distinct(.) %>% 
+      dplyr::group_by(Accession,temperature,treatment,sample_name) %>% 
       dplyr::group_split()
     x<-purrr::map(x,function(x)x %>% dplyr::mutate(Replicate=row.names(.),
                                                    replicate=row.names(.)))
@@ -9989,10 +10051,10 @@ df_raw <- read_cetsa("/work/ivanovlab/figueroa-navedo.a/Scripts/Files/2.4/CFS_vs
                      CFS=TRUE,rank=FALSE,sub="Filter",temperatures=df.temps,baseline="min",NORM="QUANTILE",
                      keep_shared_proteins=FALSE)     
 
-df_raw <- read_cetsa("E:/Covid/Fractions",
-                     "E:/Covid/Fractions",
+df_raw <- read_cetsa("E:/Covid/Fractions/PD_Files",
+                     "E:/Covid/Fractions/PD_Files",
                      Prot_Pattern = "_Proteins",Peptide=FALSE,Frac=TRUE,solvent="DMSO",CARRIER=TRUE,
-                     CFS=TRUE,rank=TRUE,sub="Filter",temperatures=df.temps,baseline="min",NORM="QUANTILE",
+                     CFS=TRUE,rank=FALSE,sub="Filter",temperatures=df.temps,baseline="min",NORM="QUANTILE",
                      keep_shared_proteins=FALSE)                
 
 #average peptides to the protein level
