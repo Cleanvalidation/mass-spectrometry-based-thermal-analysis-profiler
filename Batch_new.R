@@ -6998,6 +6998,9 @@ MSStats_converter<-function(df_raw,solvent="DMSO",ref="126",Frac=TRUE,CFS=FALSE,
     editPSMs2$Mixture<-paste0(ifelse(stringr::str_detect(editPSMs2$Run,"NOcarrier")==TRUE,"nC",ifelse(stringr::str_detect(editPSMs2$Run,"carrier")==TRUE,"C",NA)),'_',
                               ifelse(stringr::str_detect(editPSMs2$Run,"NO_FAIMS")==TRUE,"nF",ifelse(stringr::str_detect(editPSMs2$Run,"r_FAIMS")==TRUE,"F",NA)),'_',
                               ifelse(stringr::str_detect(editPSMs2$Run,"S_eFT")==TRUE,"E",ifelse(stringr::str_detect(editPSMs2$Run,"S_Phi")==TRUE,"S",NA)))
+  }else{
+    #TODO temporary for Zebrafish
+    editPSMs2$Mixture<-"Napabucasin"
   }
   if(any(names(editPSMs2)=="Mixture")&any(names(editPSMs2)=="BioReplicate")){
     editPSMs2$BioReplicate<-paste0(editPSMs2$Mixture,"_",editPSMs2$Channel)
