@@ -6861,49 +6861,91 @@ Violin_panels<-function(df_raw,df.temps,MD=TRUE){
   }
 }
 #Convert to MSStatsTMT
-MSStats_converter<-function(df_raw,solvent,ref,Frac=TRUE){
+MSStats_converter<-function(df_raw,solvent="DMSO",ref="126",Frac=TRUE,CFS=FALSE){
   editPSMs2<-data.frame()
   ref<-as.character(ref)
+  
+  input_files<-getwd()
+  if(isTRUE(Peptide)){
+  PSMs<-as.list(list.files(input_files,pattern="PSMs.xlsx"))
+  df_raw<-purrr::map(PSMs,function(x) readxl::read_xlsx(x))
+  df_raw<-dplyr::bind_rows(df_raw)
+  }else{
+    Proteins<-as.list(list.files(input_files,pattern="Proteins.xlsx"))
+    df_raw<-purrr::map(Proteins,function(x) readxl::read_xlsx(x))
+    df_raw<-dplyr::bind_rows(df_raw)
+  }
   #if there are no technical replicates, add them
   editPSMs2<-replicate_labels(df_raw)
   editPSMs2<-dplyr::bind_rows(editPSMs2)
+  
+ 
+  #pivot_longer
+  editPSMs2<-editPSMs2 %>%
+    tidyr::pivot_longer(.,cols=names(editPSMs2)[stringr::str_detect(names(editPSMs2),"126|130|[[:digit:]]+N|[[:digit:]]+C|[[:digit:]]+")],
+                                               names_to="id",
+                                               values_to="value")
+  editPSMs2<-editPSMs2 %>%
+    dplyr::mutate(temp_ref=stringr::str_extract(id,"126|[[:digit:]]+N|[[:digit:]]+C|[[:digit:]]+"))
+  if(any(names(editPSMs2)=="Intensity")){
+  editPSMs2<-editPSMs2 %>% dplyr::select(-Intensity)
+  }
   #PeptideSequence, PrecursorCharge, FragmentIon and ProductCharge
   if(any(names(df_raw)=="Annotated_Sequence")){
     editPSMs2<-editPSMs2 %>%
-      dplyr::rename("ProteinName"="Accession",
+      dplyr::rename("ProteinName"="Master_Protein_Accessions",
                     "PeptideSequence"="Annotated_Sequence",
-                    "Run"="Spectrum.File",
+                    "Run"="Spectrum_File",
                     #"PSM"="PSMs_Peptide_ID",
                     "Channel"="temp_ref",
-                    "Intensity"="value",
-                    "Condition"="treatment") %>% 
+                    "Intensity"="value") %>% 
       dplyr::mutate(IsotopeLabelType="L",
-                  PrecursorCharge=NA,
+                  PrecursorCharge=Charge,
                   FragmentIon=NA,
                   ProductCharge=NA,
-                  BioReplicate=paste0(editPSMs2$treatment,"_",editPSMs2$temp_ref),
-                  Protein.Accessions=ProteinName)
+                  BioReplicate=NA,
+                  Protein.Accessions=ProteinName,
+                  Condition=ifelse(stringr::str_detect(Run,solvent),"vehicle","treated"))
   }else{
     editPSMs2<-editPSMs2 %>%
-      dplyr::rename("ProteinName"="Accession",
-                    "Run"="Spectrum.File",
+      dplyr::rename("ProteinName"="Master_Protein_Accessions",
+                    "Run"="Spectrum_File",
                     #"PSM"="PSMs_Peptide_ID",
                     "Channel"="temp_ref",
-                    "Intensity"="value",
-                    "Condition"="treatment") %>% 
+                    "Intensity"="value") %>% 
       dplyr::mutate(PeptideSequence=NA,
-                    PrecursorCharge=NA,
+                    PrecursorCharge=Charge,
                     FragmentIon=NA,
                     ProductCharge=NA,
-                    BioReplicate=paste0(editPSMs2$treatment,"_",editPSMs2$temp_ref),
-                    Protein.Accessions=ProteinName)
+                    BioReplicate=NA,
+                    Protein.Accessions=ProteinName,
+                    Condition=ifelse(stringr::str_detect(Run,solvent),"vehicle","treated"))
   }
-  
+  #if any column is NA, fix it
+  if(!any(names(editPSMs2)=="Mixture")&isTRUE(CFS)){
+    editPSMs2$Mixture<-paste0(ifelse(stringr::str_detect(editPSMs2$Run,"NOcarrier")==TRUE,"nC",ifelse(stringr::str_detect(editPSMs2$Run,"carrier")==TRUE,"C",NA)),'_',
+                           ifelse(stringr::str_detect(editPSMs2$Run,"NO_FAIMS")==TRUE,"nF",ifelse(stringr::str_detect(editPSMs2$Run,"r_FAIMS")==TRUE,"F",NA)),'_',
+                           ifelse(stringr::str_detect(editPSMs2$Run,"S_eFT")==TRUE,"E",ifelse(stringr::str_detect(editPSMs2$Run,"S_Phi")==TRUE,"S",NA)))
+  }
+  if(any(names(editPSMs2)=="Mixture")&any(names(editPSMs2)=="BioReplicate")){
+    editPSMs2$BioReplicate<-paste0(editPSMs2$Mixture,"_",editPSMs2$Channel)
+  }
+  if(!any(names(editPSMs2)=="TechRepMixture")&any(names(editPSMs2)=="Run")){
+    editPSMs2$TechRepMixture<-stringr::str_extract(editPSMs2$Run,"[[:digit:]]+r")
+    editPSMs2$TechRepMixture<-stringr::str_extract(editPSMs2$TechRepMixture,"[[:digit:]]+")
+  }
+  if(any(is.na(editPSMs2$Condition))){
+    editPSMs2$Condition<-ifelse(stringr::str_detect(editPSMs2$Run,solvent),"vehicle","treated")
+  }
+  if(any(editPSMs2$Channel=="131C")){
+    editPSMs2<-editPSMs2 %>% dplyr::filter(!Channel=="131C")
+    df_raw<-df_raw[,!stringr::str_detect(names(df_raw),"131C")]
+  }
   #TechRepMixture
   if(!any(names(x)=="Fraction")&isTRUE(Frac)){
   editPSMs2$TechRepMixture <- 1
   editPSMs2<-editPSMs2 %>%
-    dplyr::group_by(ProteinName,sample_name,Condition,Channel) %>% 
+    dplyr::group_by(ProteinName,Mixture,Condition,Channel) %>% 
     dplyr::group_split()
   #remove missing data and re-assign replicates
   editPSMs2<-furrr::future_map(editPSMs2,function(x) x %>%
@@ -6919,27 +6961,14 @@ MSStats_converter<-function(df_raw,solvent,ref,Frac=TRUE){
       dplyr::bind_rows()
   }
   
-  if(nchar(editPSMs2$Run[1])>8&any(stringr::str_detect(editPSMs2$Run,"NOcarrier"))){
-    editPSMs2<-editPSMs2 %>% 
-      dplyr::mutate(Mixture=paste0(ifelse(stringr::str_detect(Run,"NOcarrier"),"nC",ifelse(stringr::str_detect(Run,"carrier"),"C",NA)),'_',
-                                   ifelse(stringr::str_detect(Run,"NO_FAIMS"),"nF",ifelse(stringr::str_detect(Run,"r_FAIMS"),"F",NA)),'_',
-                                   ifelse(stringr::str_detect(Run,"S_eFT"),"E",ifelse(stringr::str_detect(Run,"S_Phi"),"S",NA))))
-  }else{
-    editPSMs2<-editPSMs2 %>% 
-      dplyr::mutate(Mixture=sample_name)
-    
-  }
   #select annotation file names 
   annotation<-editPSMs2 %>%
-    dplyr::select(Run,Fraction,TechRepMixture,Mixture,Channel,BioReplicate,Condition) %>% 
+    dplyr::select(Run,Fraction,TechRepMixture,Mixture,Channel,BioReplicate,Condition,PrecursorCharge) %>% 
     distinct(.)
-  PSMs<-as.list(list.files(input_files,pattern="PSMs.xlsx"))
-  df_raw<-purrr::map(PSMs,function(x) readxl::read_xlsx(x))
-  df_raw<-dplyr::bind_rows(df_raw)
- 
+  #check annotation file channels 
   #Run MSStatsTMT
-  Result<-PDtoMSstatsTMTFormat(df_raw,annotation,
-                               which.proteinid = "Accession",
+  Result<-PDtoMSstatsTMTFormat(df_raw,Annotation,
+                               which.proteinid = "Master Protein Accessions",
                                useNumProteinsColumn = TRUE,
                                useUniquePeptide = FALSE,
                                rmPSM_withfewMea_withinRun = TRUE,
@@ -6948,6 +6977,14 @@ MSStats_converter<-function(df_raw,solvent,ref,Frac=TRUE){
                                use_log_file = FALSE,
                                append=FALSE,
                                verbose=TRUE)
+  #Check result
+  head(Result)
+  
+  #summarization
+  Protein_summ<-MSstatsTMT::proteinSummarization(Result,method="MedianPolish",global_norm=FALSE,remove_norm_channel = FALSE,
+                                   remove_empty_channel = FALSE,MBimpute=FALSE,
+                                   use_log_file=FALSE,append=FALSE,verbose=TRUE)
+  return(Result)
 }
 
 
@@ -9638,14 +9675,28 @@ pValsBin <- function(mpDiffs){
   return(pV)
 }
 replicate_labels<-function(x){
+  
+  if(any(stringr::str_detect(names(x)," "))){
+    names(x)<-stringr::str_replace_all(names(x)," ","_")
+  }
   #add replicates
   if(any(names(x)=="Annotated_Sequence")&!(any(names(x)=="replicate"))){
-    x<-dplyr::bind_rows(x) 
+    if(any(names(x)=="treatment")){
+    x<-dplyr::bind_rows(x) %>% 
     distinct(.) %>% 
       dplyr::group_by(uniqueID,Annotated_Sequence,temp_ref,treatment,sample_name) %>% 
       dplyr::group_split()
     x<-purrr::map(x,function(x)x %>% dplyr::mutate(Replicate=row.names(.),
                                                    replicate=row.names(.)))
+    }else{
+      x<-dplyr::bind_rows(x) %>% 
+        distinct(.) %>% 
+        dplyr::mutate(replicate=
+          stringr::str_extract(Spectrum_File,"[[:digit:]]+."))
+      
+      x<-x %>% dplyr::mutate(replicate=stringr::str_extract(replicate,"[[:digit:]]+"))
+      
+    }
   }else if(!any(names(x)=="replicate")&any(names(x)=="uniqueID")){
     x<-dplyr::bind_rows(x) %>%
       distinct(.) %>% 
