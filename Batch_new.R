@@ -6860,6 +6860,40 @@ Violin_panels<-function(df_raw,df.temps,MD=TRUE){
     
   }
 }
+#Rename output from PDtoMSStatsTMTformat()
+
+Rename_MSStatsTMT_function<-function(PSM_result){
+  
+  if(any(is.na(PSM_result$Mixture))|!any(names(PSM_result)=="Mixture")){
+    PSM_result$Mixture<-paste0(ifelse(stringr::str_detect(PSM_result$Run,"NOcarrier")==TRUE,"nC",ifelse(stringr::str_detect(PSM_result$Run,"carrier")==TRUE,"C",NA)),'_',
+                               ifelse(stringr::str_detect(PSM_result$Run,"NO_FAIMS")==TRUE,"nF",ifelse(stringr::str_detect(PSM_result$Run,"r_FAIMS")==TRUE,"F",NA)),'_',
+                               ifelse(stringr::str_detect(PSM_result$Run,"S_eFT")==TRUE,"E",ifelse(stringr::str_detect(PSM_result$Run,"S_Phi")==TRUE,"S",NA)))
+  }
+  if(any(!is.na(PSM_result$Mixture))&any(is.na(PSM_result$BioReplicate))){
+    PSM_result$BioReplicate<-paste0(PSM_result$Mixture,"_",PSM_result$Channel)
+  }
+  if(any(is.na(PSM_result$TechRepMixture))&any(names(PSM_result)=="Run")){
+    if(any(stringr::str_detect(PSM_result$Run,"."))){
+    PSM_result$TechRepMixture<-stringr::str_extract(PSM_result$Run,"[[:digit:]]+.raw")
+    PSM_result$TechRepMixture<-stringr::str_extract(PSM_result$TechRepMixture,"[[:digit:]]+")
+    }else{
+      PSM_result$TechRepMixture<-stringr::str_extract(PSM_result$Run,"[[:digit:]]+r")
+      PSM_result$TechRepMixture<-stringr::str_extract(PSM_result$TechRepMixture,"[[:digit:]]+")
+    }
+  }
+  
+  if(any(is.na(PSM_result$Condition))){
+    PSM_result$Condition<-ifelse(stringr::str_detect(PSM_result$Run,"DMSO"),paste0(PSM_result$Channel,"_","vehicle"),paste0(PSM_result$Channel,"_","treated"))
+    PSM_result$Condition<-ifelse(PSM_result$Channel=="126","Norm",PSM_result$Condition)
+  }
+  if(!any(names(PSM_result)=="Fraction")&any(stringr::str_detect(PSM_result$File_ID,"F[[:digit:]]+.[[:digit:]]+"))){
+    PSM_result$Fraction<-stringr::str_remove(PSM_result$File_ID,"F[[:digit:]]+.")
+    PSM_result$Fraction<-stringr::str_extract(PSM_result$Fraction,"[[:digit:]]+")
+  }else{
+    PSM_result$Fraction<-1
+  }
+  return(PSM_result)
+}
 #Convert to MSStatsTMT
 MSStats_converter<-function(df_raw,solvent="DMSO",ref="126",Frac=TRUE,CFS=FALSE,Peptide=FALSE){
   editPSMs2<-data.frame()
@@ -6867,9 +6901,9 @@ MSStats_converter<-function(df_raw,solvent="DMSO",ref="126",Frac=TRUE,CFS=FALSE,
   
   input_files<-getwd()
   if(isTRUE(Peptide)){
-  PSMs<-as.list(list.files(input_files,pattern="PSMs.xlsx"))
-  df_raw<-purrr::map(PSMs,function(x) readxl::read_xlsx(x))
-  df_raw<-dplyr::bind_rows(df_raw)
+    PSMs<-as.list(list.files(input_files,pattern="PSMs.xlsx"))
+    df_raw<-purrr::map(PSMs,function(x) readxl::read_xlsx(x))
+    df_raw<-dplyr::bind_rows(df_raw)
   }else{
     Proteins<-as.list(list.files(input_files,pattern="Proteins.xlsx"))
     df_raw<-purrr::map(Proteins,function(x) readxl::read_xlsx(x))
@@ -6990,65 +7024,27 @@ MSStats_converter<-function(df_raw,solvent="DMSO",ref="126",Frac=TRUE,CFS=FALSE,
     JoinPSM_Prot<-Protein %>% dplyr::right_join(PSMs)
     JoinPSM_Prot$Channel<-stringr::str_extract(JoinPSM_Prot$id,"126|[[:digit:]]+N|[[:digit:]]+C")
     JoinPSM_Prot$Run<-JoinPSM_Prot$Spectrum_File
-    
+    editPSMs2<-JoinPSM_Prot
   }
   df_raw<-dplyr::bind_rows(df_raw)
   #if any column is NA, fix it
-  if(!any(names(editPSMs2)=="Mixture")&isTRUE(CFS)){
-    editPSMs2$Mixture<-paste0(ifelse(stringr::str_detect(editPSMs2$Run,"NOcarrier")==TRUE,"nC",ifelse(stringr::str_detect(editPSMs2$Run,"carrier")==TRUE,"C",NA)),'_',
-                              ifelse(stringr::str_detect(editPSMs2$Run,"NO_FAIMS")==TRUE,"nF",ifelse(stringr::str_detect(editPSMs2$Run,"r_FAIMS")==TRUE,"F",NA)),'_',
-                              ifelse(stringr::str_detect(editPSMs2$Run,"S_eFT")==TRUE,"E",ifelse(stringr::str_detect(editPSMs2$Run,"S_Phi")==TRUE,"S",NA)))
-  }else{
-    #TODO temporary for Zebrafish
-    editPSMs2$Mixture<-"Napabucasin"
-  }
-  if(any(names(editPSMs2)=="Mixture")&any(names(editPSMs2)=="BioReplicate")){
-    editPSMs2$BioReplicate<-paste0(editPSMs2$Mixture,"_",editPSMs2$Channel)
-  }
-  if(!any(names(editPSMs2)=="TechRepMixture")&any(names(editPSMs2)=="Run")){
-    editPSMs2$TechRepMixture<-stringr::str_extract(editPSMs2$Run,"[[:digit:]]+r")
-    editPSMs2$TechRepMixture<-stringr::str_extract(editPSMs2$TechRepMixture,"[[:digit:]]+")
-  }
-  if(any(is.na(editPSMs2$Condition))){
-    editPSMs2$Condition<-ifelse(stringr::str_detect(editPSMs2$Run,solvent),"vehicle","treated")
-  }
-  if(any(editPSMs2$Channel=="131C")){
-    editPSMs2<-editPSMs2 %>% dplyr::filter(!Channel=="131C")
-    df_raw<-df_raw[,!stringr::str_detect(names(df_raw),"131C")]
-  }
-  #TechRepMixture
-  if(!any(names(x)=="Fraction")&isTRUE(Frac)){
-  editPSMs2$TechRepMixture <- 1
-  editPSMs2<-editPSMs2 %>%
-    dplyr::group_by(ProteinName,Mixture,Condition,Channel) %>% 
-    dplyr::group_split()
-  #remove missing data and re-assign replicates
-  editPSMs2<-furrr::future_map(editPSMs2,function(x) x %>%
-    dplyr::filter(!is.na(Intensity)) %>%
-      dplyr::mutate(Fraction=row.names(.))) %>% 
-    dplyr::bind_rows()
-  }else{
-    editPSMs2$TechRepMixture<-1
-    #remove missing data and re-assign replicates
-    editPSMs2<-furrr::future_map(editPSMs2,function(x) x %>%
-                                   dplyr::filter(!is.na(Intensity)) %>%
-                                   dplyr::mutate(replicate=row.names(.))) %>% 
-      dplyr::bind_rows()
-  }
-  
-  #select annotation file names 
+  editPSMs2<-Rename_MSStatsTMT_function(editPSMs2)
+  editPSMs2[sapply(editPSMs2, is.character)] <- lapply(editPSMs2[sapply(editPSMs2, is.character)], 
+                                         as.factor)#select annotation file names 
   annotation<-editPSMs2 %>%
     dplyr::select(Run,Fraction,TechRepMixture,Mixture,Channel,BioReplicate,Condition,PrecursorCharge) %>% 
     distinct(.)
+  
   #filter for one experiment
-  df_raw<-df_raw[stringr::str_detect(df_raw$`Spectrum File`,"carrier_FAIMS_eFT"),]
+  df_raw<-df_raw[,!stringr::str_detect(names(df_raw),"Found")]
   Annotation<-annotation[annotation$Mixture=="C_F_E",]
-  #set normalization channel
-  if(any(stringr::str_detect(Annotation$Channel,"131C"))){
-    Annotation<-Annotation %>% dplyr::mutate(Channel=ifelse(any(stringr::str_detect(Result$Channel,"131C")),"Norm",Result$Channel))
-  }
+  editPSMs2<-editPSMs2[editPSMs2$Mixture=="C_F_E",]
+  #convert intensity to log2 abundance
+  editPSMs2$Abundance<-log2(editPSMs2$Intensity)
+  Annotation<-Annotation %>% distinct(.)
+  if(isTRUE(Peptide)){
   #Run MSStatsTMT
-  Result<-PDtoMSstatsTMTFormat(df_raw,Annotation,
+  Result<-MSstatsTMT::PDtoMSstatsTMTFormat(df_raw,Annotation,
                                which.proteinid = "Master Protein Accessions",
                                useNumProteinsColumn = TRUE,
                                useUniquePeptide = FALSE,
@@ -7058,13 +7054,22 @@ MSStats_converter<-function(df_raw,solvent="DMSO",ref="126",Frac=TRUE,CFS=FALSE,
                                use_log_file = FALSE,
                                append=FALSE,
                                verbose=TRUE)
-  #Check result
-  head(Result)
+  Result$ProteinLevelData<-Result$ProteinLevelData %>% dplyr::filter(!Channel=="131C")
+  Result$FeatureLevelData
   
+  #Check result
+  #head(Result)
   #summarization
   Protein_summ<-MSstatsTMT::proteinSummarization(Result,method="MedianPolish",global_norm=FALSE,remove_norm_channel = FALSE,
-                                   remove_empty_channel = TRUE,
-                                   use_log_file=FALSE,append=FALSE,verbose=TRUE)
+                                                 remove_empty_channel = TRUE,
+                                                 use_log_file=FALSE,append=FALSE,verbose=TRUE)
+  }else{
+
+    #we need  Mixture, TechRepMixture, Run, Channel, Protein, Abundance, BioReplicate, Condition
+    editPSMs2$Protein<-editPSMs2$Protein.Accessions
+    Protein_summ<-list(FeatureLevelData=NULL,ProteinLevelData=editPSMs2)#note that editPSMs2 is the protein file
+  }
+ 
   
   Group_comp_result<-MSstatsTMT::groupComparisonTMT(Protein_summ,contrast.matrix="pairwise")
   return(Result)
