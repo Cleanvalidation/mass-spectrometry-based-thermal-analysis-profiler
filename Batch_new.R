@@ -1015,7 +1015,7 @@ clean_cetsa <- function(df, temperatures = NULL,samples = NA,Peptide=FALSE,solve
     bl <-max(df$temperature,na.rm=TRUE)
   }
   
-  if(any(names(df)=="Fraction")){
+  if(any(names(df)=="Fraction")&isTRUE(Peptide)){
     if(any(stringr::str_detect(df$Fraction,"."))){
       df<-df %>% dplyr::mutate(Fraction = stringr::str_remove(File.ID,"[:upper:][[:digit:]]+."))
     }
@@ -1025,12 +1025,20 @@ clean_cetsa <- function(df, temperatures = NULL,samples = NA,Peptide=FALSE,solve
                     !is.na(.$value)) %>%
       dplyr::group_by(Accession,Annotated_Sequence,treatment,sample_name,Fraction) %>%
       dplyr::group_split()
-  }else{
+  }else if (isTRUE(Peptide)){
     df <- df %>%
       dplyr::filter(!is.na(.$Accession),
                     !is.na(.$temperature),
                     !is.na(.$value)) %>%
       dplyr::group_by(Accession,Annotated_Sequence,treatment,sample_name) %>%
+      dplyr::distinct() %>% 
+      dplyr::group_split()
+  }else{
+    df <- df %>%
+      dplyr::filter(!is.na(.$Accession),
+                    !is.na(.$temperature),
+                    !is.na(.$value)) %>%
+      dplyr::group_by(Accession,treatment,sample_name) %>%
       dplyr::distinct() %>% 
       dplyr::group_split()
   }
@@ -1471,6 +1479,8 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     }else if(any(names(df)=="Fraction")){
       df<-df %>%
         dplyr::group_split(Accession,sample_id,Fraction)
+    }else{
+      df<-df %>% dplyr::group_split(Accession,sample_id)
     }
     
     
@@ -1534,7 +1544,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     
     check<-dplyr::bind_rows(check) %>% unique(.) 
     #joint the fitted values to the data by replicate and treatment at each temperature
-    test<-df %>% dplyr::right_join(check,c('temperature','sample_id','treatment'))
+    test<-df %>% dplyr::right_join(check)
     
     
     ## calculate ratios between the fitted curves and the median values
@@ -10311,7 +10321,7 @@ df_clean_mean <- furrr::future_map(df_raw_mean,function(x) try(clean_cetsa(x, te
 df_clean_sum <- furrr::future_map(df_raw_sum,function(x) try(clean_cetsa(x, temperatures = df.temps,samples = df.samples,Peptide=TRUE,solvent="Control",CFS=FALSE,CARRIER=FALSE,baseline="min")))#assgns temperature and replicate values
 
 df_clean <- furrr::future_map(df_raw,function(x) try(clean_cetsa(x, temperatures = df.temps,samples = df.samples,Peptide=TRUE,solvent="Control",CFS=FALSE,CARRIER=FALSE,baseline="min")))#assgns temperature and replicate values
-df_clean <- furrr::future_map(df_raw,function(x) try(clean_cetsa(x, temperatures = df.temps,samples = df.samples,Peptide=TRUE,solvent="DMSO",CFS=TRUE,CARRIER=TRUE,baseline="min")))#assgns temperature and replicate values
+df_clean <- furrr::future_map(df_raw,function(x) try(clean_cetsa(x, temperatures = df.temps,samples = df.samples,Peptide=FALSE,solvent="DMSO",CFS=TRUE,CARRIER=TRUE,baseline="min")))#assgns temperature and replicate values
 
 #Covid data
 #df_clean<-purrr::map(seq_along(df_clean),function(x) rbind(df_clean[[1]],x))
