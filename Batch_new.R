@@ -1467,10 +1467,10 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     df$Accession<-as.factor(df$Accession)
     if(any(names(df)=="replicate")){
       df<-df %>%
-        dplyr::group_split(Accession,sample_id,replicate,treatment)
+        dplyr::group_split(Accession,sample_id,replicate)
     }else if(any(names(df)=="Fraction")){
       df<-df %>%
-        dplyr::group_split(Accession,sample_id,Fraction,treatment)
+        dplyr::group_split(Accession,sample_id,Fraction)
     }
     
     
@@ -1497,7 +1497,7 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     
     ## split the data by replicate 
     l.bytype <- df.jointP %>%
-      dplyr::group_by(sample_id,treatment) %>% 
+      dplyr::group_by(sample_id) %>% 
       dplyr::group_split()
     
     ## determine which replicate (F1 through FN) contains the greatest number of curves and use this for normalization
@@ -1507,9 +1507,10 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     
     ## calculate median for each sample_id group
     df<-dplyr::bind_rows(df)
-    df.mynormset <- df %>% base::subset(Accession %in% norm.accessions)
+    df.mynormset <- df %>%
+      base::subset(Accession %in% norm.accessions&sample_id %in% df.normP$sample_id[1])
     
-    df.median <- df %>%
+    df.median <- df.mynormset %>%
       dplyr::group_by(temperature,treatment) %>% 
       dplyr::mutate(value = median(I,na.rm=TRUE)) %>% dplyr::ungroup(.)
     
