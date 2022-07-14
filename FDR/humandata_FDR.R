@@ -26,7 +26,7 @@ filter_good_data = function(data){
   return(good_data)
 }
 
-humandata = readRDS("All_Proteins_Human_dataset.RDS")
+humandata = readRDS("CFE_CFS_Fractions_Clean_Proteins.RDS")
 humandata_good = humandata|>dplyr::bind_rows() |> filter_good_data() 
 # ct = humandata_good |> group_by(Accession) |> summarise(n=n(),ntmt=length(unique(treatment)))
 # min(ct$n) #check filters
@@ -63,6 +63,7 @@ fit_scam_default = function(accession_data){
 
 
 fit_scam = function(accession_data){
+  accession_data$treatment<-as.factor(accession_data$treatment)
   ##Uses efs optimizer -- use this function
   mod = scam(I ~ s(temperature,by=treatment,bs="mpd",k=5) + treatment,data=accession_data,
              optimizer="efs")
@@ -78,8 +79,8 @@ grid_search_Tm = function(model,start=34,end=67,by=0.5){
   
   #first stage 
   initial_temps = seq(start,end,by)
-  initial_grid_treatment = marginaleffects(model,datagrid(temperature=initial_temps,treatment="treated"),var="temperature")
-  initial_grid_vehicle = marginaleffects(model,datagrid(temperature=initial_temps,treatment="vehicle"),var="temperature")
+  initial_grid_treatment = marginaleffects::marginaleffects(model,datagrid(temperature=initial_temps,treatment="treated"),var="temperature")
+  initial_grid_vehicle = marginaleffects::marginaleffects(model,datagrid(temperature=initial_temps,treatment="vehicle"),var="temperature")
   
   initial_Tm_treatment = initial_grid_treatment$temperature[which.min(initial_grid_treatment$dydx)]
   initial_Tm_vehicle = initial_grid_vehicle$temperature[which.min(initial_grid_vehicle$dydx)]
@@ -100,8 +101,20 @@ fit_scam_marginal_ATE = function(accession_data){
   stopifnot(length(unique(accession_data$Accession)) == 1)
   #model = scam(I ~ s(temperature,by=treatment,bs="mpd",k=5) + treatment,data=accession_data)
   model = poss_fit_scam(accession_data)
-  if("character" %in% class(model)){
-    error_df = tibble(p.value=NA,Accession=unique(accession_data$Accession))
+  if(!"scam" %in% class(model)){
+    error_df = tibble(type=NA,
+                      term=NA,
+                      estimate=NA,
+                      std.error=NA,
+                      statistic=NA,
+                      conf.low=NA,
+                      conf.high=NA,
+                      adj_r2=NA,
+                      Accession=accession_data$Accession[1],
+                      slope.pval=NA,
+                      Tm_treated=NA,
+                      Tm_vehicle=NA
+    )
     return(error_df)
   }
   adj_r2 = summary(model)$r.sq
@@ -113,22 +126,37 @@ fit_scam_marginal_ATE = function(accession_data){
 }
 fit_scam_marginal_DATE = function(accession_data){
   stopifnot(length(unique(accession_data$Accession)) == 1)
-  #model = scam(I ~ s(temperature,by=treatment,bs="mpd",k=5) + treatment,data=accession_data)
+  accession_data$treatment<-as.factor(accession_data$treatment)
+  
   model = poss_fit_scam(accession_data)
-  if("character" %in% class(model)){
-    error_df = tibble(p.value=NA,Accession=unique(accession_data$Accession),adj_r2=NA,slope.pval=NA)
+  if(!"scam" %in% class(model)){
+    error_df = tibble(type=NA,
+                      term=NA,
+                      estimate=NA,
+                      std.error=NA,
+                      statistic=NA,
+                      conf.low=NA,
+                      conf.high=NA,
+                      adj_r2=NA,
+                      Accession=accession_data$Accession[1],
+                      slope.pval=NA,
+                      Tm_treated=NA,
+                      Tm_vehicle=NA
+                      )
     return(error_df)
   }
   adj_r2 = summary(model)$r.sq
-  ATE = marginaleffects(model,
+  DATE = marginaleffects::marginaleffects(model,
                         var="temperature",
-                        newdata=datagrid(treatment=c("treated","vehicle"),temperature = seq(37,67,length.out=nrow(predict(model)))),
-                        hypothesis=c(rep(1/nrow(predict(model)),nrow(predict(model))),rep(-1/nrow(predict(model)),nrow(predict(model))))) |> tidy() #DATE
-  ATE$adj_r2 = adj_r2
-  ATE$Accession = unique(accession_data$Accession)
-  ATE$slope.pval=ATE$p.value
-  ATE<-ATE %>% dplyr::select(-p.value)|>dplyr::bind_rows()
-  return(ATE)
+                        newdata=datagrid(treatment=c("treated","vehicle"),
+                                         temperature = seq(37,67,length.out=nrow(predict(model)))),
+                        hypothesis=c(rep(1/nrow(predict(model)),nrow(predict(model))),rep(-1/nrow(predict(model)),nrow(predict(model)))))
+
+  DATE$adj_r2 = adj_r2
+  DATE$Accession = unique(accession_data$Accession)
+  DATE$slope.pval=DATE$p.value
+  DATE<-DATE %>% dplyr::select(-p.value)|>dplyr::bind_rows()
+  return(DATE)
 }
 permute_treatment = function(accession_temp_data){
   labels = accession_temp_data$treatment
@@ -166,15 +194,15 @@ compute_pvalues_DATE = function(fulldata,workers=4){
   
   data_gdf_accession = fulldata |> group_split(Accession,sample_name)
   plan(multisession,workers = workers)
-  original_result = future_map(.f=fit_scam_marginal_DATE,data_gdf_accession) |> bind_rows() 
-  
-  DATE_result = future_map2(data_gdf_accession,as.list(1:length(data_gdf_accession)),
-                            function(x,y){message(y)
-                              z<-fit_scam_marginal_DATE(x)
-                              return(z)}) |>
-    relocate(Accession,.before=type)
-  DATE_result<-cbind(DATE_result,original_result)#get Tm values from original_result
-  DATE_result$dTm<-DATE_result$Tm_treatment-DATE_result$Tm_vehicle
+  options(datatable.verbose = FALSE)
+  #get delta Tm 
+  original_result = furrr::future_map(data_gdf_accession,function(x){
+    z<-fit_scam_marginal_DATE(x) |> bind_rows() 
+    return(z)
+  })
+ 
+  DATE_result = original_result
+ 
   return(DATE_result)
 }
 
@@ -183,8 +211,8 @@ compute_pvalues_ATE = function(fulldata,workers=4){
   data_gdf_accession = fulldata |> group_split(Accession,sample_name)
   plan(multisession,workers = workers)
   original_result = future_map(.f=fit_scam_marginal_ATE,data_gdf_accession) |> bind_rows() 
-  
-  original_result$dTm<-original_result$Tm_treatment-original_result$Tm_vehicle
+ 
+  #original_result$dTm<-original_result$Tm_treatment-original_result$Tm_vehicle
   return(original_result)
 }
 ## Computes p values but returns vector -- meant for pertmutation p values bc no df accession label info needed
@@ -226,15 +254,47 @@ accessions = unique(bothdata_good$Accession)
 
 
 start=proc.time()
-og_pvals = compute_pvalues_ATE(bothdata_good)
+og_pvals = compute_pvalues_ATE(humandata_good)
 end=proc.time()
 print(end-start)
 
-#benchmark # of fitted proteins for CFE
+ground_truth_data = readRDS("Ground_truth_Human_dataset.rds")
+ground_truth_data_good = ground_truth_data |> filter_good_data()
+#benchmark # of fitted proteins with ATE for CFE
+ATE_data<-og_pvals
 ATE_all<-nrow(og_pvals)
 ATE_pval_0.05<-nrow(og_pvals %>% dplyr::filter(p.value<0.05))
 ATE_pval_R2<-nrow(og_pvals %>% dplyr::filter(p.value<0.05,adj_r2>0.8))
-ATE_pval_R2_GT<-
+
+ATE_pvals_r2<-ATE_data %>% dplyr::filter(p.value<0.05,adj_r2>0.8)
+ATE_pval_R2_GT<-ATE_pvals_r2[ATE_pvals_r2$Accession %in% ground_truth_data_good$Accession,]
+
+saveRDS(ATE_data,"ATE_results_all_splines_Protein_CFE.RDS")
+saveRDS(ATE_pval_R2_GT,"ATE_pval_R2_GT_filtered_results_splines_Protein_CFE.RDS")
+saveRDS(ATE_pvals_r2,"ATE_pval_R2_filtered_results_splines_Protein_CFE.RDS")
+
+#benchmark # of fitted proteins with DATE for CFE
+
+start=proc.time()
+og_pvals = compute_pvalues_DATE(bothdata_good)
+end=proc.time()
+print(end-start)
+
+og_pvals<-dplyr::bind_rows(og_pvals)
+DATE_data<-og_pvals
+#these are the numbers
+DATE_all<-nrow(dplyr::bind_rows(og_pvals))#3561
+DATE_pval_0.05<-nrow(og_pvals %>% dplyr::filter(p.value<0.05))#2388
+DATE_pval_R2<-nrow(og_pvals %>% dplyr::filter(p.value<0.05,adj_r2>0.8))#1996
+DATE_pval_R2_GT<-nrow(og_pvals_r2[og_pvals_r2$Accession %in% ground_truth_data_good$Accession,])#35
+#this is the data
+DATE_pvals_r2<-og_pvals %>% dplyr::filter(p.value<0.05,adj_r2>0.8)#1996
+DATE_pval_R2_GT_data<-og_pvals_r2[og_pvals_r2$Accession %in% ground_truth_data_good$Accession,]#35
+
+saveRDS(DATE_data,"DATE_results_all_splines_Protein_CFE.RDS")
+saveRDS(DATE_pval_R2_GT,"DATE_pval_R2_GT_filtered_results_splines_Protein_CFE.RDS")
+saveRDS(DATE_pvals_r2,"DATE_pval_R2_filtered_results_splines_Protein_CFE.RDS")
+
 
 start=proc.time()
 operm = compute_permutation_null_dist(bothdata_good,runs=10) #1 run to test for now

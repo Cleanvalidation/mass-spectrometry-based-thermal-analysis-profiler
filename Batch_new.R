@@ -43,6 +43,8 @@ pacman::p_load(minpack.lm,
                scam,
                BiocParallel,
                tidylog,
+               tidyverse,
+               BiocManager,
                clipr,
                report,
                equatiomatic,
@@ -50,7 +52,7 @@ pacman::p_load(minpack.lm,
                performance,
                install=FALSE)
 #install.packages("BiocManager")
-library(BiocManager)
+
 BiocManager::install(c("minpack.lm",
                        "rlist",
                        "data.table",
@@ -69,9 +71,8 @@ BiocManager::install(c("minpack.lm",
                        "DEqMS",
                        "equatiomatic"))
 
-library(tidyverse)
-set.seed(123)
 
+set.seed(123)
 theme_set(theme_bw())
 
 #' Read in data
@@ -727,6 +728,11 @@ choose_PSM<-function(x,Frac=Frac,NORM=NORM,CARRIER=CARRIER,subset=subset,baselin
                                         return(NA)},
                                       finally = {print("Equal median normalization finished")})
     )
+  }else if(NORM=="VSN"){
+    heck<-furrr::future_map(tryCatch(vsn::vsn2(as.matrix(x)),
+                                     error = function(e) {print(e)
+                                       return(NA)},
+                                     finally = {print("Variance stabilizing normalization finished")}))
   }
   #convert log2check are now abundance values 
   df2<-purrr::map2(df2,check,tryCatch({function(x,y)
@@ -943,7 +949,7 @@ choose_PSM<-function(x,Frac=Frac,NORM=NORM,CARRIER=CARRIER,subset=subset,baselin
 #' @export
 clean_cetsa <- function(df, temperatures = NULL,samples = NA,Peptide=FALSE,solvent,CFS=TRUE,CARRIER=TRUE,baseline="min"){
   df<-df %>% as.data.frame()
-  if(isTRUE(CARRIER)&any(df$temp_ref=="131C")){#if the carrier channel is present Default 131C
+  if(isTRUE(CARRIER)|any(unique(df$temp_ref)=="131C")){#if the carrier channel is present Default 131C
     df<-df %>% dplyr::filter(!temp_ref=="131C")
     temperatures<-temperatures %>% dplyr::filter(!temp_ref=="131C")
   }
@@ -1002,7 +1008,7 @@ clean_cetsa <- function(df, temperatures = NULL,samples = NA,Peptide=FALSE,solve
         dplyr::right_join(samples, by = intersect(names(df_),names(samples)))
     }
     
-  }else if (!any(stringr::str_detect(names(df),"temperature"))& is.na(samples)){#if samples data is missing
+  }else if (!any(stringr::str_detect(names(df),"temperature"))& any(is.na(samples))){#if samples data is missing
     hi<-dplyr::intersect(names(df),names(temperatures))
     df <- df %>%
       dplyr::right_join(temperatures, by = hi) 
@@ -1024,22 +1030,22 @@ clean_cetsa <- function(df, temperatures = NULL,samples = NA,Peptide=FALSE,solve
       dplyr::filter(!is.na(.$Accession),
                     !is.na(.$temperature),
                     !is.na(.$value)) %>%
-      dplyr::group_by(Accession,Annotated_Sequence,treatment,sample_name,Fraction) %>%
+      dplyr::group_by(Accession,Annotated_Sequence,sample_id,treatment,sample_name,Fraction) %>%
       dplyr::group_split()
-  }else if (isTRUE(Peptide)){
+  }else if (isTRUE(Peptide)&any(names(df)=="replicate")){
     df <- df %>%
       dplyr::filter(!is.na(.$Accession),
                     !is.na(.$temperature),
                     !is.na(.$value)) %>%
-      dplyr::group_by(Accession,Annotated_Sequence,treatment,sample_name) %>%
+      dplyr::group_by(Accession,Annotated_Sequence,sample_id,treatment,sample_name,replicate) %>%
       dplyr::distinct() %>% 
       dplyr::group_split()
-  }else{
+  }else{#if this is a protein file
     df <- df %>%
       dplyr::filter(!is.na(.$Accession),
                     !is.na(.$temperature),
                     !is.na(.$value)) %>%
-      dplyr::group_by(Accession,treatment,sample_name) %>%
+      dplyr::group_by(Accession,treatment,sample_id,sample_name,replicate) %>%
       dplyr::distinct() %>% 
       dplyr::group_split()
   }
@@ -1117,7 +1123,7 @@ FC_calc<-function(x,y) {
 FC_filter<-function(x){
   y<-x%>%dplyr::group_by(treatment) %>% 
     dplyr::filter(T7 >= 0.4, T7 <= 0.6,T9 < 0.3) %>% 
-    dplyr::select(-T7,-T9,-n) %>% dplyr::ungroup()
+    dplyr::select(-T7,-T9) %>% dplyr::ungroup()
   if(any(names(x)=="T10" & all(!is.na(x$T10)))){
     y<- y %>%dplyr::group_by(treatment) %>% 
       subset(T10 < 0.2)%>%
@@ -1127,7 +1133,7 @@ FC_filter<-function(x){
   }
   return(y)
 }
-check_baseline<-function(x) {
+check_baseline<-function(x,temperatures=df.temps) {
   if(min(temperatures$temperature,na.rm=TRUE)==min(x$temperature,na.rm=TRUE)){
     baseline<-min(x$temperature,na.rm=TRUE)
   }else{
@@ -1136,6 +1142,244 @@ check_baseline<-function(x) {
   }
   return(baseline)
 }
+
+#Normalization benchmarks
+Prot_norm_all<-function(df,temperatures){
+  df<-dplyr::bind_rows(df)
+  if(any(names(df)=="sample")){
+    df$sample_id<-NA
+    df$sample_id<-df$sample
+  }
+  
+  if(any(names(df)=="replicate")){
+  df<-df %>% dplyr::group_by(Accession,sample_id,sample_name,replicate) %>% 
+    dplyr::group_split()
+  }else if (any(names(df)=="Fraction")){
+    df<-df %>% dplyr::group_by(Accession,sample_id,sample_name,Fraction) %>% 
+      dplyr::group_split()
+  }
+  #norm by all data
+  #check baseline temperature
+  baseline<-purrr::map(df,function(x) check_baseline(x,temperatures))
+  df.jointP <- suppressWarnings(purrr::map2(df,baseline,function(x,y) FC_calc(x,y)))
+  
+  df.jointP<- dplyr::bind_rows(df.jointP)
+  if(isTRUE(filters)){
+    df.jointP<-FC_filter(df.jointP)
+  }
+    # #get accessions and count them in the replicates
+    # l.bytype <- split.data.frame(df.jointP, df.jointP$Accession)
+    # n.filter <- lapply(l.bytype, nrow)
+    # df.reP <- l.bytype[[which.max(n.filter)]]
+    # norm.Accessions <- unique(df.reP$Accession)
+    # df.mynormset <- df %>% base::subset(Accession %in% df.reP$Accession)
+    # 
+  if(nrow(df.jointP)==0){
+    return(warning("Please disable filters, all data was filtered out from original treatment."))
+  }
+ 
+  
+  ## calculate median for each sample_id group
+  df<-dplyr::bind_rows(df)
+  df.jointP<-dplyr::bind_rows(df.jointP)
+ 
+ 
+  df.median <- df %>%
+    dplyr::ungroup() %>% 
+    dplyr::group_by(temperature) %>%
+    dplyr::group_split()
+  df.median<-furrr::future_map(df.median,function(x) x %>% 
+    dplyr::mutate(value = median(.$I,na.rm=TRUE)) %>% 
+    dplyr::distinct() %>% 
+    dplyr::ungroup(.)) %>%
+    dplyr::bind_rows()
+  #
+  # nls3 = purrr::quietly(.f = nls)
+  # qtwolevel_fun = function(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl
+  #                          start = c(Pl=0, a = 550, b = 10)
+  #                          data = list(x=temperature,y=value)
+  #                          na.action = na.exclude
+  #                          algorithm = "port"
+  #                          lower = c(0.0,1e-5,1e-5)
+  #                          upper = c(1.5,15000,300)
+  #                          control = nls.control(maxiter = 50))
+  
+  
+  ## fit curves to the median data for each sample_id (F1 through FN)
+  df.fit <- df.median %>%
+    dplyr::group_by(sample_id) %>% 
+    dplyr::mutate(fit=list(cetsa_median(.,norm=FALSE)))
+  # dplyr::mutate(fit = list(try(nls(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl,
+  #                                  start = c(Pl=0, a = 550, b = 10),
+  #                                  data = list(x=temperature,y=value),
+  #                                  na.action = na.exclude,
+  #                                  algorithm = "port",
+  #                                  lower = c(0.0,1e-5,1e-5),
+  #                                  upper = c(1.5,15000,300),
+  #                                  control = nls.control(maxiter = 50))
+  #)))
+  df.fit<-df.fit %>% dplyr::group_by(sample_id) %>% dplyr::group_split()
+  df.fit<-df.fit %>% purrr::keep(function(x) class(x$fit[[1]])=='nls')
+  df.fit<-dplyr::bind_rows(df.fit)
+  df.fit<-df.fit%>% dplyr::group_by(sample_id) %>% 
+    dplyr::mutate(fitted_values = ifelse(!is.logical(fit[[1]]),list(data.frame(fitted_values=stats::predict(fit[[1]]))),NA))  %>% 
+    dplyr::select(sample_id,fitted_values,temperature) %>% dplyr::ungroup(.)
+  
+  d<-df.fit %>% dplyr::group_split(sample_id)
+  check <-data.frame(temperature=unique(d[[1]]$temperature),
+                     fitted_values=unique(d[[1]]$fitted_values[[1]]))
+  #check<-purrr::map(check,function(x) x %>% unnest(fitted_values) %>% unique(.))#check<-purrr::map(d,function(x) x %>% unnest(c(fitted_values)) %>% unique(.) %>% dplyr::mutate(temperature=temperatures))
+  check<-dplyr::bind_rows(check) %>% unique(.) 
+  
+  test<-df %>% 
+    dplyr::right_join(check,c('temperature'))
+  
+  
+  ## calculate ratios between the fitted curves and the median values
+  df.out <- test %>% dplyr::group_by(temperature) %>% dplyr::group_split()
+  
+  df.out<-furrr::future_map(df.out,function(x) x %>% 
+    dplyr::rowwise() %>% 
+    dplyr::mutate(correction = ifelse(is.na(fitted_values/I),NA,fitted_values/I)) %>%
+    unique(.) %>%
+    dplyr::ungroup(.) %>% 
+    dplyr::group_by(sample_id) %>% 
+    dplyr::group_split())
+  
+  df.jointP<-dplyr::bind_rows(df.jointP) %>% unique(.)
+  df.jointP$temperature<-as.factor(df.jointP$temperature)
+  df.jointP<-df.jointP %>% dplyr::group_split(sample_id) 
+  
+  df.out<-dplyr::bind_rows(df.out) %>% dplyr::group_by(temperature) %>% dplyr::group_split()
+  df.jointP<-dplyr::bind_rows(df.jointP) %>% dplyr::group_by(temperature) %>% dplyr::group_split()
+  #apply correction factor by temperature to original data
+  df3<-purrr::map2(df.jointP,df.out,function(x,y)tryCatch(x %>% dplyr::mutate(correction=y$correction[1])))
+  
+  
+  df3 <- dplyr::bind_rows(df3)%>% 
+    dplyr::mutate(norm_value= ifelse(is.na(.$correction),.$I,.$I*correction)) %>% 
+    dplyr::ungroup(.) 
+  df3<-df3 %>% dplyr::mutate(norm_value=ifelse(is.na(.$norm_value),"NA",I)) %>% 
+    dplyr::select(-I)
+  df3 <- df3 %>% 
+    dplyr::rename("uniqueID"="Accession", "C"="temperature","I"="norm_value")
+  df3<- df3 %>% dplyr::ungroup(.) %>% dplyr::select(-correction)
+  
+  if(isTRUE(filters)){
+    if (any(names(df3)=='T7')){
+      df3<-df3 %>% dplyr::select(-T10,-T7,-T9)
+    }
+  }
+  return(df3)
+}
+
+Prot_norm_bioRep<-function(df,temperatures=df.temps){
+  if(any(names(df)=="sample")){
+    df$sample_id<-NA
+    df$sample_id<-df$sample
+  }
+  
+  
+  df<-df %>% dplyr::group_by(Accession,sample_id,sample_name) %>% 
+    dplyr::group_split()
+  
+  #check baseline temperature
+  baseline<-purrr::map(df,function(x) check_baseline(x,temperatures))
+  
+  if(any(!isTRUE(order(unique(df[[1]]$temperature))==order(unique(temperatures$temperature))))){
+    #if the temperatures are reversed, relabel 7,9th and 10th temperature channels
+    df.jointP <- suppressWarnings(purrr::map2(df,baseline,function(x,y) FC_calc(x,y)))
+    
+  }else{
+    df.jointP <- suppressWarnings(purrr::map2(df,baseline,function(x,y) FC_calc(x,y)))
+  }
+  
+  df.jointP<- dplyr::bind_rows(df.jointP)
+  
+  if(isTRUE(filters)){
+    df.jointP<-FC_filter(df.jointP)
+  }
+  if(nrow(df[[1]])==0){
+    return(warning("Please disable filters, all data was filtered out from original treatment."))
+  }
+  
+  ## split the data by replicate 
+  l.bytype <- df.jointP %>%
+    dplyr::group_by(sample_id) %>% 
+    dplyr::group_split()
+  
+  ## determine which replicate (F1 through FN) contains the greatest number of curves and use this for normalization
+  n.filter <- lapply(l.bytype, nrow)
+  df.normP <- l.bytype[[which.max(n.filter)]]
+  norm.accessions <- df.normP$Accession
+  
+  ## calculate median for each sample_id group
+  df<-dplyr::bind_rows(df)
+  df.mynormset <- df.normP 
+  
+  df.median <- df.mynormset %>%
+    dplyr::group_by(temperature) %>% 
+    dplyr::mutate(value = median(I,na.rm=TRUE)) %>% dplyr::ungroup(.)
+  
+  ## fit curves to the median data for each sample_id (F1 through FN)
+  df.fit <- df.median %>%
+    dplyr::group_by(sample_id) %>% 
+    dplyr::mutate(fit=list(try(cetsa_fit(.,norm=FALSE)))) %>%
+    dplyr::group_split()
+  
+  #check that the curve was fit and filter out replicates that did not converge
+  df.fit<-df.fit %>% purrr::keep(function(x) class(x$fit[[1]])=='nls')
+  stopifnot(nrow(df.fit)>1)
+  df.fit<-dplyr::bind_rows(df.fit)
+  df.fit$fitted_values<-df.fit$fit[[1]]$m$predict(newdata=list(temperatures))
+  df.fit<-df.fit %>% 
+    dplyr::select(sample_id,fitted_values,temperature,treatment) %>% dplyr::ungroup(.)
+  
+  d<-df.fit %>% dplyr::group_by(sample_id) %>% dplyr::group_split()
+  #check will contain the median  fitted values from the curves at each temperature
+  check <-data.frame(temperature=unique(d[[1]]$temperature),
+                     fitted_values=unique(d[[1]]$fitted_values[[1]]))
+  
+  check<-dplyr::bind_rows(check) %>% unique(.) 
+  #joint the fitted values to the data by replicate and treatment at each temperature
+  test<-df %>% dplyr::right_join(check)
+  
+  
+  ## calculate ratios between the fitted curves and the median values
+  df.out <- test %>% dplyr::group_by(sample_id,temperature,treatment) %>% 
+    dplyr::rowwise() %>% 
+    dplyr::mutate(correction = ifelse(is.na(fitted_values/I),NA,fitted_values/I)) %>%
+    dplyr::select('temperature','correction','sample_id','treatment') %>% 
+    unique(.) %>%
+    dplyr::ungroup(.) %>% 
+    dplyr::group_by(sample_id,treatment,temperature) %>% 
+    dplyr::group_split()
+  
+  df.jointP<-dplyr::bind_rows(df.jointP) %>% unique(.)
+  df.jointP$temperature<-as.factor(df.jointP$temperature)
+  df.jointP<-df.jointP %>% dplyr::group_split(sample_id,treatment,temperature)
+  
+  #apply correction factor by temperature to original data
+  df3<-purrr::map2(df.jointP,df.out,function(x,y)tryCatch(x %>% dplyr::mutate(correction=y$correction[1])))
+  
+  
+  df3 <- dplyr::bind_rows(df3)%>% 
+    dplyr::mutate(norm_value= ifelse(is.na(.$correction),.$I,.$I*correction)) %>% 
+    dplyr::ungroup(.) 
+  df3<-df3 %>% dplyr::mutate(norm_value=ifelse(is.na(.$norm_value),"NA",I)) %>% 
+    dplyr::select(-I)
+  df3 <- df3 %>% 
+    dplyr::rename("uniqueID"="Accession", "C"="temperature","I"="norm_value")
+  df3<-df3 %>% dplyr::ungroup(.) %>% dplyr::select(-correction)
+  
+  if(isTRUE(filters)){
+    if (any(names(df3)==T7)){
+      df3<-df3 %>% dplyr::select(-T10,-T7,-T9)
+    }
+  }
+  return(df3)
+}
+
 #' normalize CETSA data
 #'
 #' Normalize data according to Pelago paper.
@@ -1168,7 +1412,9 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
   if(any(names(df)=="value")&!any(names(df)=="I")){
     df<-df %>% dplyr::mutate(I=value)
   }
-  
+  if(!any(names(df)=="sample_id")&any(names(df)=="sample_id")){
+    df<-df %>% dplyr::mutate(sample_id=sample_id)
+  }
   if(isTRUE(Peptide)){
     if(any(names(df)=="uniqueID")){
       df<-df %>% dplyr::rename("Accession"="uniqueID","value"="I")
@@ -1245,13 +1491,13 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     }
     
     
-    df.jointP3<-dplyr::bind_rows(df.jointP3)%>%
+    df.jointP3<- dplyr::bind_rows(df.jointP3)%>%
       dplyr::group_split(treatment,sample_name)
     
-    df.jointP5<-dplyr::bind_rows(df.jointP5)%>%
+    df.jointP5<- dplyr::bind_rows(df.jointP5)%>%
       dplyr::group_split(treatment,sample_name)
     
-    df.jointP10<-dplyr::bind_rows(df.jointP10)%>%
+    df.jointP10<- dplyr::bind_rows(df.jointP10)%>%
       dplyr::group_split(treatment,sample_name)
     
     #this would implement fold-change filters upon request acccording to Franken et al.
@@ -1461,52 +1707,41 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
       dplyr::rename("uniqueID"="Accession", "C"="temperature","I3"="norm_value3","I5"="norm_value5","I10"="norm_value10")
     df<-df %>% dplyr::ungroup(.) %>% dplyr::select(-I,-correction3,-correction5,-correction10)
     
-    if(isTRUE(filters)){
-      if (any(names(df)==T7)){
-        df<-df %>% dplyr::select(-T10,-T7,-T9)
-      }
-    }
     return(df)
   }else{#if this is a protein file
-    
+    df<-dplyr::bind_rows(df)
     if(any(names(df)=="uniqueID")){
       df<-df %>% dplyr::rename("Accession"="uniqueID")
     }
     df$Accession<-as.factor(df$Accession)
     if(any(names(df)=="replicate")){
       df<-df %>%
-        dplyr::group_split(Accession,sample_id,replicate,treatment)
+        dplyr::group_split(Accession,sample_id,replicate,sample_name)
     }else if(any(names(df)=="Fraction")){
       df<-df %>%
-        dplyr::group_split(Accession,sample_id,Fraction,treatment)
-    }else{
-      df<-df %>% dplyr::group_split(Accession,sample_id,treatment)
+        dplyr::group_split(Accession,sample_id,Fraction,sample_name)
     }
-
-    #check baseline temperature
-    baseline<-purrr::map(df,function(x) check_baseline(x))
     
-    if(any(!isTRUE(order(unique(df[[1]]$temperature))==order(unique(temperatures$temperature))))){
-      #if the temperatures are reversed, relabel 7,9th and 10th temperature channels
-      df.jointP <- suppressWarnings(purrr::map2(df,baseline,function(x,y) FC_calc(x,y)))
-      
-    }else{
-      df.jointP <- suppressWarnings(purrr::map2(df,baseline,function(x,y) FC_calc(x,y)))
-    }
+    
+    #check baseline temperature
+    baseline<-furrr::future_map(df,function(x) tryCatch(check_baseline(x),
+                                                        error=function(y){
+                                                          return(NA)
+                                                        }))
+    
+    df.jointP <- suppressWarnings(purrr::map2(df,baseline,function(x,y) FC_calc(x,y)))
     
     df.jointP<- dplyr::bind_rows(df.jointP)
     
     if(isTRUE(filters)){
       df.jointP<-FC_filter(df.jointP)
     }
-    if(nrow(df[[1]])==0){
+    if(nrow(df.jointP)==0){
       return(warning("Please disable filters, all data was filtered out from original treatment."))
     }
     
     ## split the data by replicate 
-    l.bytype <- df.jointP %>%
-      dplyr::group_by(sample_id) %>% 
-      dplyr::group_split()
+    l.bytype <- split.data.frame(df.jointP, df.jointP$Accession)
     
     ## determine which replicate (F1 through FN) contains the greatest number of curves and use this for normalization
     n.filter <- lapply(l.bytype, nrow)
@@ -1515,49 +1750,68 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
     
     ## calculate median for each sample_id group
     df<-dplyr::bind_rows(df)
-    df.mynormset <- df.normP 
+    df.mynormset <- df %>% base::subset(Accession %in% norm.accessions)
     
-    df.median <- df.mynormset %>%
-      dplyr::group_by(temperature) %>% 
-      dplyr::mutate(value = median(I,na.rm=TRUE)) %>% dplyr::ungroup(.)
-    
-    ## fit curves to the median data for each sample_id (F1 through FN)
-    df.fit <- df.median %>%
-      dplyr::group_by(sample_id) %>% 
-      dplyr::mutate(fit=list(try(cetsa_fit(.,norm=FALSE)))) %>%
+    df.median <- df %>%
+      dplyr::ungroup() %>% 
+      dplyr::group_by(temperature) %>%
       dplyr::group_split()
     
-    #check that the curve was fit and filter out replicates that did not converge
-    df.fit<-df.fit %>% purrr::keep(function(x) class(x$fit[[1]])=='nls')
-    stopifnot(nrow(df.fit)>1)
-    df.fit<-dplyr::bind_rows(df.fit)
-    df.fit$fitted_values<-df.fit$fit[[1]]$m$predict(newdata=list(temperatures))
-    df.fit<-df.fit %>% 
-      dplyr::select(sample_id,fitted_values,temperature,treatment) %>% dplyr::ungroup(.)
+    df.median<-furrr::future_map(df.median,function(x) x %>% 
+      dplyr::mutate(value = median(I,na.rm=TRUE)) %>% dplyr::ungroup(.)) %>%
+      dplyr::bind_rows()
+    #
+    # nls3 = purrr::quietly(.f = nls)
+    # qtwolevel_fun = function(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl
+    #                          start = c(Pl=0, a = 550, b = 10)
+    #                          data = list(x=temperature,y=value)
+    #                          na.action = na.exclude
+    #                          algorithm = "port"
+    #                          lower = c(0.0,1e-5,1e-5)
+    #                          upper = c(1.5,15000,300)
+    #                          control = nls.control(maxiter = 50))
     
-    d<-df.fit %>% dplyr::group_by(sample_id) %>% dplyr::group_split()
-    #check will contain the median  fitted values from the curves at each temperature
+    
+    ## fit curves to the median data for each sample_id (F1 through FN)
+    df.fit <- dplyr::bind_rows(df.median) %>%
+      #dplyr::group_by(sample_id) %>% 
+    dplyr::mutate(fit = list(try(nls(formula = y ~ (1-Pl)/(1+exp((b-a/x)))+Pl,
+                                     start = c(Pl=0, a = 550, b = 10),
+                                     data = list(x=temperature,y=value),
+                                     na.action = na.exclude,
+                                     algorithm = "port",
+                                     lower = c(0.0,1e-5,1e-5),
+                                     upper = c(1.5,15000,300),
+                                     control = nls.control(maxiter = 50)))))
+
+    df.fit<-df.fit %>% dplyr::group_by(sample_id) %>% dplyr::group_split()
+    df.fit<-df.fit %>% purrr::keep(function(x) class(x$fit[[1]])=='nls')
+    df.fit<-dplyr::bind_rows(df.fit)
+    df.fit<-df.fit%>% 
+      dplyr::group_by(sample_id) %>% 
+      dplyr::mutate(fitted_values = ifelse(!is.logical(fit[[1]]),list(data.frame(fitted_values=stats::predict(fit[[1]]))),NA))  %>% 
+      dplyr::select(sample_id,fitted_values,temperature) %>% dplyr::ungroup(.)
+    
+    d<-df.fit %>% dplyr::group_split(sample_id)
     check <-data.frame(temperature=unique(d[[1]]$temperature),
                        fitted_values=unique(d[[1]]$fitted_values[[1]]))
-    
+    #check<-purrr::map(check,function(x) x %>% unnest(fitted_values) %>% unique(.))#check<-purrr::map(d,function(x) x %>% unnest(c(fitted_values)) %>% unique(.) %>% dplyr::mutate(temperature=temperatures))
     check<-dplyr::bind_rows(check) %>% unique(.) 
-    #joint the fitted values to the data by replicate and treatment at each temperature
-    test<-df %>% dplyr::right_join(check)
     
-    
+    test<-df %>% dplyr::right_join(check,c('temperature'))
+
     ## calculate ratios between the fitted curves and the median values
-    df.out <- test %>% dplyr::group_by(sample_id,temperature,treatment) %>% 
+    df.out <- test %>% dplyr::group_by(sample_id,temperature) %>% 
       dplyr::rowwise() %>% 
       dplyr::mutate(correction = ifelse(is.na(fitted_values/I),NA,fitted_values/I)) %>%
-      dplyr::select('temperature','correction','sample_id','treatment') %>% 
       unique(.) %>%
       dplyr::ungroup(.) %>% 
-      dplyr::group_by(sample_id,treatment,temperature) %>% 
+      dplyr::group_by(sample_id) %>% 
       dplyr::group_split()
     
     df.jointP<-dplyr::bind_rows(df.jointP) %>% unique(.)
     df.jointP$temperature<-as.factor(df.jointP$temperature)
-    df.jointP<-df.jointP %>% dplyr::group_split(sample_id,treatment,temperature)
+    df.jointP<-df.jointP %>% dplyr::group_split(sample_id) 
     
     #apply correction factor by temperature to original data
     df3<-purrr::map2(df.jointP,df.out,function(x,y)tryCatch(x %>% dplyr::mutate(correction=y$correction[1])))
@@ -1570,13 +1824,10 @@ normalize_cetsa <- function(df, temperatures,Peptide=FALSE,filters=FALSE,CARRIER
       dplyr::select(-I)
     df3 <- df3 %>% 
       dplyr::rename("uniqueID"="Accession", "C"="temperature","I"="norm_value")
-    df3<-df3 %>% dplyr::ungroup(.) %>% dplyr::select(-correction)
-    
-    if(isTRUE(filters)){
-      if (any(names(df3)==T7)){
-        df3<-df3 %>% dplyr::select(-T10,-T7,-T9)
-      }
-    }
+    df3<-df3%>%
+      dplyr::ungroup(.)%>%
+      dplyr::select(-correction)  
+    df3$I<-as.double(df3$I)
     return(df3)
   }
 }
@@ -2130,7 +2381,33 @@ cetsa_fit <- function(d, norm = FALSE) {
   return(result)
 }
 
-
+cetsa_median <- function(d, norm = FALSE) {
+  if (sum(!is.na(d$value)) < 2 | sum(!is.na(d$temperature)) < 2) return(NA)
+  result = tryCatch({
+    if (!norm) {
+      myData <- list(t = d$temperature, y = d$value)
+    } else {
+      myData <- list(t = d$temperature, y = d$norm_value)
+    }
+    #c(Pl=0, a = 550, b = 10
+    fine_start <- expand.grid(p=seq(0,0.2),k=seq(500,1000),m=seq(45,75,by=5))
+    new_start <- nls2::nls2(y ~ fit.cetsa(p, k, m, t),
+                            data = myData,
+                            start = fine_start,
+                            algorithm = "grid-search",#note: check other ones
+                            control = nls.control(warnOnly=T,maxiter=500))
+    nls2::nls2(y ~ fit.cetsa(p, k, m, t),
+               data = myData,
+               start = new_start,
+               control = nls.control(warnOnly=F),
+               algorithm = "grid-search",
+               lower = c(0, 1, 10),
+               upper = c(0.4, 1000, 100))
+  }, error = function(err) {
+    return(NA)
+  })
+  return(result)
+}
 cetsa_fit2 <- function(d, norm = FALSE) {
   if (sum(!is.na(d$value)) < 2 | sum(!is.na(d$temperature)) < 2) return(NA)
   result = tryCatch({
@@ -6871,7 +7148,7 @@ Violin_panels<-function(df_raw,df.temps,MD=TRUE){
 }
 #Rename output from PDtoMSStatsTMTformat()
 
-Rename_MSStatsTMT_function<-function(PSM_result){
+Rename2_MSStatsTMT_function<-function(PSM_result,Run){
   PSM_result$BioReplicate=NA
   PSM_result$Mixture=NA
   if(any(names(PSM_result)=="Run")){
@@ -6880,12 +7157,16 @@ Rename_MSStatsTMT_function<-function(PSM_result){
                                ifelse(stringr::str_detect(PSM_result$Run,"NO_FAIMS")==TRUE,"nF",ifelse(stringr::str_detect(PSM_result$Run,"r_FAIMS")==TRUE,"F",NA)),'_',
                                ifelse(stringr::str_detect(PSM_result$Run,"S_eFT")==TRUE,"E",ifelse(stringr::str_detect(PSM_result$Run,"S_Phi")==TRUE,"S",NA)))
   }
-  }else{
+  }else if(any(names(PSM_result)=="Spectrum_File")){
    
       PSM_result$Mixture<-paste0(ifelse(stringr::str_detect(PSM_result$Spectrum_File,"NOcarrier")==TRUE,"nC",ifelse(stringr::str_detect(PSM_result$Spectrum_File,"carrier")==TRUE,"C",NA)),'_',
                                  ifelse(stringr::str_detect(PSM_result$Spectrum_File,"NO_FAIMS")==TRUE,"nF",ifelse(stringr::str_detect(PSM_result$Spectrum_File,"r_FAIMS")==TRUE,"F",NA)),'_',
                                  ifelse(stringr::str_detect(PSM_result$Spectrum_File,"S_eFT")==TRUE,"E",ifelse(stringr::str_detect(PSM_result$Spectrum_File,"S_Phi")==TRUE,"S",NA)))
     
+  }else{
+    PSM_result$Mixture<-PSM_result$Subject
+    PSM_result$Run<-Run
+    PSM_result$File_ID<-PSM_result$Mixture
   }
   if(any(is.na(PSM_result$BioReplicate))&any(names(PSM_result)=="File_ID")){
     PSM_result$BioReplicate<-PSM_result$File_ID
@@ -6899,20 +7180,43 @@ Rename_MSStatsTMT_function<-function(PSM_result){
       PSM_result$TechRepMixture<-stringr::str_extract(PSM_result$Run,"[[:digit:]]+r")
       PSM_result$TechRepMixture<-stringr::str_extract(PSM_result$TechRepMixture,"[[:digit:]]+")
     }
+  }else if(any(names(PSM_result)=="Mixture")){#if this is a simulation
+    TechReps<-data.frame(Experiment=as.factor(unique(x$Mixture)),TechRepMixture=rep(c(1,2),2))
+    PSM_result$Experiment<-NA
+    PSM_result$Experiment<-PSM_result$Mixture
+    if(any(names(PSM_result)=="TechRepMixture")){
+      PSM_result<-PSM_result%>% dplyr::select(-TechRepMixture)
+    }
+    PSM_result<-PSM_result %>% dplyr::inner_join(TechReps,by="Experiment")
+    PSM_result$BioReplicate<-NA
+    
+    PSM_result$Mixture<-stringr::str_remove(PSM_result$Protein,"_Sim_[[:digit:]]+")
+    PSM_result$BioReplicate<-paste0(PSM_result$Mixture,"_",PSM_result$Channel)
   }
   
-  if(any(is.na(PSM_result$Condition))){
+  
+  if(any(is.na(PSM_result$Condition))&any(names(PSM_result)=="Run")){
     PSM_result$Condition<-ifelse(stringr::str_detect(PSM_result$Run,"DMSO"),paste0(PSM_result$Channel,"_","vehicle"),paste0(PSM_result$Channel,"_","treated"))
     PSM_result$Condition<-ifelse(PSM_result$Channel=="126","Norm",PSM_result$Condition)
-  }
-  if(!any(names(PSM_result)=="Fraction")&any(stringr::str_detect(PSM_result$File_ID,"F[[:digit:]]+.[[:digit:]]+"))){
-    PSM_result$Fraction<-stringr::str_remove(PSM_result$File_ID,"F[[:digit:]]+.")
-    PSM_result$Fraction<-stringr::str_extract(PSM_result$Fraction,"[[:digit:]]+")
   }else{
-    PSM_result$Fraction<-1
+    PSM_result$Condition<-as.factor(PSM_result$Group)
+    PSM_result$sample_id<-PSM_result$File_ID
+    
   }
-  return(PSM_result)
+  if(!any(names(PSM_result)=="Fraction")&any(names(PSM_result)=="File_ID")){
+    if(any(stringr::str_detect(PSM_result$File_ID,"F[[:digit:]]+.[[:digit:]]+"))){
+      PSM_result$Fraction<-stringr::str_remove(PSM_result$File_ID,"F[[:digit:]]+.")
+      PSM_result$Fraction<-stringr::str_extract(PSM_result$Fraction,"[[:digit:]]+")
+    }else{
+      PSM_result$Fraction<-1
+    }
+  }
+  x<-PSM_result %>% as.data.frame()
+  
+  return(x)
 }
+PSM_result<-readRDS("Simulated_AllProteins_NullData_10perProtein.rdata")
+Sim_Null_Data<-list(ProteinLevelData=Rename2_MSStatsTMT_function(PSM_result,"Sim_Null_Data_ALL"))
 #Convert to MSStatsTMT
 MSStats_converter<-function(df_raw,solvent="DMSO",ref="126",Frac=TRUE,CFS=FALSE,Peptide=FALSE){
   editPSMs2<-data.frame()
@@ -7067,19 +7371,34 @@ MSStats_converter<-function(df_raw,solvent="DMSO",ref="126",Frac=TRUE,CFS=FALSE,
   editPSMs2<-Rename_MSStatsTMT_function(editPSMs2)
   editPSMs2[sapply(editPSMs2, is.character)] <- lapply(editPSMs2[sapply(editPSMs2, is.character)], 
                                          as.factor)#select annotation file names 
-  annotation<-editPSMs2 %>%
-    dplyr::select(Run,Fraction,TechRepMixture,Mixture,Channel,BioReplicate,Condition,PrecursorCharge) %>% 
-    distinct(.)
-  
+ 
   #filter for one experiment
   df_raw<-df_raw[,!stringr::str_detect(names(df_raw),"Found")]
  
   #convert intensity to log2 abundance
   editPSMs2$Abundance<-log2(editPSMs2$Intensity)
-  Annotation<-Annotation %>% distinct(.)
+  editPSMs2$Charge<-editPSMs2$PrecursorCharge
+  annotation<-editPSMs2 %>%
+    dplyr::select(Run,Fraction,TechRepMixture,Mixture,Channel,BioReplicate,Condition,PrecursorCharge) %>% 
+    distinct(.)
+  
+  annotation$Condition<-paste0(annotation$Condition,"_",annotation$Channel)
+  annotation<-annotation %>% distinct(.)
+  annotation$TechRepMixture<-1
+  
+  #filter by c_f_e
+  df_raw<-df_raw[stringr::str_detect(df_raw$`Spectrum File`,"carrier_FAIMS_eFT"),]
+  annotation<-annotation[stringr::str_detect(annotation$Run,"carrier_FAIMS_eFT"),]
+  if(any(annotation$Mixture==".")){
+    annotation$Mixture<-stringr::str_extract(as.character(annotation$Mixture),'[:upper:][[:digit:]]+')
+    annotation$BioReplicate<-paste0(annotation$Mixture,"_",annotation$Channel)
+    
+    df_raw$`Spectrum File`<-stringr::str_remove(df_raw$`Spectrum File`,"[[:digit:]]+.raw")
+    annotation$Run<-stringr::str_remove(annotation$Run,"[[:digit:]]+.raw")
+  }
   if(isTRUE(Peptide)){
   #Run MSStatsTMT
-  Result<-MSstatsTMT::PDtoMSstatsTMTFormat(df_raw,Annotation,
+  Result<-MSstatsTMT::PDtoMSstatsTMTFormat(df_raw,annotation,
                                which.proteinid = "Master Protein Accessions",
                                useNumProteinsColumn = TRUE,
                                useUniquePeptide = FALSE,
@@ -7089,26 +7408,38 @@ MSStats_converter<-function(df_raw,solvent="DMSO",ref="126",Frac=TRUE,CFS=FALSE,
                                use_log_file = FALSE,
                                append=FALSE,
                                verbose=TRUE)
-  Result<-list(ProteinLevelData=editPSMs2,FeatureLevelData=NULL)
-  
-  Result$ProteinLevelData<-editPSMs2 %>% dplyr::filter(!Channel=="131C")
-  Result$FeatureLevelData<-NULL
+ 
   
   #Check result
   #head(Result)
+  if(any(is.na(Result$Mixture))){
+    Result<-as.data.frame(Result)
+    Result$Charge<-NA
+    Result$TechRepMixture<-1
+    Result$Condition<-paste0(Result$Channel,"_",ifelse(stringr::str_detect(Result$Run,"DMSO"),"vehicle","treated"))
+    Result$BioReplicate<-Result$Condition
+    Result$Condition<-ifelse(Result$Channel=="126","Norm",Result$Condition)
+    
+  }
   #summarization
-  Protein_summ<-MSstatsTMT::proteinSummarization(Result,method="MedianPolish",global_norm=FALSE,remove_norm_channel = FALSE,
+  Protein_summ<-MSstatsTMT::proteinSummarization(Result,method="MedianPolish",global_norm=FALSE,remove_norm_channel = TRUE,
                                                  remove_empty_channel = TRUE,
                                                  use_log_file=FALSE,append=FALSE,verbose=TRUE)
+
   }else{
 
     #we need  Mixture, TechRepMixture, Run, Channel, Protein, Abundance, BioReplicate, Condition
     editPSMs2$Protein<-editPSMs2$Protein.Accessions
     Protein_summ<-list(FeatureLevelData=NULL,ProteinLevelData=editPSMs2)#note that editPSMs2 is the protein file
   }
- 
-  
-  Group_comp_result<-MSstatsTMT::groupComparisonTMT(Protein_summ,contrast.matrix="pairwise")
+  Protein_summ$ProteinLevelData<-Protein_summ$ProteinLevelData[!Protein_summ$ProteinLevelData$Channel=='131C',]
+  Protein_summ$FeatureLevelData<-Protein_summ$FeatureLevelData[!Protein_summ$FeatureLevelData$Channel=='131C',]
+  comparison1 <-matrix(c(1/10,1/10,1/10,1/10,1/10,1/10,1/10,1/10,1/10,
+                         -1/10,-1/10,-1/10,-1/10,-1/10,-1/10,-1/10,-1/10,-1/10),nrow=1)
+  colnames(comparison1)<-c('127C_vehicle','127N_vehicle','128C_vehicle','128N_vehicle','129C_vehicle','129N_vehicle','130C_vehicle','130N_vehicle','131N_vehicle',
+                        '127C_treated','127N_treated','128C_treated','128N_treated','129C_treated','129N_treated','130C_treated','130N_treated','131N_treated')
+  row.names(comparison1)<-"treated-vehicle"
+  Group_comp_result<-MSstatsTMT::groupComparisonTMT(Protein_summ,contrast.matrix=comparison1)
   return(Result)
 }
 
@@ -9992,7 +10323,8 @@ just_TPP_norm<-function(TPP_Cliff,df.temps){
   # TPP_Cliff$qupm<-as.integer(sample_id(4:40,nrow(TPP_Cliff),replace=TRUE))
   TPP_Cliff$qssm<-as.integer(5)
   TPP_Cliff$qupm<-as.integer(10)
-  config<-dplyr::bind_rows(TPP_Cliff) %>% select(Experiment,Condition,ComparisonVT1,ComparisonVT2,starts_with("1")) %>% 
+  config<-dplyr::bind_rows(TPP_Cliff) %>%
+    select(Experiment,Condition,ComparisonVT1,ComparisonVT2,starts_with("1")) %>% 
     distinct(.) 
   #config_new<-config[c(3,2,1,4),]
   TRreqs<-tpptrDefaultNormReqs()
@@ -10356,7 +10688,12 @@ df_raw <- read_cetsa("E:/Covid/Fractions/PD_Files",
                      "E:/Covid/Fractions/PD_Files",
                      Prot_Pattern = "_Proteins",Peptide=FALSE,Frac=TRUE,solvent="DMSO",CARRIER=TRUE,
                      CFS=TRUE,rank=FALSE,sub="Filter",temperatures=df.temps,baseline="min",NORM="QUANTILE",
-                     keep_shared_proteins=FALSE)                
+                     keep_shared_proteins=FALSE)     
+df_raw <- read_cetsa("E:/internal_dataset/PD_files",
+                     "E:/internal_dataset/PD_files",
+                     Prot_Pattern = "_Proteins",Peptide=FALSE,Frac=TRUE,solvent="DMSO",CARRIER=TRUE,
+                     CFS=TRUE,rank=FALSE,sub="Filter",temperatures=df.temps,baseline="min",NORM="QUANTILE",
+                     keep_shared_proteins=FALSE)              
 
 #average peptides to the protein level
 Mean_Ab<-function(x){
@@ -10558,7 +10895,7 @@ plot_I<-plot_I[order(data)]
 P<-ggpubr::ggarrange(plotlist=c(plot_I),ncol=2,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
 P1<-ggpubr::ggarrange(plotlist=c(plot_I1),ncol=2,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
-pdf("CFE_CFS_after_filtering_PG.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
+pdf("CFE_after_norm_Protein.pdf",encoding="CP1253.enc",compress=TRUE,width=12.13,height=7.93)
 P
 dev.off()
 ##Generate upset plots for missing value data###
@@ -10581,8 +10918,8 @@ df_norm_sum<-df_clean_mean
 # df_norm<-df_norm %>% purrr::keep(function(x) nrow(x)>1)
 df_norm1<-dplyr::bind_rows(df_norm)
 
-df_norm<-purrr::map(df_norm_sum,function(x)x %>% dplyr::filter(Accession %in% c("P36507","Q02750")))
-df_norm1<-purrr::map(df_norm1,function(x)x %>% dplyr::filter(Accession %in% c("P36507","Q02750","Q9Y2Q5","P61981","P60709","P40763","P31785","P27361","P23458")))
+df_norm<-purrr::map(df_norm,function(x)x %>%dplyr::mutate(uniqueID=as.character(uniqueID)) %>%  dplyr::filter(uniqueID %in% c("P36507","Q02750")))
+df_norm1<-purrr::map(df_norm1,function(x)x %>% dplyr::filter(uniqueID %in% c("P36507","Q02750","Q9Y2Q5","P61981","P60709","P40763","P31785","P27361","P23458")))
 
 #Zebra
 df_norm<-df_norm %>% dplyr::group_by(sample_name) %>% dplyr::group_split()
@@ -10956,7 +11293,7 @@ y<-get_legend(check$plot)
 # plotS2<-plotS2[order(data)]
 #ggarrange(plotlist=plotS2,ncol=4,nrow=2,font.label = list(size = 14, color = "black", face = "bold"),labels = "AUTO",legend.grob = y)
 
-plotS2 <- purrr::map(df_clean,function(x) try(plot_Splines(x,"Q02750",df.temps,MD=TRUE,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=TRUE,simulations=FALSE,CARRIER=TRUE,Frac=TRUE,raw=TRUE)))
+plotS2 <- purrr::map(df_norm,function(x) try(plot_Splines(x,"P36507",df.temps,Filters=FALSE,fT=FALSE,show_results=FALSE,Peptide=FALSE,simulations=FALSE,CARRIER=TRUE,Frac=TRUE,raw=FALSE)))
 check<-ggplot2::ggplot_build(plotS2[[1]])
 y<-get_legend(check$plot)
 # data<-unlist(lapply(plotS2,function(x) x$labels$title))
