@@ -106,207 +106,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
   f<-list.files(protein_path,pattern="Proteins.xlsx")
   setwd(peptide_path)
   h<-list.files(peptide_path,pattern="PSMs.xlsx")
-  
-  read_xl<-function(x) {
-    df2<-readxl::read_xlsx(x,trim_ws=TRUE,.name_repair = function(x) gsub("[[:punct:][:blank:]]+",".",x))
-    df2<-df2 %>% dplyr::select(-tidyr::starts_with("Found"))
-    
-    if(any(names(df2)=="Percolator.PEP.by.Search.Engine.Sequest.HT")){
-      df2<-df2 %>% dplyr::rename("Percolator_PEP"=names(df2)[stringr::str_detect(names(df2),"PEP")])
-    }else if(any(stringr::str_detect(names(df2),"PEP"))){
-      df2<-df2 %>% dplyr::rename("Percolator_PEP"=names(df2)[stringr::str_detect(names(df2),"PEP")])
-    }
-    if(any(names(df2)=="Charge.by.Search.Engine.Sequest.HT")){
-      df2<-df2 %>% dplyr::rename("Charge"=names(df2)[stringr::str_detect(names(df2),"Charge")])
-    }else if (any(stringr::str_detect(names(df2),"Charge"))){
-      df2<-df2 %>% dplyr::rename("Charge"=names(df2)[stringr::str_detect(names(df2),"Charge")])
-    }
-    if(any(names(df2)=="DeltaM.ppm.by.Search.Engine.Sequest.HT")){
-      df2<-df2 %>% dplyr::rename("DeltaM"="DeltaM.ppm.by.Search.Engine.Sequest.HT")
-      
-    }else if(any(stringr::str_detect(names(df2),"DeltaM"))){
-      df2<-df2 %>% dplyr::rename("DeltaM"=names(df2)[stringr::str_detect(names(df2),"DeltaM")])
-    }
-    if(any(names(df2)=="XCorr.by.Search.Engine.Sequest.HT")){
-      df2<-df2 %>% dplyr::rename("XCorr"="XCorr.by.Search.Engine.Sequest.HT")
-    }else if(any(stringr::str_detect(names(df2),"XCorr"))){
-      df2<-df2 %>% dplyr::rename("XCorr"=names(df2)[stringr::str_detect(names(df2),"XCorr")])
-    }
-    if(any(names(df2)==".Missed.Cleavages")){
-      df2<-df2 %>% dplyr::rename("MissedCleavages"=".Missed.Cleavages")
-    }else if(any(stringr::str_detect(names(df2),"Missed"))){
-      df2<-df2 %>% dplyr::rename("XCorr"=names(df2)[stringr::str_detect(names(df2),"XCorr")])
-    }
-    if(any(names(df2)=="Annotated.Sequence")){
-      df2<-df2 %>% dplyr::rename("Annotated_Sequence"="Annotated.Sequence") %>% 
-        dplyr::mutate(Annotated_Sequence=toupper(Annotated_Sequence))
-    }else if(any(stringr::str_detect(names(df2),"Annotated"))){
-      df2<-df2 %>% dplyr::rename("Annotated_Sequence"=names(df2)[stringr::str_detect(names(df2),"Annotated")])
-    }
-    if (any(names(df2)=="Master.Protein.Accessions")&!any(names(df2)=="Accession")){
-      df2<-df2 %>% dplyr::rename("Accession"="Master.Protein.Accessions")
-    }else if(any(stringr::str_detect(names(df2),"Master"))&!any(names(df2)=="Accession")){
-      df2<-df2 %>% dplyr::rename("Accession"=names(df2)[stringr::str_detect(names(df2),"Master")])
-    }else if(any(stringr::str_detect(names(df2),"Accession"))){
-      df2<-df2 %>% dplyr::rename("Accession"=names(df2)[stringr::str_detect(names(df2),"Accession")][1])
-    }
-    if(any(names(df2)=="Average.Reporter.S.N")){
-      df2<-df2 %>% dplyr::rename("Average_Reporter_S/N"="Average.Reporter.S.N")
-    }else if(any(stringr::str_detect(names(df2),"Reporter"))){
-      df2<-df2 %>% dplyr::rename("Average_Reporter_S/N"=names(df2)[stringr::str_detect(names(df2),"Reporter")])
-    }
-    if(any(names(df2)=="Isolation.Interference.")){
-      df2<-df2 %>% dplyr::rename("Isolation_Interference_[%]"="Isolation.Interference.")
-    }else if(any(stringr::str_detect(names(df2),"Isolation"))){
-      df2<-df2 %>% dplyr::rename("Isolation_Interference_[%]"=names(df2)[stringr::str_detect(names(df2),"Isolation")])
-    }
-    if(any(names(df2)=="Ion.Inject.Time.ms.")){
-      df2<-df2 %>% dplyr::rename("Ion_Inject_Time_[ms]"="Ion.Inject.Time.ms.")
-    }else if(any(stringr::str_detect(names(df2),"Inject"))){
-      df2<-df2 %>% dplyr::rename("Ion_Inject_Time_[ms]"=names(df2)[stringr::str_detect(names(df2),"Inject")])
-    }
-    if (any(stringr::str_detect(names(df2),"PSMs"))){
-      df2<-df2 %>% dplyr::rename("Num_PSMs"=names(df2)[stringr::str_detect(names(df2),"PSM")])
-    }
-    if(any(stringr::str_detect(colnames(df2),"Spectrum.File"))){#if this is a PSM file
-      if(any(stringr::str_detect(df2$Spectrum.File,"NOcarrier"))){#if this experiment has Carrier FAIMS and PhiSDM involved, shorten the file names
-        df2<-df2 %>% dplyr::mutate(sample_name=paste0(ifelse(stringr::str_detect(Spectrum.File,"NOcarrier")==TRUE,"nC",ifelse(stringr::str_detect(Spectrum.File,"carrier")==TRUE,"C",NA)),'_',
-                                                      ifelse(stringr::str_detect(Spectrum.File,"NO_FAIMS")==TRUE,"nF",ifelse(stringr::str_detect(Spectrum.File,"r_FAIMS")==TRUE,"F",NA)),'_',
-                                                      ifelse(stringr::str_detect(Spectrum.File,"S_eFT")==TRUE,"E",ifelse(stringr::str_detect(Spectrum.File,"S_Phi")==TRUE,"S",NA))),
-                                   treatment=ifelse(stringr::str_detect(Spectrum.File,solvent),"vehicle","treated"),
-                                   CC=ifelse(stringr::str_detect(Spectrum.File,solvent),0,1))
-        if(any(stringr::str_detect(df2$File.ID,"."))){
-          df2<-df2 %>% dplyr::mutate(Fraction=stringr::str_remove(.$File.ID,"[[:upper:]]+[[:digit:]]+."),
-                                     sample_id = stringr::str_extract(.$File.ID,"F[[:digit:]]+"))
-        }else{#if theres no fractionation
-          df2<-df2 %>% dplyr::mutate(sample_id = stringr::str_extract(.$File.ID,"F[[:digit:]]+"))
-        }
-        
-      }else{#if this experiment does not have Carrier FAIMS and PhiSDM involved shorten he file names
-        df2<-df2 %>% dplyr::mutate(
-          treatment=ifelse(stringr::str_detect(Spectrum.File,solvent),"vehicle","treated"),
-          sample_name = ifelse(stringr::str_detect(Spectrum.File,solvent),solvent,stringr::str_extract(stringr::str_to_lower(Spectrum.File),"[[:lower:]]+_[[:digit:]]+_")),
-          CC=ifelse(stringr::str_detect(Spectrum.File,solvent),0,1))
-        if(any(stringr::str_detect(df2$File.ID,"."))){
-          df2<-df2 %>% dplyr::mutate(Fraction=stringr::str_remove(.$File.ID,"[[:upper:]]+[[:digit:]]+."),
-                                     sample_id = stringr::str_extract(.$File.ID,"F[[:digit:]]+"))
-        }else{
-          df2<-df2 %>% dplyr::mutate(Fraction=stringr::str_remove(.$File.ID,"[[:upper:]]+[[:digit:]]+."),
-                                     sample_id = stringr::str_extract(.$File.ID,"F[[:digit:]]+"))
-        }
-        
-      }
-      
-    }
-    if(any(names(df2)=="Spectrum_File")){
-      df2<-purrr::map(df2,function(x) x %>% dplyr::mutate(Spectrum.File=Spectrum_File))
-    }
-    if(any(names(df2)=="File_ID")){
-      df2<-df2 %>% dplyr::mutate(File.ID=File_ID)
-    }
-    return(df2)
-  }
-  
-  
-  read_PD<-function(x){#rename data for peptide groups
-    
-    df2<-x %>% as.data.frame(.) %>% 
-      dplyr::select(names(x)[stringr::str_detect(names(x),'Master')],
-                    tidyselect::starts_with('File'),
-                    tidyselect::starts_with('Abundance.')|tidyselect::starts_with('1')|tidyselect::starts_with('Abundances.'),
-                    tidyselect::starts_with('Annotated'),
-                    tidyselect::contains('Isolation'),
-                    tidyselect::contains('Ion'),
-                    tidyselect::starts_with('Charge'),
-                    tidyselect::contains('PEP'),
-                    tidyselect::starts_with('Percolator'),
-                    tidyselect::starts_with('.Missed'),
-                    tidyselect::contains('Modifications'),
-                    tidyselect::contains('Cleavages'),
-                    tidyselect::starts_with('XCorr'),
-                    tidyselect::contains('Delta'),
-                    tidyselect::contains('File'),
-                    tidyselect::contains('S/N'),
-                    tidyselect::starts_with('Average'),
-                    tidyselect::contains('Spectrum'),
-                    tidyselect::contains('.'),
-                    tidyselect::ends_with('PSMs'),
-                    -tidyselect::contains('Grouped'),
-                    -tidyselect::starts_with('Found')) 
-    if(any(names(df2)=="Percolator.PEP.by.Search.Engine.Sequest.HT")){
-      df2<-df2 %>% dplyr::rename("Percolator_PEP"=names(df2)[stringr::str_detect(names(df2),"PEP")])
-    }else if(any(stringr::str_detect(names(df2),"PEP"))){
-      df2<-df2 %>% dplyr::rename("Percolator_PEP"=names(df2)[stringr::str_detect(names(df2),"PEP")])
-    }
-    if(any(names(df2)=="Charge.by.Search.Engine.Sequest.HT")){
-      df2<-df2 %>% dplyr::rename("Charge"=names(df2)[stringr::str_detect(names(df2),"Charge")])
-    }else if (any(stringr::str_detect(names(df2),"Charge"))){
-      df2<-df2 %>% dplyr::rename("Charge"=names(df2)[stringr::str_detect(names(df2),"Charge")])
-    }
-    
-    if(any(names(df2)=="DeltaM.ppm.by.Search.Engine.Sequest.HT")){
-      df2<-df2 %>% dplyr::rename("DeltaM"="DeltaM.ppm.by.Search.Engine.Sequest.HT")
-      
-    }else if(any(stringr::str_detect(names(df2),"DeltaM"))){
-      df2<-df2 %>% dplyr::rename("DeltaM"=names(df2)[stringr::str_detect(names(df2),"DeltaM")])
-    }
-    if(any(names(df2)=="XCorr.by.Search.Engine.Sequest.HT")){
-      df2<-df2 %>% dplyr::rename("XCorr"="XCorr.by.Search.Engine.Sequest.HT")
-    }else if(any(stringr::str_detect(names(df2),"XCorr"))){
-      df2<-df2 %>% dplyr::rename("XCorr"=names(df2)[stringr::str_detect(names(df2),"XCorr")])
-    }
-    if(any(names(df2)==".Missed.Cleavages")){
-      df2<-df2 %>% dplyr::rename("MissedCleavages"=".Missed.Cleavages")
-    }else if(any(stringr::str_detect(names(df2),"Missed"))){
-      df2<-df2 %>% dplyr::rename("XCorr"=names(df2)[stringr::str_detect(names(df2),"XCorr")])
-    }
-    if(any(names(df2)=="Annotated.Sequence")){
-      df2<-df2 %>% dplyr::rename("Annotated_Sequence"="Annotated.Sequence") %>% 
-        dplyr::mutate(Annotated_Sequence=toupper(Annotated_Sequence))
-    }else if(any(stringr::str_detect(names(df2),"Annotated"))){
-      df2<-df2 %>% dplyr::rename("Annotated_Sequence"=names(df2)[stringr::str_detect(names(df2),"Annotated")])
-    }
-    if (any(names(df2)=="Master.Protein.Accessions")){
-      df2<-df2 %>% dplyr::rename("Accession"="Master.Protein.Accessions")
-    }else if(any(stringr::str_detect(names(df2),"Master"))){
-      df2<-df2 %>% dplyr::rename("Accession"=names(df2)[stringr::str_detect(names(df2),"Master")])
-    }else if(any(stringr::str_detect(names(df2),"Accession"))){
-      df2<-df2 %>% dplyr::rename("Accession"=names(df2)[stringr::str_detect(names(df2),"Accession")][1])
-    }
-    if(any(names(df2)=="Average.Reporter.S.N")){
-      df2<-df2 %>% dplyr::rename("Average_Reporter_S/N"="Average.Reporter.S.N")
-    }else if(any(stringr::str_detect(names(df2),"Reporter"))){
-      df2<-df2 %>% dplyr::rename("Average_Reporter_S/N"=names(df2)[stringr::str_detect(names(df2),"Reporter")])
-    }
-    if(any(names(df2)=="Isolation.Interference.")){
-      df2<-df2 %>% dplyr::rename("Isolation_Interference_[%]"="Isolation.Interference.")
-    }else if(any(stringr::str_detect(names(df2),"Isolation"))){
-      df2<-df2 %>% dplyr::rename("Isolation_Interference_[%]"=names(df2)[stringr::str_detect(names(df2),"Isolation")])
-    }
-    if(any(names(df2)=="Ion.Inject.Time.ms.")){
-      df2<-df2 %>% dplyr::rename("Ion_Inject_Time_[ms]"="Ion.Inject.Time.ms.")
-    }else if(any(stringr::str_detect(names(df2),"Inject"))){
-      df2<-df2 %>% dplyr::rename("Ion_Inject_Time_[ms]"=names(df2)[stringr::str_detect(names(df2),"Inject")])
-    }
-    if (any(stringr::str_detect(names(df2),"PSMs"))){
-      df2<-df2 %>% dplyr::rename("Num_PSMs"=names(df2)[stringr::str_detect(names(df2),"PSM")])
-    }
-    df2<-df2 %>% 
-      tidylog::pivot_longer(cols=colnames(df2)[stringr::str_detect(colnames(df2),"[:digit:][:digit:][:digit:][N|C]|126|131")],
-                            names_to = "id",
-                            values_to ="value") %>% 
-      dplyr::mutate(treatment=ifelse(stringr::str_detect(.$id,solvent),"vehicle","treated"),
-                    CC=ifelse(stringr::str_detect(.$id,solvent),0,1),
-                    sample_id = stringr::str_extract(.$id,"F[[:digit:]]+"),
-                    temp_ref = unlist(stringr::str_extract(.$id,"[:digit:][:digit:][:digit:][N|C]|126|131")),
-                    value = as.numeric(value))
-    
-    if(any(names(df2)=="File_ID")){
-      df2<-df2 %>% dplyr::mutate(File.ID=File_ID)
-    }
-    
-    return(df2)
-  }
+
   
   #read_PSMs and proteins
   if (.Platform$OS.type=="windows"){
@@ -360,6 +160,7 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
         mat_norm<-which(stringr::str_detect(names(PSMs[[1]]),"Abundance")&!stringr::str_detect(names(PSMs[[1]]),"Abundance.131C"))
       }
       #calculate scaling factor
+      if(norm=="QUANTILE"){
       df2<-furrr::future_map(PSMs,function(x)
       { 
         if(any(names(x)=="Fraction")|any(stringr::str_detect(x$File.ID[1],"."))){
@@ -404,6 +205,9 @@ read_cetsa <- function(protein_path,peptide_path,Prot_Pattern,Peptide=FALSE,Frac
         return(x)
       }
       )
+      }else{#if there's no scaling factor implemented, set as 1
+        df2<-purrr::map(PSMs,function(x) x %>% dplyr::mutate(scal_fac=1))
+      }
       #if any data has the bioreplicate number, truncate the sample_id name contents
       if(!isTRUE(CFS)&any(stringr::str_detect(unique(dplyr::bind_rows(df2)$sample_name),"_[[:digit:]]+"))){
         df2<-dplyr::bind_rows(df2) %>%
@@ -669,6 +473,7 @@ choose_PSM<-function(x,Frac=Frac,NORM=NORM,CARRIER=CARRIER,subset=subset,baselin
   if(isTRUE(CARRIER)){
     x<-x[,!stringr::str_detect(colnames(x),"131C")]
   }
+  #only select abundance columns
   
   df2<- dplyr::bind_rows(x)
   DF2<-dplyr::bind_rows(x)
@@ -694,28 +499,20 @@ choose_PSM<-function(x,Frac=Frac,NORM=NORM,CARRIER=CARRIER,subset=subset,baselin
     print(paste0("Removed ",round(100*(nrow(united)-nrow(united1))/nrow(united),2),
                  "% of PSMs where each sequence has less than 80% of the total bioreplicates present"))
   }
+  df2<-df2 %>% dplyr::filter(Accession %in% united1$Accession,Annotated_Sequence %in% united1$Annotated_Sequence)
+  mat_norm<-which(stringr::str_detect(names(df2),"Abundance"))
   
-  #from the PSM subset, keep those accessions where the conditional min # of replicates are met
-  if(any(names(dplyr::bind_rows(df2)=="Fraction"))){
-    df2<-dplyr::bind_rows(df2) %>%
-      dplyr::filter(Accession %in%united1$Accession & Annotated_Sequence %in% united1$Annotated_Sequence) %>% 
-      dplyr::group_by(Accession,Annotated_Sequence,sample_name,treatment,Fraction) %>% 
-      dplyr::group_split()
-  }else{
-    df2<-dplyr::bind_rows(df2) %>%
-      dplyr::filter(Accession %in%united1$Accession & Annotated_Sequence %in% united1$Annotated_Sequence) %>% 
-      dplyr::group_by(Accession,Annotated_Sequence,sample_name,treatment) %>% 
-      dplyr::group_split()
-  }
-  mat_norm<-which(stringr::str_detect(names(df2[[1]]),"Abundance"))
+  united<-df2 %>% dplyr::ungroup() %>% 
+    dplyr::group_by(Accession,sample_name,treatment) %>%
+    dplyr::group_split()
+  united1<-united
+  test<-purrr::map(united,function(y)log2(medianPolish(as.matrix(y[,mat_norm]),ncol(y[,mat_norm]))))
   
-  #transform abundance to log2 abundance
-  df2_log<-furrr::future_map(df2,function(x) log2(x[,mat_norm]))
-  #apply selected normalization method
+  
   if(is.na(NORM)){
-    check<-(df2_log)
+    check<-(test)
   }else if(NORM=="QUANTILE"){
-    check<-furrr::future_map(df2_log,function(x) {
+    check<-furrr::future_map(test,function(x) {
       tryCatch(limma::normalizeBetweenArrays(as.matrix(x),ties=FALSE,method="quantile"),
                error = function(e) {print(e)
                  return(NA)},
@@ -723,190 +520,44 @@ choose_PSM<-function(x,Frac=Frac,NORM=NORM,CARRIER=CARRIER,subset=subset,baselin
     }
     )
   }else if(NORM=="EQ_Median"){
-    check<-furrr::future_map(tryCatch(DEqMS::equalMedianNormalization(as.matrix(x)),
-                                      error = function(e) {print(e)
-                                        return(NA)},
-                                      finally = {print("Equal median normalization finished")})
+    check<-furrr::future_map(test,function(x) tryCatch(DEqMS::equalMedianNormalization(as.matrix(x)),
+                                                       error = function(e) {print(e)
+                                                         return(NA)},
+                                                       finally = {print("Equal median normalization finished")})
     )
   }else if(NORM=="VSN"){
-    heck<-furrr::future_map(tryCatch(vsn::vsn2(as.matrix(x)),
-                                     error = function(e) {print(e)
-                                       return(NA)},
-                                     finally = {print("Variance stabilizing normalization finished")}))
-  }
-  #convert log2check are now abundance values 
-  df2<-purrr::map2(df2,check,tryCatch({function(x,y)
-    if(is.na(y[[1]])){
-      return(x)
-    }else{
-      x<-x[,!stringr::str_detect(colnames(x),"Abundance")]
-      x<-cbind(x,y)
-      return(x)
-    }
-  },
-  error = function(e) {message("Error adding normalized data to the original data frame")
-    return(NA)},
-  finally = {print("Adding normalized data to original data frame finished.")}
-  ))
-  
-  check<-NA
-  df2<-df2 %>% purrr::keep(function(x)nrow(x)>1)
-  df2<-dplyr::bind_rows(df2)
-  #group data by sample_id name
-  df2<-df2 %>%
-    dplyr::group_by(sample_name) %>%
-    dplyr::group_split()
-  
-  #if the column names are in PD format, change them
-  if(any(names(df2[[1]])=="Average.Reporter.S.N")){
-    df2<-purrr::map(df2,function(x) x %>% dplyr::rename("Average_Reporter_S/N"="Average.Reporter.S.N")%>% 
-                      dplyr::mutate(sample_id=File.ID))
-  }
-  if(any(names(df2[[1]])=="Isolation.Interference.")){
-    df2<-purrr::map(df2,function(x) x %>% dplyr::rename("Isolation_Interference_[%]"="Isolation.Interference.") %>% 
-                      dplyr::mutate(sample_id=File.ID))
-  }
-  if(any(names(df2[[1]])=="Ion.Inject.Time.ms.")){
-    df2<-purrr::map(df2,function(x) x %>% dplyr::rename("Ion_Inject_Time_[ms]"="Ion.Inject.Time.ms."))
-    
-  }
-  if(any(names(df2[[1]])=="Percolator.PEP.")){
-    df2<-purrr::map(df2,function(x) x %>% dplyr::rename("Percolator_PEP"="Percolator.PEP") %>% 
-                      dplyr::mutate(sample_id=File.ID))
-    
+    check<-furrr::future_map(test,function(x) tryCatch(vsn::vsn2(as.matrix(x)),
+                                                       error = function(e) {print(e)
+                                                         return(NA)},
+                                                       finally = {print("Variance stabilizing normalization finished")}))
   }
   
-  #change PSMs from wide to long and create TMT channel "temp_ref" and abundance "value" columns
-  if (.Platform$OS.type=="windows"){
-    df2<-parallel::mclapply(df2,function(x){
-      x1 <- x %>% 
-        tidylog::pivot_longer(cols=colnames(x)[stringr::str_detect(colnames(x),"[:digit:][:digit:][:digit:][N|C]|126|131")],
-                              names_to = "id",
-                              values_to ="value") %>% 
-        dplyr::mutate(temp_ref = unlist(stringr::str_remove(id,'Abundance.')),
-                      value = as.numeric(value))
-      return(x1)
-    })
-  }else{
-    df2<-parallel::mclapply(df2,function(x){
-      x1 <- x %>% 
-        tidylog::pivot_longer(cols=colnames(x)[stringr::str_detect(colnames(x),"[:digit:][:digit:][:digit:][N|C]|126|131")],
-                              names_to = "id",
-                              values_to ="value") %>% 
-        dplyr::mutate(temp_ref = unlist(stringr::str_remove(id,'Abundance.')),
-                      value = as.numeric(value))
-      return(x1)
-    },mc.cores = future::availableCores())
-  }
-  # if(any(stringr::str_detect(names(df2[[1]]),"File.ID"))){
-  #   df2<-purrr::map(df2,function(x) x %>% dplyr::rename("sample_id"="File.ID"))
-  # }
-  # #uncomment to Diagnose the plot after normalization uncomment for debugging
-  # df2<-dplyr::bind_rows(df2) %>%
-  #   dplyr::group_split(sample_name)
-  # ggplot(df2,mapping=aes(x=temp_ref,y=value))+geom_boxplot()
-  # #
-  df2<-dplyr::bind_rows(df2) %>% 
-    dplyr::group_by(Accession,Annotated_Sequence,sample_name,sample_id,treatment) %>%
-    dplyr::distinct() %>% 
-    dplyr::group_split()
-  #if the sample_name isn't shortened, shorten it
-  if(any(stringr::str_detect(dplyr::bind_rows(df2)$sample_name,"_[[:digit:]]+_")) & !isTRUE(CARRIER)){
-    df2<-dplyr::bind_rows(df2) %>%#add replicate value from the name assigned in PD if it exists
-      dplyr::mutate(replicate=stringr::str_remove_all(stringr::str_extract(sample_name,"_[[:digit:]]+_"),"_"))
-    df2$sample_name<-sub("_[[:digit:]]+_", "", dplyr::bind_rows(df2)$sample_name)
-    df2$sample_name<-sub("[[:digit:]]+", "", dplyr::bind_rows(df2)$sample_name)
-    
-  }
-  df2<-dplyr::bind_rows(df2) %>% 
-    dplyr::group_by(Accession,sample_name,sample_id,treatment)
-  #data is grouped by  protein, bioreplicate and condition to aggregate PSMs to proteins
-  united<-df2 %>% 
-    dplyr::select(-id) %>% 
-    dplyr::filter(!is.na(temp_ref)) %>%
-    dplyr::distinct(.) %>% 
-    dplyr::group_by(Accession,Annotated_Sequence,treatment,sample_name,sample_id) %>% 
-    dplyr::group_split()
-  
-  
-  #for each protein, bioreplicate and condition, nest PSM values and TMT channels
-  united<-purrr::map(united,function(x) x %>% 
-                       dplyr::mutate(temp_ref = as.character(temp_ref),
-                                     value = as.double(value)) %>%
-                       tidyr::nest(data = c(value,temp_ref)))
-  
-  united<-dplyr::bind_rows(united)
-  #Create a new variable to pivot from long to wide before aggregating PSM values
-  United<- united %>% 
-    dplyr::mutate(data=furrr::future_map(data,function(y)y %>%  
-                                           tidyr::pivot_wider(.,#need to transform to wide for PSM aggregation
-                                                              names_from = "temp_ref",
-                                                              values_from ="value",
-                                                              names_repair =unique,
-                                                              values_fn = unique,
-                                                              values_fill = NA
-                                           )
-    )
-    )
-  United<-United %>%
-    dplyr::group_by(Accession,sample_name,treatment) %>%
-    dplyr::group_split()#Split the data to get multiple peptides of the same master protein
-  
-  #Merge abundances contribution from each sequence back to the data frame
-  United<-purrr::map(United,function(x){
-    x<-x %>% dplyr::mutate(data = list(dplyr::bind_rows(x$data)))
-    return(x)
-  }
-  )
-  #apply median polish to perform local normalization from the PSM to the protein level
-  United<-purrr::map(United,function(x){
-    x<-x %>%
-      dplyr::mutate(data=list(
-        medianPolish(as.matrix(x$data[[1]]),ncol(x$data[[1]]))))
+  test1<-purrr::map2(check,united,function(x,y) set_names(x,names(y[,mat_norm])))
+  result<-purrr::map2(united,test1,function(x,y){
+    x=x %>% dplyr::select(-names(y)) %>%dplyr::distinct()
+    x=append(x,y) %>% as.data.frame()
     return(x)
   })
-  #reverse log2 transform then transpose and change matrix to data frame
-  # United<-purrr::map(United,function(x){
-  #   x<-x %>% dplyr::mutate(data=list(2^x$data[[1]]))
-  #   return(x)
-  # })
-  #each accession has redundant list of data frames after aggregation, therefore we can select the aggregated abundance
-  United1<-purrr::map(United,tryCatch({function(x){
-    x<- x %>% dplyr::mutate(data=list(data.frame(t(x$data[[1]]))))
-    y<-magrittr::set_names(x$data[[1]],unique(united$data[[1]]$temp_ref))
-    return(y)
-  }
-  },
-  error = function(e){print(e)
-    return(NA)
-  },
-  finally = {'Finalizing PSM data cleanup.'})
-  )
+  #transform abundance to log2 abundance
   
-  #append aggregated PSM values to the data
-  United<-purrr::map2(United,United1,function(x,y)
-    x %>%
-      dplyr::select(-data) %>%
-      dplyr::bind_cols(y))
-  #Join all the PSM data together with aggregated abundances and split by method or sample_id name
-  United<-dplyr::bind_rows(United) %>%
-    dplyr::group_by(sample_name) %>%
-    dplyr::group_split()
   #pivot data to long format after aggregating PSM abundances to protein level
-  df2<-furrr::future_map(United,function(x) x %>%
-                           tidyr::pivot_longer(cols=colnames(x)[stringr::str_detect(colnames(x),c('[:digit:][:digit:][:digit:][N|C]|126|131'))],
-                                               names_to="temp_ref",
-                                               values_to="value"))
-  #multiply value by the scaling factor
-  df2<-furrr::future_map(df2,function(x)x %>% 
-                           dplyr::mutate(value = ifelse(!is.na(x$value)&(!is.na(x$scal_fac[[1]])),x$value*x$scal_fac[[1]],NA)))
+  df2<-dplyr::bind_rows(result) %>%tidyr::pivot_longer(cols=colnames(dplyr::bind_rows(result))[stringr::str_detect(colnames(dplyr::bind_rows(result)),c('[:digit:][:digit:][:digit:][N|C]|126|131'))],
+                                                       names_to="temp_ref",
+                                                       values_to="value")
   
-  #Keep proteins where accession is not NA and nrow of peptides has information available
-  df2<-purrr::keep(df2,function(x) !is.logical(x$Accession)&nrow(x)>0)
+  #from the PSM subset, keep those accessions where the conditional min # of replicates are met
+  if(any(names(dplyr::bind_rows(df2)=="Fraction"))|any(stringr::str_detect(df2$File_ID[1],"."))){
+    if(any(any(stringr::str_detect(df2$File_ID[1],".")))){
+      df2$Fraction<-stringr::str_remove(df2$File_ID,"F[[:digit:]]+.")
+      df2$sample_id<-stringr::str_extract(df2$File_ID,"F[[:digit:]]+")
+      
+    }
+  }
   #group data and split by sample_name
   df2<-dplyr::bind_rows(df2) %>%
     dplyr::group_by(sample_name) %>%
     dplyr::group_split(.)
+  
   df2<-purrr::map(df2,function(x) clean_cetsa(x,#normalize data from 0 to 1
                                               temperatures = df.temps,
                                               Peptide=Peptide,
@@ -994,7 +645,9 @@ clean_cetsa <- function(df, temperatures = NULL,samples = NA,Peptide=FALSE,solve
   if(any(names(df)=="uniqueID")&!any(names(df)=="Accession")){
     df<-df %>% dplyr::rename("Accession"="uniqueID")
   }
-  
+  if(any(stringr::str_detect(df$temp_ref[1],"Abundance"))){
+    df$temp_ref<-stringr::str_remove(df$temp_ref,"Abundance_")
+  }
   df <- df %>% dplyr::ungroup(.)
   if(ncol(temperatures)>2){#If dealing with a time_point study 
     name<-dplyr::intersect(names(df),names(temperatures))
@@ -1022,7 +675,7 @@ clean_cetsa <- function(df, temperatures = NULL,samples = NA,Peptide=FALSE,solve
   }
   #add replicates
   df<-replicate_labels(df)
-  if(any(names(df)=="Fraction")&isTRUE(Peptide)){
+  if(any(names(df)=="File.ID")&isTRUE(Peptide)){
     if(any(stringr::str_detect(df$Fraction,"."))){
       df<-df %>% dplyr::mutate(Fraction = stringr::str_remove(File.ID,"[:upper:][[:digit:]]+."))
     }
@@ -1051,6 +704,7 @@ clean_cetsa <- function(df, temperatures = NULL,samples = NA,Peptide=FALSE,solve
   }
   
   
+  
   if (.Platform$OS.type=="windows"){
     df<-parallel::mclapply(df,tryCatch({function(x){x<-x %>% 
       dplyr::mutate(value = x$value/mean(x$value[x$temperature == bl],na.rm=TRUE)) %>%
@@ -1071,7 +725,7 @@ clean_cetsa <- function(df, temperatures = NULL,samples = NA,Peptide=FALSE,solve
     df<-df %>% dplyr::mutate(missing=is.na(value))
   }
   
-  if(any(names(df)=="Fraction")){
+  if(any(names(df)=="Fraction")&any(names(df)=="File.ID")){
     if(any(stringr::str_detect(df$Fraction,"."))){
       df<-df %>% dplyr::mutate(Fraction = stringr::str_remove(File.ID,"[:upper:][[:digit:]]+."))
     }
@@ -2417,7 +2071,7 @@ cetsa_fit2 <- function(d, norm = FALSE) {
       myData <- list(t = d$temperature, y = d$norm_value)
     }
     #c(Pl=0, a = 550, b = 10
-    fine_start <- expand.grid(p=c(0,0.2),k=seq(200,500),m=seq(45,75,by=5))
+    fine_start <- expand.grid(p=c(0,0.2),k=seq(200,1000),m=seq(45,75,by=5))
     new_start <- nls2::nls2(y ~ fit.cetsa(p, k, m, t),
                             data = myData,
                             start = fine_start,
@@ -10652,6 +10306,211 @@ filter_Peptides<-function(df_,S_N,PEP,XCor,Is_Int,Missed_C,Mods,Charg,DeltaMppm,
   
 }
 
+read_xl<-function(x) {
+  df2<-readxl::read_xlsx(x,trim_ws=TRUE,.name_repair = function(x) gsub("[[:punct:][:blank:]]+",".",x))
+  df2<-df2 %>% dplyr::select(-tidyr::starts_with("Found"))
+  
+  if(any(names(df2)=="Percolator.PEP.by.Search.Engine.Sequest.HT")){
+    df2<-df2 %>% dplyr::rename("Percolator_PEP"=names(df2)[stringr::str_detect(names(df2),"PEP")])
+  }else if(any(stringr::str_detect(names(df2),"PEP"))){
+    df2<-df2 %>% dplyr::rename("Percolator_PEP"=names(df2)[stringr::str_detect(names(df2),"PEP")])
+  }
+  if(any(names(df2)=="Charge.by.Search.Engine.Sequest.HT")){
+    df2<-df2 %>% dplyr::rename("Charge"=names(df2)[stringr::str_detect(names(df2),"Charge")])
+  }else if (any(stringr::str_detect(names(df2),"Charge"))){
+    df2<-df2 %>% dplyr::rename("Charge"=names(df2)[stringr::str_detect(names(df2),"Charge")])
+  }
+  if(any(names(df2)=="DeltaM.ppm.by.Search.Engine.Sequest.HT")){
+    df2<-df2 %>% dplyr::rename("DeltaM"="DeltaM.ppm.by.Search.Engine.Sequest.HT")
+    
+  }else if(any(stringr::str_detect(names(df2),"DeltaM"))){
+    df2<-df2 %>% dplyr::rename("DeltaM"=names(df2)[stringr::str_detect(names(df2),"DeltaM")])
+  }
+  if(any(names(df2)=="XCorr.by.Search.Engine.Sequest.HT")){
+    df2<-df2 %>% dplyr::rename("XCorr"="XCorr.by.Search.Engine.Sequest.HT")
+  }else if(any(stringr::str_detect(names(df2),"XCorr"))){
+    df2<-df2 %>% dplyr::rename("XCorr"=names(df2)[stringr::str_detect(names(df2),"XCorr")])
+  }
+  if(any(names(df2)==".Missed.Cleavages")){
+    df2<-df2 %>% dplyr::rename("MissedCleavages"=".Missed.Cleavages")
+  }else if(any(stringr::str_detect(names(df2),"Missed"))){
+    df2<-df2 %>% dplyr::rename("XCorr"=names(df2)[stringr::str_detect(names(df2),"XCorr")])
+  }
+  if(any(names(df2)=="Annotated.Sequence")){
+    df2<-df2 %>% dplyr::rename("Annotated_Sequence"="Annotated.Sequence") %>% 
+      dplyr::mutate(Annotated_Sequence=toupper(Annotated_Sequence))
+  }else if(any(stringr::str_detect(names(df2),"Annotated"))){
+    df2<-df2 %>% dplyr::rename("Annotated_Sequence"=names(df2)[stringr::str_detect(names(df2),"Annotated")])
+  }
+  if (any(names(df2)=="Master.Protein.Accessions")&!any(names(df2)=="Accession")){
+    df2<-df2 %>% dplyr::rename("Accession"="Master.Protein.Accessions")
+  }else if(any(stringr::str_detect(names(df2),"Master"))&!any(names(df2)=="Accession")){
+    df2<-df2 %>% dplyr::rename("Accession"=names(df2)[stringr::str_detect(names(df2),"Master")])
+  }else if(any(stringr::str_detect(names(df2),"Accession"))){
+    df2<-df2 %>% dplyr::rename("Accession"=names(df2)[stringr::str_detect(names(df2),"Accession")][1])
+  }
+  if(any(names(df2)=="Average.Reporter.S.N")){
+    df2<-df2 %>% dplyr::rename("Average_Reporter_S/N"="Average.Reporter.S.N")
+  }else if(any(stringr::str_detect(names(df2),"Reporter"))){
+    df2<-df2 %>% dplyr::rename("Average_Reporter_S/N"=names(df2)[stringr::str_detect(names(df2),"Reporter")])
+  }
+  if(any(names(df2)=="Isolation.Interference.")){
+    df2<-df2 %>% dplyr::rename("Isolation_Interference_[%]"="Isolation.Interference.")
+  }else if(any(stringr::str_detect(names(df2),"Isolation"))){
+    df2<-df2 %>% dplyr::rename("Isolation_Interference_[%]"=names(df2)[stringr::str_detect(names(df2),"Isolation")])
+  }
+  if(any(names(df2)=="Ion.Inject.Time.ms.")){
+    df2<-df2 %>% dplyr::rename("Ion_Inject_Time_[ms]"="Ion.Inject.Time.ms.")
+  }else if(any(stringr::str_detect(names(df2),"Inject"))){
+    df2<-df2 %>% dplyr::rename("Ion_Inject_Time_[ms]"=names(df2)[stringr::str_detect(names(df2),"Inject")])
+  }
+  if (any(stringr::str_detect(names(df2),"PSMs"))){
+    df2<-df2 %>% dplyr::rename("Num_PSMs"=names(df2)[stringr::str_detect(names(df2),"PSM")])
+  }
+  if(any(stringr::str_detect(colnames(df2),"Spectrum.File"))){#if this is a PSM file
+    if(any(stringr::str_detect(df2$Spectrum.File,"NOcarrier"))){#if this experiment has Carrier FAIMS and PhiSDM involved, shorten the file names
+      df2<-df2 %>% dplyr::mutate(sample_name=paste0(ifelse(stringr::str_detect(Spectrum.File,"NOcarrier")==TRUE,"nC",ifelse(stringr::str_detect(Spectrum.File,"carrier")==TRUE,"C",NA)),'_',
+                                                    ifelse(stringr::str_detect(Spectrum.File,"NO_FAIMS")==TRUE,"nF",ifelse(stringr::str_detect(Spectrum.File,"r_FAIMS")==TRUE,"F",NA)),'_',
+                                                    ifelse(stringr::str_detect(Spectrum.File,"S_eFT")==TRUE,"E",ifelse(stringr::str_detect(Spectrum.File,"S_Phi")==TRUE,"S",NA))),
+                                 treatment=ifelse(stringr::str_detect(Spectrum.File,solvent),"vehicle","treated"),
+                                 CC=ifelse(stringr::str_detect(Spectrum.File,solvent),0,1))
+      if(any(stringr::str_detect(df2$File.ID,"."))){
+        df2<-df2 %>% dplyr::mutate(Fraction=stringr::str_remove(.$File.ID,"[[:upper:]]+[[:digit:]]+."),
+                                   sample_id = stringr::str_extract(.$File.ID,"F[[:digit:]]+"))
+      }else{#if theres no fractionation
+        df2<-df2 %>% dplyr::mutate(sample_id = stringr::str_extract(.$File.ID,"F[[:digit:]]+"))
+      }
+      
+    }else{#if this experiment does not have Carrier FAIMS and PhiSDM involved shorten he file names
+      df2<-df2 %>% dplyr::mutate(
+        treatment=ifelse(stringr::str_detect(Spectrum.File,solvent),"vehicle","treated"),
+        sample_name = ifelse(stringr::str_detect(Spectrum.File,solvent),solvent,stringr::str_extract(stringr::str_to_lower(Spectrum.File),"[[:lower:]]+_[[:digit:]]+_")),
+        CC=ifelse(stringr::str_detect(Spectrum.File,solvent),0,1))
+      if(any(stringr::str_detect(df2$File.ID,"."))){
+        df2<-df2 %>% dplyr::mutate(Fraction=stringr::str_remove(.$File.ID,"[[:upper:]]+[[:digit:]]+."),
+                                   sample_id = stringr::str_extract(.$File.ID,"F[[:digit:]]+"))
+      }else{
+        df2<-df2 %>% dplyr::mutate(Fraction=stringr::str_remove(.$File.ID,"[[:upper:]]+[[:digit:]]+."),
+                                   sample_id = stringr::str_extract(.$File.ID,"F[[:digit:]]+"))
+      }
+      
+    }
+    
+  }
+  if(any(names(df2)=="Spectrum_File")){
+    df2<-purrr::map(df2,function(x) x %>% dplyr::mutate(Spectrum.File=Spectrum_File))
+  }
+  if(any(names(df2)=="File_ID")){
+    df2<-df2 %>% dplyr::mutate(File.ID=File_ID)
+  }
+  if(isTRUE(CFS)){
+    df2$sample_name<-paste0(ifelse(stringr::str_detect(df2$Spectrum.File,"NOcarrier")==TRUE,"nC",ifelse(stringr::str_detect(df2$Spectrum.File,"carrier")==TRUE,"C",NA)),'_',
+                            ifelse(stringr::str_detect(df2$Spectrum.File,"NO_FAIMS")==TRUE,"nF",ifelse(stringr::str_detect(df2$Spectrum.File,"r_FAIMS")==TRUE,"F",NA)),'_',
+                            ifelse(stringr::str_detect(df2$Spectrum.File,"S_eFT")==TRUE,"E",ifelse(stringr::str_detect(df2$Spectrum.File,"S_Phi")==TRUE,"S",NA)))
+  }
+  return(df2)
+}
+
+
+read_PD<-function(x,CFS=FALSE){#rename data for peptide groups
+  
+  df2<-x %>% as.data.frame(.) %>% 
+    dplyr::select(names(x)[stringr::str_detect(names(x),'Master')],
+                  tidyselect::starts_with('File'),
+                  tidyselect::starts_with('Abundance.')|tidyselect::starts_with('1')|tidyselect::starts_with('Abundances.'),
+                  tidyselect::starts_with('Annotated'),
+                  tidyselect::contains('Isolation'),
+                  tidyselect::contains('Ion'),
+                  tidyselect::starts_with('Charge'),
+                  tidyselect::contains('PEP'),
+                  tidyselect::starts_with('Percolator'),
+                  tidyselect::starts_with('.Missed'),
+                  tidyselect::contains('Modifications'),
+                  tidyselect::contains('Cleavages'),
+                  tidyselect::starts_with('XCorr'),
+                  tidyselect::contains('Delta'),
+                  tidyselect::contains('File'),
+                  tidyselect::contains('S/N'),
+                  tidyselect::starts_with('Average'),
+                  tidyselect::contains('Spectrum'),
+                  tidyselect::contains('.'),
+                  tidyselect::ends_with('PSMs'),
+                  -tidyselect::contains('Grouped'),
+                  -tidyselect::starts_with('Found')) 
+  if(any(names(df2)=="Percolator.PEP.by.Search.Engine.Sequest.HT")){
+    df2<-df2 %>% dplyr::rename("Percolator_PEP"=names(df2)[stringr::str_detect(names(df2),"PEP")])
+  }else if(any(stringr::str_detect(names(df2),"PEP"))){
+    df2<-df2 %>% dplyr::rename("Percolator_PEP"=names(df2)[stringr::str_detect(names(df2),"PEP")])
+  }
+  if(any(names(df2)=="Charge.by.Search.Engine.Sequest.HT")){
+    df2<-df2 %>% dplyr::rename("Charge"=names(df2)[stringr::str_detect(names(df2),"Charge")])
+  }else if (any(stringr::str_detect(names(df2),"Charge"))){
+    df2<-df2 %>% dplyr::rename("Charge"=names(df2)[stringr::str_detect(names(df2),"Charge")])
+  }
+  
+  if(any(names(df2)=="DeltaM.ppm.by.Search.Engine.Sequest.HT")){
+    df2<-df2 %>% dplyr::rename("DeltaM"="DeltaM.ppm.by.Search.Engine.Sequest.HT")
+    
+  }else if(any(stringr::str_detect(names(df2),"DeltaM"))){
+    df2<-df2 %>% dplyr::rename("DeltaM"=names(df2)[stringr::str_detect(names(df2),"DeltaM")])
+  }
+  if(any(names(df2)=="XCorr.by.Search.Engine.Sequest.HT")){
+    df2<-df2 %>% dplyr::rename("XCorr"="XCorr.by.Search.Engine.Sequest.HT")
+  }else if(any(stringr::str_detect(names(df2),"XCorr"))){
+    df2<-df2 %>% dplyr::rename("XCorr"=names(df2)[stringr::str_detect(names(df2),"XCorr")])
+  }
+  if(any(names(df2)==".Missed.Cleavages")){
+    df2<-df2 %>% dplyr::rename("MissedCleavages"=".Missed.Cleavages")
+  }else if(any(stringr::str_detect(names(df2),"Missed"))){
+    df2<-df2 %>% dplyr::rename("XCorr"=names(df2)[stringr::str_detect(names(df2),"XCorr")])
+  }
+  if(any(names(df2)=="Annotated.Sequence")){
+    df2<-df2 %>% dplyr::rename("Annotated_Sequence"="Annotated.Sequence") %>% 
+      dplyr::mutate(Annotated_Sequence=toupper(Annotated_Sequence))
+  }else if(any(stringr::str_detect(names(df2),"Annotated"))){
+    df2<-df2 %>% dplyr::rename("Annotated_Sequence"=names(df2)[stringr::str_detect(names(df2),"Annotated")])
+  }
+  if (any(names(df2)=="Master.Protein.Accessions")){
+    df2<-df2 %>% dplyr::rename("Accession"="Master.Protein.Accessions")
+  }else if(any(stringr::str_detect(names(df2),"Master"))){
+    df2<-df2 %>% dplyr::rename("Accession"=names(df2)[stringr::str_detect(names(df2),"Master")])
+  }else if(any(stringr::str_detect(names(df2),"Accession"))){
+    df2<-df2 %>% dplyr::rename("Accession"=names(df2)[stringr::str_detect(names(df2),"Accession")][1])
+  }
+  if(any(names(df2)=="Average.Reporter.S.N")){
+    df2<-df2 %>% dplyr::rename("Average_Reporter_S/N"="Average.Reporter.S.N")
+  }else if(any(stringr::str_detect(names(df2),"Reporter"))){
+    df2<-df2 %>% dplyr::rename("Average_Reporter_S/N"=names(df2)[stringr::str_detect(names(df2),"Reporter")])
+  }
+  if(any(names(df2)=="Isolation.Interference.")){
+    df2<-df2 %>% dplyr::rename("Isolation_Interference_[%]"="Isolation.Interference.")
+  }else if(any(stringr::str_detect(names(df2),"Isolation"))){
+    df2<-df2 %>% dplyr::rename("Isolation_Interference_[%]"=names(df2)[stringr::str_detect(names(df2),"Isolation")])
+  }
+  if(any(names(df2)=="Ion.Inject.Time.ms.")){
+    df2<-df2 %>% dplyr::rename("Ion_Inject_Time_[ms]"="Ion.Inject.Time.ms.")
+  }else if(any(stringr::str_detect(names(df2),"Inject"))){
+    df2<-df2 %>% dplyr::rename("Ion_Inject_Time_[ms]"=names(df2)[stringr::str_detect(names(df2),"Inject")])
+  }
+  if (any(stringr::str_detect(names(df2),"PSMs"))){
+    df2<-df2 %>% dplyr::rename("Num_PSMs"=names(df2)[stringr::str_detect(names(df2),"PSM")])
+  }
+  df2<-df2 %>% 
+    tidylog::pivot_longer(cols=colnames(df2)[stringr::str_detect(colnames(df2),"[:digit:][:digit:][:digit:][N|C]|126|131")],
+                          names_to = "id",
+                          values_to ="value") %>% 
+    dplyr::mutate(treatment=ifelse(stringr::str_detect(.$id,solvent),"vehicle","treated"),
+                  CC=ifelse(stringr::str_detect(.$id,solvent),0,1),
+                  sample_id = stringr::str_extract(.$id,"F[[:digit:]]+"),
+                  temp_ref = unlist(stringr::str_extract(.$id,"[:digit:][:digit:][:digit:][N|C]|126|131")),
+                  value = as.numeric(value))
+  
+  if(any(names(df2)=="File_ID")){
+    df2<-df2 %>% dplyr::mutate(File.ID=File_ID)
+  }
+  
+  return(df2)
+}
 
 
 #create a function to parallelize gam fits
