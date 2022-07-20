@@ -381,7 +381,11 @@ KL_Calc_unmod<-function(Sim_NPARC,Corr=NA){
   #From NPARC results rename uniqueID to Protein and remove Simulation names and numbers from the data
   Sim_NPARC<-Sim_NPARC %>% dplyr::select(Protein,unmoderatedFp_val) 
   Sim_NPARC$Protein<-stringr::str_remove(as.character(Sim_NPARC$Protein),"_Sim_[[:digit:]]+")
+  if(any(stringr::str_detect(Sim_NPARC$Protein[1],"Corr"))){
   Sim_Cor<-Sim_NPARC %>% separate(Protein,into=c("x","RE_corr"),sep="_") %>% dplyr::select(-x)
+  }else{
+    Sim_Cor<-Sim_NPARC %>% dplyr::inner_join(Corr,by="Protein")
+  }
   #join NPARC results to correlation matrix
   Sim_Cor<-Sim_Cor %>% dplyr::filter(!is.na(RE_corr)) %>% dplyr::mutate(RE_corr=as.numeric(RE_corr))
   Sim_Cor<-Sim_Cor %>% dplyr::mutate(binCorr=cut(RE_corr,breaks=c(seq(0,max(Sim_Cor$RE_corr),by=0.1),max(Sim_Cor$RE_corr)+0.1),right=FALSE))
