@@ -298,7 +298,7 @@ TPP_NPARC_calc<-function(Sim,method="NPARC",DF=5,df.temps,CARRIER=TRUE){
     Sim_NPARC<-runTPP_splineFtest(Sim_All_Data$ProteinLevelData,DF=DF)
     end=proc.time()
     print(paste0("TPP results calculated in ",as.numeric(signif((end-start)[1],2))))
-    Sim_NPARC$unmoderatedFp_val<-1-pF(Sim_NPARC$F_statistic, Sim_NPARC$df1,Sim_NPARC$df2) 
+    Sim_NPARC$unmoderatedFp_val<-1-pf(Sim_NPARC$F_statistic, Sim_NPARC$df1,Sim_NPARC$df2) 
     
     return(Sim_NPARC)
   }else if(method=="TPP"){
