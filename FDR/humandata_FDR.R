@@ -50,27 +50,38 @@ bothdata<-dplyr::bind_rows(humandata,ground_truth_data)
 # 
 
 
-fit_scam_nlm = function(accession_data){
-  mod = scam(I ~ s(temperature,by=treatment,bs="mpd",k=5) + treatment,data=accession_data,
-             optimizer="nlm")
+fit_scam_RE = function(accession_data){
+  accession_data<-accession_data %>% dplyr::mutate(sample_id=as.factor(sample_id))
+  accession_data$treatment<-as.factor(accession_data$treatment)
+  mod = scam(I ~ s(temperature,by=treatment,bs="mpd",k=5)+s(sample_id,bs="re") + treatment,data=accession_data)
   return(mod)
 }
 
-fit_scam_default = function(accession_data){
-  mod = scam(I ~ s(temperature,by=treatment,bs="mpd",k=5) + treatment,data=accession_data)
-  return(mod)
+fit_scam_ANOVA = function(accession_data){
+  accession_data<-accession_data %>% dplyr::mutate(sample_id=as.factor(sample_id))
+  accession_data$treatment<-as.factor(accession_data$treatment)
+  mod1 = R.utils::withTimeout(scam(I ~ s(temperature,by=treatment,bs="mpd",k=5)+s(sample_id,bs="re") + treatment,data=accession_data,optimizer="efs"),timeout=320)
+  mod = R.utils::withTimeout(scam(I ~ s(temperature,bs="mpd",k=5)+s(sample_id,bs="re") + treatment,data=accession_data,optimizer="efs"),timeout=320)
+  if(any(class(mod1)=="scam") &any(class(mod)=="scam")){
+  anova_F<-anova(mod,mod1,test="F")
+  anova_F<-list(anova_F,mod1)
+  }else{
+    anova_F<-mod1
+  }
+  return(anova_F)
 }
 
 
 fit_scam = function(accession_data){
   accession_data$treatment<-as.factor(accession_data$treatment)
   ##Uses efs optimizer -- use this function
-  mod = scam(I ~ s(temperature,by=treatment,bs="mpd",k=5) + treatment,data=accession_data,
-             optimizer="efs")
+  mod = scam(I ~ s(temperature,by=treatment,bs="mpd",k=5)+ treatment,data=accession_data)
   return(mod)
 }
 
 poss_fit_scam = possibly(.f=fit_scam,otherwise="Error")
+poss_fit_scam_RE = possibly(.f=fit_scam_RE,otherwise="Error")
+poss_fit_scam_ANOVA = possibly(.f=fit_scam_ANOVA,otherwise="Error")
 #get Tm values from marginal effectgs
 
 grid_search_Tm = function(model,start=34,end=67,by=0.5){
@@ -118,10 +129,77 @@ fit_scam_marginal_ATE = function(accession_data){
     return(error_df)
   }
   adj_r2 = summary(model)$r.sq
-  ATE = comparisons(model,variables="treatment") |> tidy() #average treatment effect
+  ATE = comparisons(model,variables="treatment") |> marginaleffects::tidy() #average treatment effect
   ATE$adj_r2 = adj_r2
   ATE$Accession = unique(accession_data$Accession)
   ATE = cbind(ATE,grid_search_Tm(model)) #get Tm's 
+  return(ATE)
+}
+
+fit_scam_marginal_ATE_RE = function(accession_data){
+  stopifnot(length(unique(accession_data$Accession)) == 1)
+  #model = scam(I ~ s(temperature,by=treatment,bs="mpd",k=5) + treatment,data=accession_data)
+  model = poss_fit_scam_RE(accession_data)
+  if(!"scam" %in% class(model)){
+    error_df = tibble(type=NA,
+                      term=NA,
+                      estimate=NA,
+                      std.error=NA,
+                      statistic=NA,
+                      conf.low=NA,
+                      conf.high=NA,
+                      adj_r2=NA,
+                      Accession=accession_data$Accession[1],
+                      slope.pval=NA,
+                      Tm_treated=NA,
+                      Tm_vehicle=NA
+    )
+    return(error_df)
+  }
+  adj_r2 = summary(model)$r.sq
+  ATE = comparisons(model,variables="treatment") |> marginaleffects::tidy() #average treatment effect
+  ATE$adj_r2 = adj_r2
+  ATE$Accession = unique(accession_data$Accession)
+  ATE = cbind(ATE,model) #get Tm's 
+  return(ATE)
+}
+fit_scam_marginal_ATE_F= function(accession_data){
+  stopifnot(length(unique(accession_data$Accession)) == 1)
+  #model = scam(I ~ s(temperature,by=treatment,bs="mpd",k=5) + treatment,data=accession_data)
+  model = poss_fit_scam_ANOVA(accession_data)
+  if(!"scam" %in% class(model[[2]])){
+    error_df = tibble(dRSS=NA,
+                      F_test=NA,
+                      F_p.value=NA,
+                      rsq=summary$r.sq,
+                      type=NA,
+                      term=NA,
+                      contrast=NA,
+                      estimate=NA,
+                      std.error=NA,
+                      statistic=NA,
+                      conf.low=NA,
+                      conf.high=NA,
+                      ATE_pvalue=NA,
+                      Accession=accession_data$Accession[1],
+                      Tm_treatment=NA,
+                      Tm_vehicle=NA,
+                      dTm=NA
+    )
+    return(error_df)
+  }
+  summary<-summary(model[[2]])
+  model_RE<-model[[2]]
+  model<-model[[1]] %>% as.data.frame()
+  ATE = comparisons(model_RE,variables="treatment") |> marginaleffects::tidy() #average treatment effect
+  ATE$ATE_pvalue<-ATE$p.value
+  ATE<-ATE %>% dplyr::select(-p.value)
+  out=tibble(dRSS=model$Deviance[2],F_test=model$F[2],F_p.value=model$`Pr(>F)`[2],rsq=summary$r.sq)
+  ATE=cbind(out,ATE)
+  
+  ATE$Accession = unique(accession_data$Accession)
+  ATE = cbind(ATE,grid_search_Tm(model_RE)) #get Tm's 
+  ATE$dTm=ifelse(!is.na(ATE$Tm_treatment)&!is.na(ATE$Tm_vehicle),ATE$Tm_treatment-ATE$Tm_vehicle,NA)
   return(ATE)
 }
 fit_scam_marginal_DATE = function(accession_data){
@@ -184,7 +262,7 @@ unittest_permutation_within_group = function(accession_data){
 
 
 
-unittest_permutation_within_group(dplyr::bind_rows(bothdata_good))
+unittest_permutation_within_group(humandata_good)
 
 
 
@@ -207,11 +285,31 @@ compute_pvalues_DATE = function(fulldata,workers=4){
 }
 
 compute_pvalues_ATE = function(fulldata,workers=4){
-  
+  fulldata<-fulldata |> dplyr::select(Accession,I,temperature,sample_name,treatment,sample_id)
   data_gdf_accession = fulldata |> group_split(Accession,sample_name)
   plan(multisession,workers = workers)
   original_result = future_map(.f=fit_scam_marginal_ATE,data_gdf_accession) |> bind_rows() 
  
+  #original_result$dTm<-original_result$Tm_treatment-original_result$Tm_vehicle
+  return(original_result)
+}
+
+compute_pvalues_ATE_RE = function(fulldata,workers=4){
+  fulldata<-fulldata |> dplyr::select(Accession,I,temperature,sample_name,treatment,sample_id)
+  data_gdf_accession = fulldata |> group_split(Accession,sample_name)
+  plan(multisession,workers = workers)
+  original_result = future_map(.f=fit_scam_marginal_ATE,data_gdf_accession) |> bind_rows() 
+  
+  #original_result$dTm<-original_result$Tm_treatment-original_result$Tm_vehicle
+  return(original_result)
+}
+
+compute_pvalues_ATE_F = function(fulldata,workers=4){
+  fulldata<-fulldata |> dplyr::select(Accession,I,temperature,sample_name,treatment,sample_id)
+  data_gdf_accession = fulldata |> group_split(Accession,sample_name)
+  plan(multisession,workers = workers)
+  original_result = furrr::future_map(data_gdf_accession,function(x) fit_scam_marginal_ATE_F(x)) 
+  
   #original_result$dTm<-original_result$Tm_treatment-original_result$Tm_vehicle
   return(original_result)
 }
@@ -252,9 +350,21 @@ accessions = unique(bothdata_good$Accession)
 # 
 # accessions[290:295] #this had the bad range
 
-
+#compute SCAM ATE without RE
 start=proc.time()
 og_pvals = compute_pvalues_ATE(humandata_good)
+end=proc.time()
+print(end-start)
+
+#Compute SCAM ATE with RE
+start=proc.time()
+og_pvals = compute_pvalues_ATE_RE(humandata_good)
+end=proc.time()
+print(end-start)
+
+#Compute SCAM ATE with Ftest
+start=proc.time()
+og_pvals = compute_pvalues_ATE_F(humandata_good)
 end=proc.time()
 print(end-start)
 
